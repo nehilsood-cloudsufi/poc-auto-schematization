@@ -1,0 +1,16 @@
+
+Population: Enrolled in Kindergarten, Some Other Race Alone -> age:Years3Onwards, censusACSTableId:B14007F, detailedLevelOfSchool:EnrolledInKindergarten, race:SomeOtherRaceAlone, schoolEnrollment:EnrolledInSchool
+Population: Enrolled in Kindergarten, Black or African American Alone -> age:Years3Onwards, censusACSTableId:B14007B, detailedLevelOfSchool:EnrolledInKindergarten, race:BlackOrAfricanAmericanAlone, schoolEnrollment:EnrolledInSchool
+Population: Associates Degree, Male -> age:Years25Onwards, educationalAttainment:AssociatesDegree, gender:Male
+Population: Graduate or Professional Degree -> age:Years25Onwards, educationalAttainment:GraduateOrProfessionalDegree
+Population: High School, Two or More Races -> age:Years3Onwards, censusACSTableId:B14007G, detailedLevelOfSchool:HighSchool, race:TwoOrMoreRaces, schoolEnrollment:EnrolledInSchool
+Population: Middle School, Asian Alone -> age:Years3Onwards, censusACSTableId:B14007D, detailedLevelOfSchool:MiddleSchool, race:AsianAlone, schoolEnrollment:EnrolledInSchool
+Count of Teacher: Secondary Teacher -> facultyType:SecondaryTeacher, populationType:Teacher
+Population Completed Between 9th to 12th Grade With No Diploma -> educationalAttainment:9ThTo12ThGradeNoDiploma
+Count of Faculty: Elementary School Counselor -> facultyType:ElementarySchoolCounselor, populationType:Faculty
+Count of Teacher: Elementary Teacher -> facultyType:ElementaryTeacher, populationType:Teacher
+Count of Faculty: Total Guidance Counselor -> facultyType:TotalGuidanceCounselor, populationType:Faculty
+Count of Faculty: LEAAdministrative Support Staff -> facultyType:LEAAdministrativeSupportStaff, populationType:Faculty
+Count of Student: Male -> gender:Male, populationType:Student
+Count of Teacher: University And College Teacher -> facultyType:UniversityAndCollegeTeacher, populationType:Teacher
+Count of Student: Female -> gender:Female, populationType:Student

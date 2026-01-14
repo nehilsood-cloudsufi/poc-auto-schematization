@@ -1,0 +1,88 @@
+now you have to copy all the remaining datasets from
+/Users/nehilsood/work/datacommonsorg-data/statvar_imports
+
+in each dataset you have to just pick input_data.csv and metadata.csv
+only these 2 file 
+save the folder in below structure 
+dataset -> test_data -> inut_data.csv
+        -> metadata.csv 
+
+------------------------
+now map the input/* all folders with /Users/nehilsood/work/poc-auto-schematization/Schema Example Files
+and copy the .mcf and .txt file of schema example category to the respective dataset folder
+dataset -> test_data -> inut_data.csv
+        -> metadata.csv 
+        -> .mcf file
+        -> .txt
+
+-------------------------
+run @tools/data_sampler.py for each dataset properly
+output:
+dataset -> test_data -> input_data.csv + {input_file_name}_sampled_data.csv
+        -> metadata.csv 
+        -> .mcf file
+        -> .txt
+
+-------------------------
+I want to create a file which will have two steps:
+
+for each dataset in input folder:
+[ ]Step 1: Generate PVMAP
+use claude code to run the below prompt with dangerously allowed all permissions 
+(or suggest required permissions for this run)
+
+**Goal:** Use Claude Code to generate PV maps using the improved prompt template with schema context
+
+**Prompt Template:** `tools/improved_pvmap_prompt.txt` (~200 lines with 7 critical rules)
+
+**Approach:**
+1. Load the generic prompt template
+2. Populate 3 placeholders with dataset-specific files:
+   | Placeholder | Source |
+   |-------------|--------|
+   | `{{SCHEMA_EXAMPLES}}` | `input/{dataset}/scripts_*_schema_examples_*.txt` |
+   | `{{SAMPLED_DATA}}` | `input/{dataset}/sampled_data.csv` |
+   | `{{METADATA_CONFIG}}` | `input/{dataset}/*metadata.csv` |
+3. Process the populated prompt to generate PV map
+4. Save output to `output/{dataset}/generated_pvmap.csv`
+5. Save the whole reasoning and thinking in a markdown file with output in output folder
+
+**Output Structure:**
+```
+output/
+├── {dataset_name}/
+│   └── generated_pvmap.csv and generation_notes.md file (refer /Users/nehilsood/work/poc-auto-schematization/output folder structure)
+```
+
+once the PVMAPs are generated for the specific dataset
+exit claude code in terminal
+
+then run 
+[ ] Step 2: StatVar Processor Validation
+
+**Goal:** Validate PV map by processing full dataset
+
+**IMPORTANT:** Do NOT let Claude Code run this - do it yourself (human-in-the-loop) (run the command )
+
+**Command:**
+```bash
+PYTHONPATH="$PYTHONPATH:$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py --input_data="input/bis/input_data.csv" --pv_map="output/bis/generated_pvmap.csv" --config_file="input/bis/central_bank_policy_rate_metadata.csv" --generate_statvar_name=True --output_path="output/bis/processed"
+```
+
+**If successful:** PV map is likely correct
+**If errors:**
+1. Copy the error message
+2. Go back to Claude Code (repeat step 1 with feedback, append feedback in input prompt)
+3. Say: "This is the error from stat processor, please fix the PV map"
+4. Get updated PV map
+5. Run stat processor again
+6. Repeat until successful (max retires = 2)
+
+*** if retires are finished, skip the dataset ***
+
+
+
+---------
+if in statvar_imports 
+a dataset contains multiple input files
+dont include it in poc-auto-schematization/input

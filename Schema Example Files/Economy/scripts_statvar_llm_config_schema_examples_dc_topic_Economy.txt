@@ -1,0 +1,257 @@
+
+Count of Establishment: Construction (NAICS/23) --> naics:NAICS/23, populationType:BLSEstablishment
+Count of Establishment: State Government Owned, Total, All Industries (NAICS/10) --> establishmentOwnership:StateGovernmentOwned, naics:NAICS/10, populationType:BLSEstablishment
+Revenue of Establishment: Couriers And Messengers (NAICS/492), With Payroll --> measuredProperty:revenue, naics:NAICS/492, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Detailed Worker Classification = Unpaid Family Worker --> 
+Economy --> displayRank:3
+Person With Age = 14 Years or More, Income Source = All Jobs --> 
+Population Working in the Health Care and Social Assistance Industry --> naics:NAICS/62, populationType:BLSWorker
+Population Working in the Accommodation and Food Services Industry --> naics:NAICS/72, populationType:BLSWorker
+Upland Cotton Grown --> farmInventoryType:UplandCotton, measuredProperty:amount, populationType:FarmInventory
+Person With Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker --> 
+Sales of Establishment: Wholesale Trade (NAICS/42), With Payroll --> measuredProperty:sales, naics:NAICS/42, payrollStatus:WithPayroll, populationType:USCEstablishment
+Sorghum Grown --> farmInventoryType:SorghumForGrain, measuredProperty:amount, populationType:FarmInventory
+Sales of Establishment: Retail Trade (NAICS/44-45), With Payroll --> measuredProperty:sales, naics:NAICS/44-45, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Count of Establishment: Manufacturing (NAICS/31-33) --> naics:NAICS/31-33, populationType:BLSEstablishment
+dc/zz 6gwv 83 8v 9w --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/48-49, populationType:EconomicActivity
+Beans Grown --> farmInventoryType:DryEdibleBeans, measuredProperty:amount, populationType:FarmInventory
+Receipts or Revenue of Establishment: Other Services, Except Public Administration (NAICS/81), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/81, payrollStatus:WithPayroll, populationType:USCEstablishment
+Cattle and Calves on a Farm --> farmInventoryType:CattleAndCalves, populationType:FarmInventory
+Oats Grown --> farmInventoryType:OatsForGrain, measuredProperty:amount, populationType:FarmInventory
+Farm --> 
+Shipments or Receipts of Establishment: Wood Product Manufacturing (NAICS/321), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/321, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population: 5 Years or More, Language Other Than English, Below US Census Poverty Level in The Past 12 Months --> age:Years5Onwards, languageSpokenAtHome:LanguageOtherThanEnglish, povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel
+Population With an Income Between $10,000 and $14,999 --> age:Years15Onwards, income:USDollar10000To14999, incomeStatus:WithIncome
+Median Income (Real Individual Earnings Before Deductions): Construction (NAICS/23) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/23, statType:medianValue
+Population With an Income Between $65,000 and $74,999 --> age:Years15Onwards, income:USDollar65000To74999, incomeStatus:WithIncome
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+GDP of the Accommodation and Food Services Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/72, populationType:EconomicActivity
+Count of Establishment: Information (NAICS/51) --> naics:NAICS/51, populationType:BLSEstablishment
+Median Income (Real Individual Earnings Before Deductions): Management of Companies And Enterprises (NAICS/55) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/55, statType:medianValue
+Median Income (Real Individual Earnings Before Deductions): Other Services, Except Public Administration (NAICS/81) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/81, statType:medianValue
+Population of Person: Retail Trade (NAICS/44-45) --> naics:NAICS/44-45, populationType:BLSWorker
+Shipments or Receipts of Establishment: Nonmetallic Mineral Product Manufacturing (NAICS/327), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/327, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population Below Poverty Level Status in Past Year and Two or More Races,Population Below US Census Poverty Level Status in Past Year and Two or More Races --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:TwoOrMoreRaces
+Shipments or Receipts of Establishment: Transportation Equipment Manufacturing (NAICS/336), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/336, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker --> 
+Population: Urban, Below Poverty Level in The Past 12 Months --> placeOfResidenceClassification:Urban, povertyStatus:BelowPovertyLevelInThePast12Months
+Population Working in Other Services, Except Public Administration --> naics:NAICS/81, populationType:BLSWorker
+Median Income (Real Individual Earnings Before Deductions): Mining, Quarrying, And Oil And Gas Extraction (NAICS/21) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/21, statType:medianValue
+Median Income (Real Individual Earnings Before Deductions): Information (NAICS/51) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/51, statType:medianValue
+17.13.1: Macroeconomic Dashboard --> 
+GDP of Other Services, Except Public Administration Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/81, populationType:EconomicActivity
+Count of Establishment: Arts, Entertainment, And Recreation (NAICS/71) --> naics:NAICS/71, populationType:BLSEstablishment
+Person With Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Age = 14 Years or More, Income Source, Income Type = Income Actually Received --> 
+Sales of Establishment: Miscellaneous Store Retailers (NAICS/453), With Payroll --> measuredProperty:sales, naics:NAICS/453, payrollStatus:WithPayroll, populationType:USCEstablishment
+Household --> 
+Person With Income Source, Income Type = Income Actually Received --> 
+Economic Activity With Activity Source = Gross Domestic Production --> 
+Person With Industry = Agriculture, Forestry, Fishing And Hunting (NAICS/11) --> 
+Receipts or Revenue of Establishment: Educational Services (NAICS/61), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/61, payrollStatus:WithPayroll, populationType:USCEstablishment
+Revenue of Establishment: Transportation And Warehousing (NAICS/48-49), With Payroll --> measuredProperty:revenue, naics:NAICS/48-49, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population Working in the Information Industry --> naics:NAICS/51, populationType:BLSWorker
+Person With Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Population Below Poverty Level Status in Past Year and Native Hawaiian or Other Pacific Islander Alone,Population Below US Census Poverty Level Status in Past Year and Native Hawaiian or Other Pacific Islander Alone --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:NativeHawaiianOrOtherPacificIslanderAlone
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Shipments or Receipts of Establishment: Electrical Equipment And Appliance Mfg. (NAICS/335), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/335, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Population: 5 Years or More, Only English, Below US Census Poverty Level in The Past 12 Months --> age:Years5Onwards, languageSpokenAtHome:OnlyEnglish, povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel
+Shipments or Receipts of Establishment: Computer And Electronic Product Manufacturing (NAICS/334), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/334, payrollStatus:WithPayroll, populationType:USCEstablishment
+Shipments or Receipts of Establishment: Printing And Related Support Activities (NAICS/323), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/323, payrollStatus:WithPayroll, populationType:USCEstablishment
+Receipts or Revenue of Establishment: Information (NAICS/51), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/51, payrollStatus:WithPayroll, populationType:USCEstablishment
+Hogs and Pigs on a Farm --> farmInventoryType:HogsAndPigs, populationType:FarmInventory
+Corn Grown --> farmInventoryType:CornForGrain, measuredProperty:amount, populationType:FarmInventory
+Median Income (Real Individual Earnings Before Deductions): Transportation And Warehousing (NAICS/48-49) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/48-49, statType:medianValue
+Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Remittance by Transfer Type --> 
+GDP of the Arts, Entertainment, and Recreation Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/71, populationType:EconomicActivity
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Remittance With Transfer Type = Inward Remittance --> 
+Median Income (Real Individual Earnings Before Deductions): Educational Services (NAICS/61) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/61, statType:medianValue
+Pima Cotton Grown --> farmInventoryType:PimaCotton, measuredProperty:amount, populationType:FarmInventory
+Population With an Income of Up to $9,999 --> age:Years15Onwards, income:USDollarUpto9999, incomeStatus:WithIncome
+Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Population: 5 Years or More, Spanish, Below US Census Poverty Level in The Past 12 Months --> age:Years5Onwards, languageSpokenAtHome:Spanish, povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel
+Shipments or Receipts of Establishment: Chemical Manufacturing (NAICS/325), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/325, payrollStatus:WithPayroll, populationType:USCEstablishment
+GDP of the Health Care and Social Assistance Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/62, populationType:EconomicActivity
+Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Revenue of Establishment: Real Estate And Rental And Leasing (NAICS/53), With Payroll --> measuredProperty:revenue, naics:NAICS/53, payrollStatus:WithPayroll, populationType:USCEstablishment
+Receipts or Revenue of Establishment: Arts, Entertainment, And Recreation (NAICS/71), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/71, payrollStatus:WithPayroll, populationType:USCEstablishment
+Shipments or Receipts of Establishment: Plastics And Rubber Products Manufacturing (NAICS/326), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/326, payrollStatus:WithPayroll, populationType:USCEstablishment
+Median Income (Real Individual Earnings Before Deductions): Real Estate And Rental And Leasing (NAICS/53) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/53, statType:medianValue
+Real Estate and Rental and Leasing Workers --> naics:NAICS/53, populationType:BLSWorker
+GDP of the Information Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/51, populationType:EconomicActivity
+Person With Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Shipments or Receipts of Establishment: Machinery Manufacturing (NAICS/333), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/333, payrollStatus:WithPayroll, populationType:USCEstablishment
+Sorghum for Silage or Greenchop Grown --> farmInventoryType:SorghumForSilageOrGreenchop, measuredProperty:amount, populationType:FarmInventory
+Population of Person: Manufacturing (NAICS/31-33) --> naics:NAICS/31-33, populationType:BLSWorker
+Beef Cows on a Farm --> farmInventoryType:BeefCows, populationType:FarmInventory
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Barley Grown --> farmInventoryType:BarleyForGrain, measuredProperty:amount, populationType:FarmInventory
+Population With an Income of $75,000 or More --> age:Years15Onwards, income:USDollar75000Onwards, incomeStatus:WithIncome
+Population Below Poverty Level Status in Past Year and Some Other Race Alone,Population Below US Census Poverty Level Status in Past Year and Some Other Race Alone --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:SomeOtherRaceAlone
+Laying Hens on a Farm --> farmInventoryType:Layers, populationType:FarmInventory
+Sunflowerseed Grown --> farmInventoryType:SunflowerSeed, measuredProperty:amount, populationType:FarmInventory
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Sales of Establishment: Accommodation And Food Services (NAICS/72), With Payroll --> measuredProperty:sales, naics:NAICS/72, payrollStatus:WithPayroll, populationType:USCEstablishment
+Durum Wheat Grown --> farmInventoryType:DurumWheatForGrain, measuredProperty:amount, populationType:FarmInventory
+Revenue of Establishment: Finance And Insurance (NAICS/52), With Payroll --> measuredProperty:revenue, naics:NAICS/52, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Employment Status = Employed --> 
+Population With an Income Between $50,000 and $64,999 --> age:Years15Onwards, income:USDollar50000To64999, incomeStatus:WithIncome
+Person With Gender = Female --> 
+Person With Military Status = Civilian, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Age = 16 Years or More, Detailed Worker Classification = Unpaid Family Worker --> 
+Shipments or Receipts of Establishment: Primary Metal Manufacturing (NAICS/331), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/331, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Detailed Worker Classification = Unpaid Family Worker --> 
+dc/qt 7ewllmt 38 26 --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/44-45, populationType:EconomicActivity
+Revenue of Establishment: Management of Companies And Enterprises (NAICS/55), With Payroll --> measuredProperty:revenue, naics:NAICS/55, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Age = 16 Years or More, Detailed Worker Classification, Worker Classification = Worker --> 
+Receipts Billings or Sales of Establishment: Construction (NAICS/23), With Payroll --> measuredProperty:receiptsBillingsOrSales, naics:NAICS/23, payrollStatus:WithPayroll, populationType:USCEstablishment
+Median Income (Real Individual Earnings Before Deductions): Accommodation And Food Services (NAICS/72) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/72, statType:medianValue
+Person With Age = 16 Years or More, Military Status = Civilian, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Shipments or Receipts of Establishment: Mining, Quarrying, And Oil And Gas Extraction (NAICS/21), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/21, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Percent of Total Government Expenditure Spent on Education --> activitySource:ExpenditureActivity, expenditureType:EducationExpenditure, expensor:Government, measuredProperty:amount, measurementDenominator:Amount_EconomicActivity_ExpenditureActivity_Government, populationType:EconomicActivity
+Forage Produced --> farmInventoryType:Forage, measuredProperty:amount, populationType:FarmInventory
+GDP of the Finance and Insurance Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/52, populationType:EconomicActivity
+Sheep and Lambs on a Farm --> farmInventoryType:SheepAndLambs, populationType:FarmInventory
+Utilities Workers --> naics:NAICS/22, populationType:BLSWorker
+Population Working in the Educational Services Industry --> naics:NAICS/61, populationType:BLSWorker
+Population Working in the Agriculture, Forestry, Fishing, and Hunting Industry --> naics:NAICS/11, populationType:BLSWorker
+Person With Income Source = All Jobs --> 
+Receipts or Revenue of Establishment: Health Care And Social Assistance (NAICS/62), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/62, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Debt With Debtor = Government --> 
+Median Income (Real Individual Earnings Before Deductions): Public Administration (NAICS/92) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/92, statType:medianValue
+Median Income for Family Households --> householdType:FamilyHousehold, incomeStatus:WithIncome, measuredProperty:income, populationType:Household, statType:medianValue
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker --> 
+Count of Establishment: Transportation And Warehousing (NAICS/48-49) --> naics:NAICS/48-49, populationType:BLSEstablishment
+Shipments or Receipts of Establishment: Miscellaneous Manufacturing (NAICS/339), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/339, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 14 Years or More, Labor Force Status = Employed, Income Source = All Jobs --> 
+Silage Produced --> farmInventoryType:CornForSilageOrGreenchop, measuredProperty:amount, populationType:FarmInventory
+Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Public Administration Workers --> naics:NAICS/92, populationType:BLSWorker
+Person With Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker --> 
+Receipts or Revenue of Establishment: Professional, Scientific, And Technical Services (NAICS/54), With Payroll --> measuredProperty:receiptsOrRevenue, naics:NAICS/54, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population: 5 Years or More, Spanish or Spanish Creole, Below US Census Poverty Level in The Past 12 Months --> age:Years5Onwards, languageSpokenAtHome:SpanishOrSpanishCreole, povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel
+Count of Establishment: Finance And Insurance (NAICS/52) --> naics:NAICS/52, populationType:BLSEstablishment
+Count of Establishment: Wholesale Trade (NAICS/42) --> naics:NAICS/42, populationType:BLSEstablishment
+Median Income for Nonfamily Households --> householdType:NonfamilyHousehold, incomeStatus:WithIncome, measuredProperty:income, populationType:Household, statType:medianValue
+Revenue of Establishment: Utilities (NAICS/22), With Payroll --> measuredProperty:revenue, naics:NAICS/22, payrollStatus:WithPayroll, populationType:USCEstablishment
+Shipments or Receipts of Establishment: Furniture And Related Product Manufacturing (NAICS/337), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/337, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Person With Age = 16 Years or More, Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker --> 
+Revenue of Establishment: Warehousing And Storage (NAICS/493), With Payroll --> measuredProperty:revenue, naics:NAICS/493, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population Below Poverty Level Status in Past Year and White Alone,Population Below US Census Poverty Level Status in Past Year and White Alone --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:WhiteAlone
+Milk Cows on a Farm --> farmInventoryType:MilkCows, populationType:FarmInventory
+Amount of Economic Activity (Real Value): Gross Domestic Production, Manufacturing (NAICS/31-33) --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/31-33, populationType:EconomicActivity
+Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Population Working in the Administrative and Support and Waste Management Services Industry --> naics:NAICS/56, populationType:BLSWorker
+Person With Age = 16 Years or More, Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Median Income (Real Individual Earnings Before Deductions): Administrative And Support And Waste Management Services (NAICS/56) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/56, statType:medianValue
+Economic Activity by Expenditure Type --> 
+Demographics --> displayRank:2
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Population of Person: Transportation And Warehousing (NAICS/48-49) --> naics:NAICS/48-49, populationType:BLSWorker
+Male Population Below Poverty Status in the Last Year --> gender:Male, povertyStatus:BelowPovertyLevelInThePast12Months
+Shipments or Receipts of Establishment: Paper Manufacturing (NAICS/322), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/322, payrollStatus:WithPayroll, populationType:USCEstablishment
+Count of Establishment: Accommodation And Food Services (NAICS/72) --> naics:NAICS/72, populationType:BLSEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Age = 14 Years or More, Labor Force Status = Employed, Income Source, Income Type = Income Actually Received --> 
+GDP of the Real Estate and Rental and Leasing Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/53, populationType:EconomicActivity
+Person With Labor Force Status = Employed, Income Source = All Jobs --> 
+Professional, Scientific, and Technical Services Workers --> naics:NAICS/54, populationType:BLSWorker
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Gender = Male --> 
+Count of Establishment: Health Care And Social Assistance (NAICS/62) --> naics:NAICS/62, populationType:BLSEstablishment
+Count of Establishment: Professional, Scientific, And Technical Services (NAICS/54) --> naics:NAICS/54, populationType:BLSEstablishment
+Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Labor Force Status = Employed, Income Source, Income Type = Income Actually Received --> 
+Median Income (Real Individual Earnings Before Deductions): Manufacturing (NAICS/31-33) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/31-33, statType:medianValue
+Person With Military Status = Civilian, Detailed Worker Classification = Unpaid Family Worker --> 
+Wheat Grown --> farmInventoryType:WheatForGrain, measuredProperty:amount, populationType:FarmInventory
+Population Below Poverty Level Status in Past Year and White Alone Not Hispanic or Latino,Population Below US Census Poverty Level Status in Past Year and White Alone Not Hispanic or Latino --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:WhiteAloneNotHispanicOrLatino
+Median Income (Real Individual Earnings Before Deductions): Retail Trade (NAICS/44-45) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/44-45, statType:medianValue
+Receipts of Establishment: Administrative And Support And Waste Management Services (NAICS/56), With Payroll --> measuredProperty:receipts, naics:NAICS/56, payrollStatus:WithPayroll, populationType:USCEstablishment
+GDP of the Educational Services Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/61, populationType:EconomicActivity
+Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Sales of Establishment: General Merchandise Stores (NAICS/452), With Payroll --> measuredProperty:sales, naics:NAICS/452, payrollStatus:WithPayroll, populationType:USCEstablishment
+Population Working in the Arts, Entertainment, and Recreation Industry --> naics:NAICS/71, populationType:BLSWorker
+Count of Establishment: Mining, Quarrying, And Oil And Gas Extraction (NAICS/21) --> naics:NAICS/21, populationType:BLSEstablishment
+GDP of the Management of Companies and Enterprises Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/55, populationType:EconomicActivity
+Count of Establishment: Agriculture, Forestry, Fishing And Hunting (NAICS/11) --> naics:NAICS/11, populationType:BLSEstablishment
+Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+Population Below Poverty Level Status in Past Year and Asian Alone,Population Below US Census Poverty Level Status in Past Year and Asian Alone --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:AsianAlone
+Employment and Business --> displayRank:1
+Count of Establishment: Privately Owned, Total, All Industries (NAICS/10) --> establishmentOwnership:PrivatelyOwned, naics:NAICS/10, populationType:BLSEstablishment
+Broiler Chickens on a Farm --> farmInventoryType:Broilers, populationType:FarmInventory
+Percent of Nominal GDP Spent on Education --> activitySource:ExpenditureActivity, expenditureType:EducationExpenditure, expensor:Government, measuredProperty:amount, measurementDenominator:Amount_EconomicActivity_GrossDomesticProduction_Nominal, populationType:EconomicActivity
+Count of Establishment: Educational Services (NAICS/61) --> naics:NAICS/61, populationType:BLSEstablishment
+Person With Worker Classification = Non Worker --> 
+Shipments or Receipts of Establishment: Petroleum And Coal Products Manufacturing (NAICS/324), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/324, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 16 Years or More, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Count of Establishment: Management of Companies And Enterprises (NAICS/55) --> naics:NAICS/55, populationType:BLSEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Spring Wheat Grown --> farmInventoryType:OtherSpringWheatForGrain, measuredProperty:amount, populationType:FarmInventory
+Winter Wheat Grain Grown --> farmInventoryType:WinterWheatForGrain, measuredProperty:amount, populationType:FarmInventory
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker --> 
+Shipments or Receipts of Establishment: Fabricated Metal Product Manufacturing (NAICS/332), With Payroll --> measuredProperty:shipmentsOrReceipts, naics:NAICS/332, payrollStatus:WithPayroll, populationType:USCEstablishment
+Sales of Establishment: Nonstore Retailers (NAICS/454), With Payroll --> measuredProperty:sales, naics:NAICS/454, payrollStatus:WithPayroll, populationType:USCEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Population With an Income Between $25,000 and $34,999 --> age:Years15Onwards, income:USDollar25000To34999, incomeStatus:WithIncome
+Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+GDP of the Construction Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/23, populationType:EconomicActivity
+Population Working in the Finance and Insurance Industry --> naics:NAICS/52, populationType:BLSWorker
+Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker --> 
+Population Below Poverty Level Status in Past Year and Black or African American Alone,Population Below US Census Poverty Level Status in Past Year and Black or African American Alone --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:BlackOrAfricanAmericanAlone
+Count of Establishment: Local Government Owned, Total, All Industries (NAICS/10) --> establishmentOwnership:LocalGovernmentOwned, naics:NAICS/10, populationType:BLSEstablishment
+Count of Establishment: Administrative And Support And Waste Management Services (NAICS/56) --> naics:NAICS/56, populationType:BLSEstablishment
+Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+GDP of the Professional, Scientific, and Technical Services Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/54, populationType:EconomicActivity
+Cotton Grown,Production of cotton --> farmInventoryType:Cotton, measuredProperty:amount, populationType:FarmInventory
+Count of Establishment: Retail Trade (NAICS/44-45) --> naics:NAICS/44-45, populationType:BLSEstablishment
+GDP of the Agriculture, Forestry, Fishing and Hunting Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/11, populationType:EconomicActivity
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification --> 
+Population Working in the Mining, Quarrying, and Oil and Gas Extraction Industry --> naics:NAICS/21, populationType:BLSWorker
+Count of Establishment: Federal Government Owned, Total, All Industries (NAICS/10) --> establishmentOwnership:FederalGovernmentOwned, naics:NAICS/10, populationType:BLSEstablishment
+Population Working in the Construction Industry --> naics:NAICS/23, populationType:BLSWorker
+Sugarbeets Grown --> farmInventoryType:SugarbeetsForSugar, measuredProperty:amount, populationType:FarmInventory
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Median Income (Real Individual Earnings Before Deductions): Agriculture, Forestry, Fishing And Hunting (NAICS/11) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/11, statType:medianValue
+Median Income (Real Individual Earnings Before Deductions): Health Care And Social Assistance (NAICS/62) --> age:Years16Onwards, armedForcesStatus:Civilian, censusACSTableId:B24031, employmentStatus:BLS_Employed, incomeStatus:WithEarnings, measuredProperty:income, measurementQualifier:RealIndividualEarningsBeforeDeductions, naics:NAICS/62, statType:medianValue
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification --> 
+Person With Age = 16 Years or More, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Person With Poverty Status = Below Poverty Level in The Past 12 Months --> 
+Population: Rural, Below Poverty Level in The Past 12 Months --> placeOfResidenceClassification:Rural, povertyStatus:BelowPovertyLevelInThePast12Months
+GDP of the Mining, Quarrying, and Oil and Gas Extraction Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/21, populationType:EconomicActivity
+Female Population Below Poverty Level in the Last Year,Female Population Below US Census Poverty Level in the Last Year --> gender:Female, povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel
+Median Income for Married Couple Family Households --> householdType:MarriedCoupleFamilyHousehold, incomeStatus:WithIncome, measuredProperty:income, populationType:Household, statType:medianValue
+Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker --> 
+GDP of the Wholesale Trade Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/42, populationType:EconomicActivity
+Wholesale Trade Workers --> naics:NAICS/42, populationType:BLSWorker
+Count of Establishment: Utilities (NAICS/22) --> naics:NAICS/22, populationType:BLSEstablishment
+Sales of Establishment: Sports, Hobby, Music Instrument, Book Stores (NAICS/451), With Payroll --> measuredProperty:sales, naics:NAICS/451, payrollStatus:WithPayroll, populationType:USCEstablishment
+Count of Establishment: Other Services, Except Public Administration (NAICS/81) --> naics:NAICS/81, populationType:BLSEstablishment
+GDP of the Utilities Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/22, populationType:EconomicActivity
+Peanuts Grown --> farmInventoryType:PeanutsForNuts, measuredProperty:amount, populationType:FarmInventory
+Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker --> 
+Population With an Income Between $35,000 and $49,999 --> age:Years15Onwards, income:USDollar35000To49999, incomeStatus:WithIncome
+Population Below Poverty Level Status in Past Year and Hispanic or Latino,Population Below US Census Poverty Level Status in Past Year and Hispanic or Latino --> povertyStatus:USC_IncomeInThePast12MonthsBelowPovertyLevel, race:HispanicOrLatino
+Economic Activity With Activity Source = Expenditure Activity, Expenditure Type --> 
+Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker --> 
+Rice Grown --> farmInventoryType:Rice, measuredProperty:amount, populationType:FarmInventory
+GDP of the Administrative and Support and Waste Management Services Industry --> activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/56, populationType:EconomicActivity

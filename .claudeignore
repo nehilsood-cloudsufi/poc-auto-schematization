@@ -1,0 +1,10 @@
+# Ground truth files - exclude from Claude Code context to ensure fair evaluation
+ground_truth/
+
+# Cache and temporary files
+__pycache__/
+*.pyc
+.DS_Store
+
+# Git
+.git/

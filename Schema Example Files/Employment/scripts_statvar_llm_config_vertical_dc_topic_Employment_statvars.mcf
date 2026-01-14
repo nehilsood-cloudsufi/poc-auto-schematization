@@ -1,0 +1,618 @@
+Node:dcid:Count_Worker_NAICSAccommodationFoodServices
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/72
+naics:dcid:NAICS/72
+name:dcid:Population Working in the Accommodation and Food Services Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSAdministrativeSupportWasteManagementRemediationServices
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/56
+naics:dcid:NAICS/56
+name:dcid:Population Working in the Administrative and Support and Waste Management Services Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSAgricultureForestryFishingHunting
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/11
+naics:dcid:NAICS/11
+name:dcid:Population Working in the Agriculture, Forestry, Fishing, and Hunting Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSArtsEntertainmentRecreation
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/71
+naics:dcid:NAICS/71
+name:dcid:Population Working in the Arts, Entertainment, and Recreation Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSConstruction
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/23
+naics:dcid:NAICS/23
+name:dcid:Population Working in the Construction Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSEducationalServices
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/61
+naics:dcid:NAICS/61
+name:dcid:Population Working in the Educational Services Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSFinanceInsurance
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/52
+naics:dcid:NAICS/52
+name:dcid:Population Working in the Finance and Insurance Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSHealthCareSocialAssistance
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/62
+naics:dcid:NAICS/62
+name:dcid:Population Working in the Health Care and Social Assistance Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSInformation
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/51
+naics:dcid:NAICS/51
+name:dcid:Population Working in the Information Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSMiningQuarryingOilGasExtraction
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/21
+naics:dcid:NAICS/21
+name:dcid:Population Working in the Mining, Quarrying, and Oil and Gas Extraction Industry
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSOtherServices
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/81
+naics:dcid:NAICS/81
+name:dcid:Population Working in Other Services, Except Public Administration
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSProfessionalScientificTechnicalServices
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/54
+naics:dcid:NAICS/54
+name:dcid:Professional, Scientific, and Technical Services Workers
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSPublicAdministration
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/92
+naics:dcid:NAICS/92
+name:dcid:Public Administration Workers
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSRealEstateRentalLeasing
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/53
+naics:dcid:NAICS/53
+name:dcid:Real Estate and Rental and Leasing Workers
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSUtilities
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/22
+naics:dcid:NAICS/22
+name:dcid:Utilities Workers
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:Count_Worker_NAICSWholesaleTrade
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/42
+naics:dcid:NAICS/42
+name:dcid:Wholesale Trade Workers
+provenance:dcid:dc/base/HumanReadableStatVars
+
+Node:dcid:dc/8p97n7l96lgg8
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/4849
+naics:dcid:NAICS/48-49
+name:Population of Person: Transportation And Warehousing (NAICS/48-49)
+provenance:dcid:dc/base/AutoGeneratedStatVars
+
+Node:dcid:dc/g/Employment
+typeOf:StatVarGroup
+displayRank:dcid:1
+name:dcid:Employment and Business
+provenance:dcid:dc/base/HumanReadableStatVars
+specializationOf:dcid:dc/g/Economy
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification,dc/g/Person_Age_DetailedWorkerClassification-UnpaidFamilyWorker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership,dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned,dc/g/Person_Age_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus,dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership_MilitaryStatus-Civilian,dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian,dc/g/Person_Age_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification-UnpaidFamilyWorker_MilitaryStatus,dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_MilitaryStatus-Civilian,dc/g/Person_Age_DetailedWorkerClassification-UnpaidFamilyWorker_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_EstablishmentOwnership-PrivatelyOwned_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Military Status = Civilian, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_Age-Years16Onwards_DetailedWorkerClassification_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Age = 16 Years or More, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Age-Years16Onwards_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker
+typeOf:StatVarGroup
+name:dcid:Person With Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_DetailedWorkerClassification
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership,dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus,dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_EstablishmentOwnership_MilitaryStatus-Civilian,dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Detailed Worker Classification = Unpaid Family Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_DetailedWorkerClassification-UnpaidFamilyWorker_MilitaryStatus,dc/g/Person_DetailedWorkerClassification_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_EstablishmentOwnership-PrivatelyOwned_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Establishment Ownership = Privately Owned, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EstablishmentOwnership-PrivatelyOwned_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance
+typeOf:StatVarGroup
+name:dcid:Person With Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Health Insurance = No Health Insurance, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Health Insurance = No Health Insurance, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_HealthInsurance-NoHealthInsurance_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_Institutionalization-NonInstitutionalized
+typeOf:StatVarGroup
+name:dcid:Person With Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Institutionalization-NonInstitutionalized
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Institutionalization-NonInstitutionalized_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Institutionalization = Non Institutionalized, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Institutionalization-NonInstitutionalized_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_DetailedWorkerClassification_MilitaryStatus-Civilian_WorkerClassification-Worker
+typeOf:StatVarGroup
+name:dcid:Person With Military Status = Civilian, Detailed Worker Classification, Worker Classification = Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_MilitaryStatus-Civilian_WorkerClassification-Worker
+
+Node:dcid:dc/g/Person_EmploymentStatus-Employed
+typeOf:StatVarGroup
+name:dcid:Person With Employment Status = Employed
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_EmploymentStatus
+
+Node:dcid:dc/g/Person_Gender-Female
+typeOf:StatVarGroup
+name:dcid:Person With Gender = Female
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Gender
+
+Node:dcid:dc/g/Person_Gender-Male
+typeOf:StatVarGroup
+name:dcid:Person With Gender = Male
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_Gender
+
+Node:dcid:dc/g/Person_WorkerClassification-NonWorker
+typeOf:StatVarGroup
+name:dcid:Person With Worker Classification = Non Worker
+provenance:dcid:dc/base/GeneratedGraphs
+specializationOf:dcid:dc/g/Person_WorkerClassification
+
+Node:dcid:dc/ndg1xk1e9frc2
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/3133
+naics:dcid:NAICS/31-33
+name:Population of Person: Manufacturing (NAICS/31-33)
+provenance:dcid:dc/base/AutoGeneratedStatVars
+
+Node:dcid:dc/p69tpsldf99h7
+typeOf:StatisticalVariable
+statType:measuredValue
+measuredProperty:count
+populationType:BLSWorker
+constraintProperties:dcid:naics
+memberOf:dcid:dc/g/Person_Industry-NAICS/4445
+naics:dcid:NAICS/44-45
+name:Population of Person: Retail Trade (NAICS/44-45)
+provenance:dcid:dc/base/AutoGeneratedStatVars
+

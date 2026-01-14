@@ -1,0 +1,33 @@
+
+Consumption by Consumed Thing --> 
+Solar Installations --> populationType:SolarInstallation
+Access to electricity, rural (% of rural population) --> measuredProperty:worldBank/EG_ELC_ACCS_RU_ZS, populationType:Electricity
+Annual Consumption of Electricity: for Construction Industry --> consumingSector:ConstructionIndustry, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Renewable energy share in the total final energy consumption --> footnote:Includes data from the following sources: Energy Balances, UN Statistics Division (2022); IEA (2022), World Energy Balances; IEA (2022), World Energy Balances; Energy Balances, UN Statistics Division (2022), measuredProperty:value, populationType:SDG_EG_FEC_RNEW
+Annual Generation of Fuel: Hard Coal --> fuelType:HardCoal, measuredProperty:generation, measurementQualifier:Annual, populationType:Fuel
+Fraction of Energy Consumption from Renewables --> consumedThing:RenewableEnergy, measuredProperty:amount, measurementDenominator:Amount_Consumption_Energy, populationType:Consumption
+Annual Consumption of Fuel: Hard Coal --> fuelType:HardCoal, measuredProperty:consumption, measurementQualifier:Annual, populationType:Fuel
+Fraction of Electricity Production from Nuclear Sources --> measuredProperty:amount, measurementDenominator:Amount_Production_Energy, populationType:Production, producedThing:ElectricityFromNuclearSources
+Annual Generation of Energy: Oil Products --> energySource:OilProducts, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Annual Energy Generation From Nuclear Fuel --> fuelType:Nuclear, measuredProperty:generation, measurementQualifier:Annual, populationType:Fuel
+Access to electricity, urban (% of urban population) --> measuredProperty:worldBank/EG_ELC_ACCS_UR_ZS, populationType:Electricity
+Annual Consumption of Electricity: for Commerce And Public Services --> consumingSector:CommerceAndPublicServices, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Annual Generation of Electricity: for Households --> consumingSector:Households, measuredProperty:generation, measurementQualifier:Annual, populationType:Electricity
+Fraction of Electricity Production from Oil, Gas and Coal Sources. --> measuredProperty:amount, measurementDenominator:Amount_Production_Energy, populationType:Production, producedThing:ElectricityFromOilGasOrCoalSources
+Annual Generation of Energy: Geothermal --> energySource:Geothermal, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Annual Electricity Consumption --> measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Fossil-fuel subsidies as a proportion of total GDP --> footnote:Includes data from the following sources: Central Statistics Office; IEA fossil fuel subsidies database, OECD.Stat- Inventory of Support Measures for Fossil Fuels and IMF Energy Subsidies Template (pre-tax calculations); Ministry of Economy of the Slovak Republic; National Statistical Service of Armenia; Office for National Statistics; STATEC; Singapore Department of Statistics; Statistics Poland, measuredProperty:value, populationType:SDG_ER_FFS_CMPT_GDP
+Annual Generation of Fuel: Petroleum Coke --> fuelType:PetroleumCoke, measuredProperty:generation, measurementQualifier:Annual, populationType:Fuel
+Annual Generation of Energy: Natural Gas --> energySource:NaturalGas, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Fossil-fuel subsidies per capita --> footnote:Includes data from the following sources: Central Statistics Office; IEA fossil fuel subsidies database, OECD.Stat- Inventory of Support Measures for Fossil Fuels and IMF Energy Subsidies Template (pre-tax calculations); Ministry of Economy of the Slovak Republic; National Statistical Service of Armenia; Office for National Statistics; STATEC; Singapore Department of Statistics; Statistics Poland, measuredProperty:value, populationType:SDG_ER_FFS_CMPT_PC_CD
+Annual Energy Generation From Coal --> energySource:Coal, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Annual Consumption of Fuel: Natural Gas --> fuelType:NaturalGas, measuredProperty:consumption, measurementQualifier:Annual, populationType:Fuel
+Social: Access to Services --> 
+Annual Generation of Energy: Solar --> energySource:Solar, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Annual Consumption of Electricity: for Households --> consumingSector:Households, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Annual Consumption of Electricity: for Transport Industry --> consumingSector:TransportIndustry, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Annual Consumption of Electricity: for Manufacturing --> consumingSector:Manufacturing, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Annual Consumption of Electricity: for Agriculture --> consumingSector:Agriculture, measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity
+Annual Generation of Energy: EIA_Water --> energySource:EIA_Water, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy
+Annual Consumption of Fuel: Petroleum Coke --> fuelType:PetroleumCoke, measuredProperty:consumption, measurementQualifier:Annual, populationType:Fuel
+Annual Consumption of Energy: Geothermal --> energySource:Geothermal, measuredProperty:consumption, measurementQualifier:Annual, populationType:Energy

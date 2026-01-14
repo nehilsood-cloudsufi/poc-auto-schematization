@@ -1,0 +1,8 @@
+
+Population Working in the Finance and Insurance Industry -> naics:NAICS/52, populationType:BLSWorker
+Population Working in the Accommodation and Food Services Industry -> naics:NAICS/72, populationType:BLSWorker
+Population of Person: Retail Trade (NAICS/44-45) -> naics:NAICS/44-45, populationType:BLSWorker
+Population Working in the Health Care and Social Assistance Industry -> naics:NAICS/62, populationType:BLSWorker
+Public Administration Workers -> naics:NAICS/92, populationType:BLSWorker
+Population Working in Other Services, Except Public Administration -> naics:NAICS/81, populationType:BLSWorker
+Employment and Business -> displayRank:1

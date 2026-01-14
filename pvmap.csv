@@ -1,0 +1,10 @@
+key,property1,value1,property2,value2,property3,value3,property4,value4,property5,value5
+FREQ:M,measurementQualifier,Monthly,observationPeriod,P1M
+FREQ:D,measurementQualifier,Daily,observationPeriod,P1D
+UNIT_MEASURE:368,unit,PercentPerAnnum
+REF_AREA:AR,observationAbout,country/ARG
+REF_AREA:GB,observationAbout,country/GBR
+TIME_PERIOD,observationDate,{Data}
+OBS_VALUE,value,{Number}
+OBS_STATUS:A,UnusedProperty,''
+ACTION:I,populationType,FinancialIndicator,measuredProperty,interestRate,statType,measuredValue,indicatorType,CentralBankPolicyRate

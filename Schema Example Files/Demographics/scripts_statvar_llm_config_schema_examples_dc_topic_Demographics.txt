@@ -1,0 +1,184 @@
+
+Population: 75 Years or More, Civilian, Male, Veteran --> age:Years75Onwards, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Population: Russian --> age:Years5Onwards, languageSpokenAtHome:Russian
+Population: French Incl Patois Cajun --> age:Years5Onwards, languageSpokenAtHome:FrenchInclPatoisCajun
+Population: 18 Years or More, Civilian, Noninstitutionalized Group Quarters, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:NoninstitutionalizedGroupQuarters, veteranStatus:Veteran
+Population: 18 Years or More, Civilian, College or University Student Housing, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:CollegeOrUniversityStudentHousing, veteranStatus:Veteran
+Population: Mon Khmer Cambodian --> age:Years5Onwards, languageSpokenAtHome:MonKhmerCambodian
+Population: World War 2 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_WorldWar2, veteranStatus:Veteran
+Non Hispanic Population Identifying as Black or African American --> race:NotHispanicOrLatino__BlackOrAfricanAmericanAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Civilian, Female, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Population: 18 Years or More, Civilian, Juvenile Facilities, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:JuvenileFacilities, veteranStatus:Veteran
+Population: Ukrainian or Other Slavic Languages --> age:Years5Onwards, languageSpokenAtHome:UkrainianOrOtherSlavicLanguages
+Population: 15 Years or More, Never Married, Black or African American Alone --> age:Years15Onwards, maritalStatus:NeverMarried, race:BlackOrAfricanAmericanAlone
+Population: Male, Divorced --> age:Years15Onwards, gender:Male, maritalStatus:Divorced
+Population: 15 Years or More, Widowed, Hispanic or Latino --> age:Years15Onwards, maritalStatus:Widowed, race:HispanicOrLatino
+Population: Malayalam Kannada or Other Dravidian Languages --> age:Years5Onwards, languageSpokenAtHome:MalayalamKannadaOrOtherDravidianLanguages
+Population: Nepali Marathi or Other Indic Languages --> age:Years5Onwards, languageSpokenAtHome:NepaliMarathiOrOtherIndicLanguages
+Population: Male, Widowed --> age:Years15Onwards, gender:Male, maritalStatus:Widowed
+Population: 18 - 34 Years, Civilian, Female, Veteran --> age:Years18To34, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Population: 55 - 64 Years, Civilian, Male, Veteran --> age:Years55To64, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Population: Persian --> age:Years5Onwards, languageSpokenAtHome:Persian
+Population: After 2010, Foreign Born --> dateOfEntry:Date2010Onwards, nativity:USC_ForeignBorn
+Median Income: 18 Years or More, Civilian, Male, With Income, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21004, gender:Male, incomeStatus:WithIncome, measuredProperty:income, statType:medianValue, veteranStatus:Veteran
+Married Population Who Are Not Separated --> age:Years15Onwards, maritalStatus:MarriedAndNotSeparated
+Hispanic Native Hawaiian/Other Pacific Islander Alone Population --> race:HispanicOrLatino__NativeHawaiianOrOtherPacificIslanderAlone
+Population: Korean War & World War 2 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_KoreanWar&USC_WorldWar2, veteranStatus:Veteran
+Population: 18 Years or More, Civilian, Nursing Facilities, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:NursingFacilities, veteranStatus:Veteran
+Hispanic Asian Population --> race:HispanicOrLatino__AsianAloneOrInCombinationWithOneOrMoreOtherRaces
+White Population, Monoracial/Multiracial --> race:WhiteAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Before 1990, Foreign Born --> dateOfEntry:DateUpto1990, nativity:USC_ForeignBorn
+Population: Laotian --> age:Years5Onwards, languageSpokenAtHome:Laotian
+Population: Between Gulf War And Vietnam Era --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_BetweenGulfWarAndVietnamEra, veteranStatus:Veteran
+Population: Arabic --> age:Years5Onwards, languageSpokenAtHome:Arabic
+Population: Italian --> age:Years5Onwards, languageSpokenAtHome:Italian
+Population: 85 Years or More, Male --> age:Years85Onwards, gender:Male
+Population: Between 2000 And 2009, Foreign Born --> dateOfEntry:Date2000To2009, nativity:USC_ForeignBorn
+Population: 15 Years or More, Widowed, Black or African American Alone --> age:Years15Onwards, maritalStatus:Widowed, race:BlackOrAfricanAmericanAlone
+Population: Foreign Born, Country/MEX --> nativity:USC_ForeignBorn, placeOfBirth:country/MEX
+Population: Chinese --> age:Years5Onwards, languageSpokenAtHome:Chinese
+White Hispanic Monoracial Population --> race:HispanicOrLatino__WhiteAlone
+Non Hispanic Population Identifying as Black or African American Alone --> race:NotHispanicOrLatino__BlackOrAfricanAmericanAlone
+Person With Language Spoken At Home = Spanish, Nativity = Foreign Born --> 
+Population: 85 Years or More, Female --> age:Years85Onwards, gender:Female
+Population: Punjabi --> age:Years5Onwards, languageSpokenAtHome:Punjabi
+Population: Male, Never Married --> age:Years15Onwards, gender:Male, maritalStatus:NeverMarried
+Population: 15 Years or More, Never Married, Hispanic or Latino --> age:Years15Onwards, maritalStatus:NeverMarried, race:HispanicOrLatino
+Non Hispanic Population Identifying as Native Hawaiian and Other Pacific Islander --> race:NotHispanicOrLatino__NativeHawaiianAndOtherPacificIslanderAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Gulf War Aug 1990 To Aug 2001 & Gulf War Sep 2001 or Later & Vietnam Era --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_GulfWarAug1990ToAug2001&USC_GulfWarSep2001OrLater&USC_VietnamEra, veteranStatus:Veteran
+Population: 15 Years or More, Never Married, Asian Alone --> age:Years15Onwards, maritalStatus:NeverMarried, race:AsianAlone
+Female Population --> gender:Female
+Population: 15 Years or More, Divorced, Asian Alone --> age:Years15Onwards, maritalStatus:Divorced, race:AsianAlone
+Population Asian Alone --> race:AsianAlone
+Population: Foreign Born, Oceania --> nativity:USC_ForeignBorn, placeOfBirth:oceania
+Hispanic Asian/Pacific Islander Population --> race:HispanicOrLatino__AsianOrPacificIslander
+Person With Language Spoken At Home = Only English, Nativity = Foreign Born --> 
+Hispanic American Indian Population --> race:HispanicOrLatino__AmericanIndianAndAlaskaNativeAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: 0 - 4 Years, Female --> age:Years0To4, gender:Female
+Non Hispanic White Population, Monoracial/Multiracial --> race:NotHispanicOrLatino__WhiteAloneOrInCombinationWithOneOrMoreOtherRaces
+Population American Indian and Alaska Native, Monoracial/Multiracial --> race:AmericanIndianAndAlaskaNativeAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Yiddish --> age:Years5Onwards, languageSpokenAtHome:Yiddish
+Population Aged 35 to 44 --> age:Years35To44
+White Hispanic Monoracial Population --> race:WhiteAloneNotHispanicOrLatino
+Population: 1 - 4 Years --> age:Years1To4
+Widowed Population --> age:Years15Onwards, maritalStatus:Widowed
+Population: 18 - 34 Years, Civilian, Male, Veteran --> age:Years18To34, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Population: 35 - 54 Years, Civilian, Male, Veteran --> age:Years35To54, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Population: 15 Years or More, Married And Not Separated, Black or African American Alone --> age:Years15Onwards, maritalStatus:MarriedAndNotSeparated, race:BlackOrAfricanAmericanAlone
+Population: Korean War --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_KoreanWar, veteranStatus:Veteran
+Person With Marital Status = Divorced --> 
+Population: Greek --> age:Years5Onwards, languageSpokenAtHome:Greek
+Population: Foreign Born, Caribbean --> nativity:USC_ForeignBorn, placeOfBirth:Caribbean
+Population: Urdu --> age:Years5Onwards, languageSpokenAtHome:Urdu
+Population: Korean --> age:Years5Onwards, languageSpokenAtHome:Korean
+Population Identifying as Some Other Race Alone --> race:SomeOtherRaceAlone
+Population of Native Hawaiian or Other Pacific Islander Alone --> race:NativeHawaiianOrOtherPacificIslanderAlone
+Population: Korean War & Vietnam Era & World War 2 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_KoreanWar&USC_VietnamEra&USC_WorldWar2, veteranStatus:Veteran
+Population: German --> age:Years5Onwards, languageSpokenAtHome:German
+Person With Language Spoken At Home = Asian And Pacific Island Languages, Nativity = Foreign Born --> 
+Hispanic Population --> race:HispanicOrLatino
+Population: Female, Never Married --> age:Years15Onwards, gender:Female, maritalStatus:NeverMarried
+Population: 15 Years or More, Married And Not Separated, Asian Alone --> age:Years15Onwards, maritalStatus:MarriedAndNotSeparated, race:AsianAlone
+Population: Foreign Born, Africa --> nativity:USC_ForeignBorn, placeOfBirth:africa
+Population: Armenian --> age:Years5Onwards, languageSpokenAtHome:Armenian
+Population: 0 - 4 Years, Male --> age:Years0To4, gender:Male
+Hispanic Native Hawaiian/Other Pacific Islander Monoracial/Multiracial Population --> race:HispanicOrLatino__NativeHawaiianAndOtherPacificIslanderAloneOrInCombinationWithOneOrMoreOtherRaces
+Population Asian or Pacific Islander --> race:AsianOrPacificIslander
+Population: Khmer --> age:Years5Onwards, languageSpokenAtHome:Khmer
+Population: Vietnam Era --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_VietnamEra, veteranStatus:Veteran
+Population: Tamil --> age:Years5Onwards, languageSpokenAtHome:Tamil
+Population: Foreign Born --> placeOfBirth:ForeignBorn
+Population: 18 Years or More, Civilian, Adult Correctional Facilities, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:AdultCorrectionalFacilities, veteranStatus:Veteran
+Population: Scandinavian Languages --> age:Years5Onwards, languageSpokenAtHome:ScandinavianLanguages
+Person With Age = 18 Years or More, Military Status = Civilian, Income Status = With Income, Veteran Status = Veteran --> 
+Hispanic American Indian Population --> race:HispanicOrLatino__AmericanIndianOrAlaskaNativeAlone
+Population: Korean War & Vietnam Era --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_KoreanWar&USC_VietnamEra, veteranStatus:Veteran
+Population Aged 75 and Up --> age:Years75Onwards
+Population: Tagalog --> age:Years5Onwards, languageSpokenAtHome:Tagalog
+Population: Foreign Born, Northamerica --> nativity:USC_ForeignBorn, placeOfBirth:northamerica
+Population: Gulf War Aug 1990 To Aug 2001 & Vietnam Era --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_GulfWarAug1990ToAug2001&USC_VietnamEra, veteranStatus:Veteran
+Population: Serbo Croatian --> age:Years5Onwards, languageSpokenAtHome:SerboCroatian
+Population: Foreign Born, Central America Except Mexico --> nativity:USC_ForeignBorn, placeOfBirth:CentralAmericaExceptMexico
+Median Age of Female Population --> gender:Female, measuredProperty:age, statType:medianValue
+Population Aged 5 to 17 --> age:Years5To17
+Population: Spanish --> age:Years5Onwards, languageSpokenAtHome:Spanish
+Population: Thai --> age:Years5Onwards, languageSpokenAtHome:Thai
+Population: Between 1990 And 1999, Foreign Born --> dateOfEntry:Date1990To1999, nativity:USC_ForeignBorn
+Population: Hungarian --> age:Years5Onwards, languageSpokenAtHome:Hungarian
+Population: Civilian, Male, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Divorced Population --> age:Years15Onwards, maritalStatus:Divorced
+Population: Native --> age:Years5Onwards, nativity:USC_Native
+Population: 18 Years or More, Civilian, Institutionalized Group Quarters, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:InstitutionalizedGroupQuarters, veteranStatus:Veteran
+White Monoracial Population --> race:WhiteAlone
+Population: Between Korean War And World War 2 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_BetweenKoreanWarAndWorldWar2, veteranStatus:Veteran
+Population: Polish --> age:Years5Onwards, languageSpokenAtHome:Polish
+US Citizens Born in the United States --> citizenship:USCitizenBornInTheUnitedStates
+Population: 15 Years or More, Widowed, Asian Alone --> age:Years15Onwards, maritalStatus:Widowed, race:AsianAlone
+Population Aged 65 to 74 --> age:Years65To74
+Population Asian, Monoracial/Multiracial --> race:AsianAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Hindi --> age:Years5Onwards, languageSpokenAtHome:Hindi
+Population: Between Vietnam Era And Korean War --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_BetweenVietnamEraAndKoreanWar, veteranStatus:Veteran
+Population: Before World War 2 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_BeforeWorldWar2, veteranStatus:Veteran
+Population: Male, Married And Not Separated --> age:Years15Onwards, gender:Male, maritalStatus:MarriedAndNotSeparated
+Population: Hebrew --> age:Years5Onwards, languageSpokenAtHome:Hebrew
+Population: Vietnamese --> age:Years5Onwards, languageSpokenAtHome:Vietnamese
+Population: 18 Years or More, Civilian, Military Quarters or Military Ships, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:MilitaryQuartersOrMilitaryShips, veteranStatus:Veteran
+Black Population, Monoracial/Multiracial --> race:BlackOrAfricanAmericanAloneOrInCombinationWithOneOrMoreOtherRaces
+Non Hispanic Population Identifying as American Indian and Alaska Native, Monoracial/Multiracial --> race:NotHispanicOrLatino__AmericanIndianAndAlaskaNativeAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Only English --> age:Years5Onwards, languageSpokenAtHome:OnlyEnglish
+Hispanic African American Population --> race:HispanicOrLatino__BlackOrAfricanAmericanAlone
+Population: Foreign Born, Southamerica --> nativity:USC_ForeignBorn, placeOfBirth:southamerica
+Person With Marital Status = Widowed --> 
+Person With Marital Status = Married And Not Separated --> 
+Person With Marital Status = Never Married --> 
+Population: Female, Married And Not Separated --> age:Years15Onwards, gender:Female, maritalStatus:MarriedAndNotSeparated
+Non Hispanic Multiracial Population --> race:NotHispanicOrLatino__TwoOrMoreRaces
+Population: 55 - 64 Years --> age:Years55To64
+Population: Gulf War Sep 2001 or Later --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_GulfWarSep2001OrLater, veteranStatus:Veteran
+Person With Language Spoken At Home = Other Indo European Languages, Nativity = Foreign Born --> 
+Non Hispanic Population Identifying as American Indian or Alaska Native Alone --> race:NotHispanicOrLatino__AmericanIndianOrAlaskaNativeAlone
+Population of Native Hawaiian and Other Pacific Islander, Monoracial/Multiracial --> race:NativeHawaiianAndOtherPacificIslanderAloneOrInCombinationWithOneOrMoreOtherRaces
+Population: Japanese --> age:Years5Onwards, languageSpokenAtHome:Japanese
+Population: 35 - 54 Years, Civilian, Female, Veteran --> age:Years35To54, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Non Hispanic Population Identifying as Native Hawaiian or Other Pacific Islander Alone --> race:NotHispanicOrLatino__NativeHawaiianOrOtherPacificIslanderAlone
+Population: 15 Years or More, Divorced, Hispanic or Latino --> age:Years15Onwards, maritalStatus:Divorced, race:HispanicOrLatino
+Population: 18 Years or More, Civilian, Group Quarters, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, residenceType:GroupQuarters, veteranStatus:Veteran
+Population: Haitian --> age:Years5Onwards, languageSpokenAtHome:Haitian
+White Hispanic Population, Monoracial/Multiracial --> race:HispanicOrLatino__WhiteAloneOrInCombinationWithOneOrMoreOtherRaces
+Non Hispanic Population Identifying as Asian or Pacific Islander --> race:NotHispanicOrLatino__AsianOrPacificIslander
+Population: Navajo --> age:Years5Onwards, languageSpokenAtHome:Navajo
+Population: Female, Widowed --> age:Years15Onwards, gender:Female, maritalStatus:Widowed
+Person With Military Status = Civilian, Veteran Status = Veteran --> 
+Hispanic Asian Population --> race:HispanicOrLatino__AsianAlone
+Population: 15 Years or More, Married And Not Separated, Hispanic or Latino --> age:Years15Onwards, maritalStatus:MarriedAndNotSeparated, race:HispanicOrLatino
+Population: 65 - 74 Years, Civilian, Female, Veteran --> age:Years65To74, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Population: Portuguese --> age:Years5Onwards, languageSpokenAtHome:Portuguese
+US Citizens by Naturalization --> citizenship:USCitizenByNaturalization
+Non Hispanic Population Identifying as Asian --> race:NotHispanicOrLatino__AsianAloneOrInCombinationWithOneOrMoreOtherRaces
+Black Monoracial Population --> race:BlackOrAfricanAmericanAlone
+Population: Telugu --> age:Years5Onwards, languageSpokenAtHome:Telugu
+Non Hispanic Population Identifying as Asian Alone --> race:NotHispanicOrLatino__AsianAlone
+Male Population --> gender:Male
+Population: Foreign Born, Asia --> nativity:USC_ForeignBorn, placeOfBirth:asia
+Population Aged 18 to 24 Years --> age:Years18To24
+Population: 65 - 74 Years, Civilian, Male, Veteran --> age:Years65To74, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Male, veteranStatus:Veteran
+Population: Language Other Than English --> age:Years5Onwards, languageSpokenAtHome:LanguageOtherThanEnglish
+Population: 75 Years or More, Civilian, Female, Veteran --> age:Years75Onwards, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Population Who Are Not US Citizens --> citizenship:NotAUSCitizen
+Population: Female, Divorced --> age:Years15Onwards, gender:Female, maritalStatus:Divorced
+Population Aged 25 to 34 Years --> age:Years25To34
+Median Income: 18 Years or More, Civilian, Female, With Income, Veteran --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21004, gender:Female, incomeStatus:WithIncome, measuredProperty:income, statType:medianValue, veteranStatus:Veteran
+Population: Gulf War Aug 1990 To Aug 2001 & Gulf War Sep 2001 or Later --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_GulfWarAug1990ToAug2001&USC_GulfWarSep2001OrLater, veteranStatus:Veteran
+Population Aged 45 to 54 --> age:Years45To54
+Population: 55 - 64 Years, Civilian, Female, Veteran --> age:Years55To64, armedForcesStatus:Civilian, censusACSTableId:B21001, gender:Female, veteranStatus:Veteran
+Demographics --> displayRank:2
+Population: Bengali --> age:Years5Onwards, languageSpokenAtHome:Bengali
+Median Age of Male Population --> gender:Male, measuredProperty:age, statType:medianValue
+Population: Gulf War Aug 1990 To Aug 2001 --> age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_GulfWarAug1990ToAug2001, veteranStatus:Veteran
+Population: 15 Years or More, Divorced, Black or African American Alone --> age:Years15Onwards, maritalStatus:Divorced, race:BlackOrAfricanAmericanAlone
+Hispanic Multiracial Population --> race:HispanicOrLatino__TwoOrMoreRaces
+Population American Indian or Alaska Native Alone --> race:AmericanIndianAndAlaskaNativeAlone
+Population: Foreign Born, Europe --> nativity:USC_ForeignBorn, placeOfBirth:europe
+Population: Gujarati --> age:Years5Onwards, languageSpokenAtHome:Gujarati
+Population: African Languages --> age:Years5Onwards, languageSpokenAtHome:AfricanLanguages
+Population Who Have Never Been Married --> age:Years15Onwards, maritalStatus:NeverMarried
