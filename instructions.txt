@@ -86,3 +86,32 @@ PYTHONPATH="$PYTHONPATH:$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_
 if in statvar_imports 
 a dataset contains multiple input files
 dont include it in poc-auto-schematization/input
+
+----------
+I want to create a script in tool/ which will help me to select the schema files from /Users/nehilsood/work/poc-auto-schematization/schema_example_files
+and put them in input folder 
+it will receive 
+input -> dataset_name -> test_data -> input.csv and sampled_data.csv
+                        -> metadata.csv
+
+using either input.csv or sampled_data.csv and metadata.csv it should select which sample schema is the best one 
+then copy the .mcf file and .txt file to input folder
+final input dir will look like
+├── input/                          
+│   ├── {dataset_name}/
+│   │   ├── test_data/
+│   │   │   ├── *_input.csv                          
+│   │   │   ├── *_input_sampled_data.csv             
+│   │   ├── *_metadata.csv          # Metadata configuration file(s)
+│   │   ├── scripts_*_schema_examples_*.txt  # Schema examples for category 
+│   │   └── scripts_*_statvars.mcf  # StatVar definitions for category (copied from schema folder)
+
+to identify the schema file
+you should give prompt to claude code in cli mode and it will do the above steps for you
+
+
+------------------
+Restructure whole @README.md properly to keep the important information and instructions to setup and guide first and then rest of the information
+do mention how the input is required and how the input should be structured (without sampling file and with sampling file, both cases)
+metadata.csv other required input files
+remove the redundant and repeated information

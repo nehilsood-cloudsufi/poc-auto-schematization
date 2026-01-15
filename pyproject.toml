@@ -1,0 +1,185 @@
+[project]
+name = "poc-auto-schematization"
+version = "0.1.0"
+description = "POC for automated Data Commons schema generation using Claude Code"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Data Commons
+    "datacommons>=1.4.3",
+    "datacommons-client>=2.1.4",
+
+    # Data Processing
+    "pandas>=2.3.3",
+    "numpy>=2.4.1",
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
+    "xlsxwriter>=3.2.9",
+    "python-calamine>=0.6.1",
+    "xarray>=2025.12.0",
+    "pyarrow>=22.0.0",
+
+    # Google Cloud Platform
+    "google-cloud-storage>=3.7.0",
+    "google-cloud-bigquery>=3.40.0",
+    "google-cloud-bigquery-storage>=2.36.0",
+    "google-cloud-logging>=3.13.0",
+    "google-cloud-core>=2.5.0",
+    "google-cloud-datastore>=2.23.0",
+    "google-cloud-spanner>=3.61.0",
+    "google-cloud-batch>=0.20.0",
+    "google-cloud-run>=0.13.0",
+    "google-cloud-scheduler>=2.17.0",
+    "google-cloud-secret-manager>=2.26.0",
+    "google-cloud-monitoring>=2.28.0",
+    "google-cloud-appengine-logging>=1.8.0",
+    "google-cloud-audit-log>=0.4.0",
+    "google-cloud-storage-control>=1.8.0",
+    "gcsfs>=2026.1.0",
+    "gspread>=6.2.1",
+
+    # Google APIs & Auth
+    "google-api-python-client>=2.187.0",
+    "google-api-core>=2.29.0",
+    "google-auth>=2.41.1",
+    "google-auth-httplib2>=0.3.0",
+    "google-auth-oauthlib>=1.2.3",
+    "google-crc32c>=1.8.0",
+    "google-resumable-media>=2.8.0",
+    "googleapis-common-protos>=1.72.0",
+
+    # HTTP & Networking
+    "requests>=2.32.5",
+    "aiohttp>=3.13.3",
+    "requests-cache>=1.2.1",
+    "requests-oauthlib>=2.0.0",
+    "urllib3>=2.6.3",
+    "httplib2>=0.31.0",
+    "oauthlib>=3.3.1",
+
+    # Data Formats & Parsing
+    "lxml>=6.0.2",
+    "beautifulsoup4>=4.14.3",
+    "soupsieve>=2.8.1",
+    "PyYAML>=6.0.3",
+    "protobuf>=6.33.3",
+    "proto-plus>=1.27.0",
+    "xmltodict>=1.0.2",
+    "et-xmlfile>=2.0.0",
+
+    # Geospatial
+    "geopy>=2.4.1",
+    "geojson>=3.2.0",
+    "shapely>=2.1.2",
+    "s2sphere>=0.2.5",
+    "arcgis2geojson>=3.1.1",
+    "geographiclib>=2.1",
+
+    # Database
+    "duckdb>=1.4.3",
+    "db-dtypes>=1.5.0",
+    "sqlparse>=0.5.5",
+    "sodapy>=2.2.0",
+
+    # Utilities
+    "tqdm>=4.67.1",
+    "psutil>=7.2.1",
+    "retry>=0.9.2",
+    "ratelimit>=2.2.1",
+    "func-timeout>=4.3.5",
+    "python-dateutil>=2.9.0.post0",
+    "pytz>=2025.2",
+    "tzdata>=2025.3",
+    "croniter>=6.0.0",
+
+    # Caching & Optimization
+    "cachetools>=6.2.4",
+    "requests-cache>=1.2.1",
+    "fsspec>=2026.1.0",
+
+    # Security & Crypto
+    "rsa>=4.9.1",
+    "pyasn1>=0.6.1",
+    "pyasn1-modules>=0.4.2",
+    "certifi>=2026.1.4",
+
+    # Encoding & Text
+    "chardet>=5.2.0",
+    "charset-normalizer>=3.4.4",
+    "idna>=3.11",
+    "url-normalize>=2.2.1",
+    "uritemplate>=4.2.0",
+
+    # Monitoring & Telemetry
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
+    "opentelemetry-semantic-conventions>=0.60b1",
+    "opentelemetry-resourcedetector-gcp>=1.11.0a0",
+
+    # gRPC
+    "grpcio>=1.76.0",
+    "grpcio-status>=1.76.0",
+    "grpc-google-iam-v1>=0.14.3",
+    "grpc-interceptor>=0.15.4",
+
+    # Configuration & Validation
+    "omegaconf>=2.3.0",
+    "pydantic>=2.12.5",
+    "pydantic-core>=2.41.5",
+    "annotated-types>=0.7.0",
+    "cattrs>=25.3.0",
+
+    # Utilities (continued)
+    "absl-py>=2.3.1",
+    "attrs>=25.4.0",
+    "decorator>=5.2.1",
+    "frozendict>=2.4.7",
+    "frozenlist>=1.8.0",
+    "future>=1.0.0",
+    "mmh3>=5.2.0",
+    "multidict>=6.7.0",
+    "packaging>=25.0",
+    "platformdirs>=4.5.1",
+    "pluggy>=1.6.0",
+    "prettytable>=3.17.0",
+    "propcache>=0.4.1",
+    "pyparsing>=3.3.1",
+    "pyspellchecker>=0.8.4",
+    "six>=1.17.0",
+    "typing-extensions>=4.15.0",
+    "typing-inspection>=0.4.2",
+    "wcwidth>=0.2.14",
+    "yarl>=1.22.0",
+    "zipp>=3.23.0",
+    "Pygments>=2.19.2",
+    "importlib-metadata>=8.7.1",
+
+    # ANTLR (parser generator)
+    "antlr4-python3-runtime>=4.9.3",
+
+    # Async support
+    "aiohappyeyeballs>=2.6.1",
+    "aiosignal>=1.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "py>=1.11.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools", "util"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tools"]
+python_files = ["*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

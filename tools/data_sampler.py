@@ -99,7 +99,7 @@ flags.DEFINE_float(
     'sampler_correlation_threshold', 0.95,
     'Threshold for detecting redundant column pairs.')
 flags.DEFINE_bool(
-    'sampler_verbose', False,
+    'sampler_verbose', True,
     'Output detailed report of column analysis and sampling decisions.')
 flags.DEFINE_string(
     'sampler_aggregation_keywords', 'Total,All,Sum,Overall,National,Combined,WHOLE,Entire,Grand',
@@ -107,6 +107,24 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'sampler_max_aggregation_rows', 2,
     'Maximum aggregation rows to include in sample.')
+flags.DEFINE_bool(
+    'sampler_auto_detect_headers', True,
+    'Automatically detect the number of header rows.')
+flags.DEFINE_bool(
+    'sampler_skip_empty_columns', True,
+    'Skip columns with empty headers or mostly empty values.')
+flags.DEFINE_bool(
+    'sampler_detect_footers', True,
+    'Detect and exclude footer/documentation rows.')
+flags.DEFINE_string(
+    'sampler_footer_keywords', 'Source,Note,Data from,Footnote,*,†,‡',
+    'Comma-separated keywords that indicate footer rows.')
+flags.DEFINE_integer(
+    'sampler_min_rows', 40,
+    'Minimum number of rows to output (prevents under-sampling).')
+flags.DEFINE_integer(
+    'sampler_max_rows', 80,
+    'Target maximum rows to output (soft cap for predictable sizing).')
 
 _FLAGS = flags.FLAGS
 
@@ -287,6 +305,224 @@ class DataSampler:
                 logging.level_debug() and logging.debug(
                     f'Mapped unique column "{column_name}" to index {index}')
 
+    def _auto_detect_header_rows(self, input_file: str) -> int:
+        """Automatically detect the number of header rows.
+
+        Analyzes the first 10 rows to detect header patterns:
+        - Rows with >50% empty cells
+        - Rows with metadata patterns (e.g., "Table X", "Year:")
+        - Rows that are all text with no numbers
+
+        Args:
+            input_file: Path to the CSV file.
+
+        Returns:
+            Detected number of header rows (defaults to 1 if uncertain).
+        """
+        try:
+            input_encoding = self._config.get('input_encoding')
+            if not input_encoding:
+                input_encoding = file_util.file_get_encoding(input_file)
+
+            with file_util.FileIO(input_file, encoding=input_encoding) as csv_file:
+                csv_options = {'delimiter': self._config.get('input_delimiter')}
+                csv_options = file_util.file_get_csv_reader_options(input_file, csv_options)
+                csv_reader = csv.reader(csv_file, **csv_options)
+
+                rows = []
+                for i, row in enumerate(csv_reader):
+                    if i >= 10:  # Only examine first 10 rows
+                        break
+                    rows.append(row)
+
+                if not rows:
+                    return 1
+
+                header_count = 0
+                for i, row in enumerate(rows):
+                    # Count empty cells
+                    empty_count = sum(1 for cell in row if not cell.strip())
+                    empty_ratio = empty_count / len(row) if len(row) > 0 else 1.0
+
+                    # Check for metadata patterns
+                    first_cell = row[0].strip() if row else ''
+                    metadata_patterns = ['table', 'figure', 'year:', 'note', 'source', '(number', 'unnamed:']
+                    is_metadata = any(pattern in first_cell.lower() for pattern in metadata_patterns)
+
+                    # Count numeric cells (for distinguishing data from headers)
+                    numeric_count = 0
+                    for cell in row:
+                        try:
+                            float(cell.replace(',', '').replace('%', '').strip())
+                            numeric_count += 1
+                        except (ValueError, AttributeError):
+                            pass
+                    numeric_ratio = numeric_count / len(row) if len(row) > 0 else 0
+
+                    # Consider a row a header if:
+                    # - It has many empty cells (>50%)
+                    # - It has metadata patterns
+                    # - It has very few numbers (<10%)
+                    # - AND it's within the first 5 rows
+                    if i < 5 and (empty_ratio > 0.5 or is_metadata or numeric_ratio < 0.1):
+                        header_count = i + 1
+                    else:
+                        # Found data row, stop counting headers
+                        break
+
+                # Default to 1 if we didn't detect any special headers
+                detected = max(1, header_count)
+
+                if self._config.get('sampler_verbose', False):
+                    logging.info(f'Auto-detected {detected} header row(s)')
+
+                return detected
+
+        except Exception as e:
+            logging.warning(f'Error auto-detecting headers: {e}. Defaulting to 1.')
+            return 1
+
+    def _copy_entire_file(self, input_file: str, output_file: str, header_rows: int, output_delimiter: str) -> str:
+        """Copy entire input file to output without sampling (for tiny datasets).
+
+        Args:
+            input_file: Path to input CSV file
+            output_file: Path to output CSV file
+            header_rows: Number of header rows
+            output_delimiter: Delimiter for output file
+
+        Returns:
+            Path to output file
+        """
+        input_encoding = self._config.get('input_encoding')
+        if not input_encoding:
+            input_encoding = file_util.file_get_encoding(input_file)
+
+        with file_util.FileIO(input_file, encoding=input_encoding) as csv_file:
+            csv_options = {'delimiter': self._config.get('input_delimiter')}
+            csv_options = file_util.file_get_csv_reader_options(input_file, csv_options)
+
+            if not output_delimiter:
+                output_delimiter = csv_options.get('delimiter', ',')
+
+            with file_util.FileIO(output_file, mode='w') as output:
+                csv_writer = csv.writer(output, delimiter=output_delimiter, doublequote=False, escapechar='\\')
+                csv_reader = csv.reader(csv_file, **csv_options)
+
+                for row in csv_reader:
+                    csv_writer.writerow(row)
+                    self._selected_rows += 1
+
+        logging.info(f'Copied all {self._selected_rows} rows from {input_file} to {output_file}')
+        return output_file
+
+    def _add_random_rows_to_output(self, input_files: list[str], output_file: str,
+                                   header_rows: int, rows_needed: int, output_delimiter: str) -> None:
+        """Add random rows to output file to reach minimum/target threshold.
+
+        Args:
+            input_files: List of input CSV files
+            output_file: Path to output file (will append to it)
+            header_rows: Number of header rows to skip
+            rows_needed: Number of additional rows needed
+            output_delimiter: Delimiter for output
+        """
+        # Collect all data rows that weren't already selected
+        available_rows = []
+
+        for file in input_files:
+            input_encoding = self._config.get('input_encoding')
+            if not input_encoding:
+                input_encoding = file_util.file_get_encoding(file)
+
+            with file_util.FileIO(file, encoding=input_encoding) as csv_file:
+                csv_options = {'delimiter': self._config.get('input_delimiter')}
+                csv_options = file_util.file_get_csv_reader_options(file, csv_options)
+                csv_reader = csv.reader(csv_file, **csv_options)
+
+                row_index = 0
+                for row in csv_reader:
+                    row_index += 1
+                    # Skip header rows
+                    if row_index <= header_rows:
+                        continue
+
+                    # Check if this row was already selected
+                    sig = self._get_row_signature(row)
+                    if sig not in self._selected_signatures:
+                        available_rows.append(row)
+
+        # Randomly sample from available rows
+        if available_rows:
+            actual_rows_to_add = min(rows_needed, len(available_rows))
+            rows_to_add = random.sample(available_rows, actual_rows_to_add)
+
+            # Append to output file
+            with file_util.FileIO(output_file, mode='a') as output:
+                csv_writer = csv.writer(output, delimiter=output_delimiter, doublequote=False, escapechar='\\')
+                for row in rows_to_add:
+                    csv_writer.writerow(row)
+                    self._selected_rows += 1
+
+    def _detect_footer_start(self, rows: list[list[str]], start_index: int = 0) -> int:
+        """Detect the starting index of footer/documentation rows.
+
+        Analyzes rows from the end to detect footer patterns:
+        - Rows containing footer keywords in the first column
+        - Rows with significantly different structure than data rows
+
+        Args:
+            rows: All rows from the CSV (including headers).
+            start_index: Index to start checking from (skip headers).
+
+        Returns:
+            Index where footer starts, or len(rows) if no footer detected.
+        """
+        if not rows or len(rows) <= start_index:
+            return len(rows)
+
+        footer_keywords_str = self._config.get('sampler_footer_keywords', '')
+        if not footer_keywords_str:
+            return len(rows)
+
+        footer_keywords = [kw.strip().lower() for kw in footer_keywords_str.split(',') if kw.strip()]
+
+        # Check last 20 rows for footer patterns
+        check_from = max(start_index, len(rows) - 20)
+        data_rows = rows[start_index:check_from]
+
+        # Calculate baseline: average number of non-empty cells in data rows
+        if data_rows:
+            avg_non_empty = sum(sum(1 for cell in row if cell.strip()) for row in data_rows) / len(data_rows)
+        else:
+            avg_non_empty = 0
+
+        footer_start = len(rows)
+
+        for i in range(check_from, len(rows)):
+            row = rows[i]
+            if not row:
+                continue
+
+            # Check first cell for footer keywords
+            first_cell = row[0].strip().lower() if row else ''
+            has_footer_keyword = any(keyword in first_cell for keyword in footer_keywords)
+
+            # Count non-empty cells
+            non_empty = sum(1 for cell in row if cell.strip())
+
+            # Consider it a footer if:
+            # - Contains footer keywords in first column
+            # - OR has significantly fewer non-empty cells than data rows (< 30% of average)
+            if has_footer_keyword or (avg_non_empty > 0 and non_empty < avg_non_empty * 0.3):
+                footer_start = i
+                break
+
+        if footer_start < len(rows) and self._config.get('sampler_verbose', False):
+            logging.info(f'Detected footer starting at row {footer_start + 1} ({len(rows) - footer_start} rows)')
+
+        return footer_start
+
     def _detect_id_columns(self, headers: list[str]) -> set[int]:
         """Detect likely identifier columns by name patterns.
 
@@ -314,6 +550,29 @@ class DataSampler:
 
         return id_indices
 
+    def _get_adaptive_threshold(self, total_rows: int) -> float:
+        """Calculate adaptive categorical threshold based on dataset size.
+
+        Args:
+            total_rows: Total number of data rows in the dataset.
+
+        Returns:
+            Categorical threshold value (0.05 to 0.2).
+        """
+        if total_rows < 500:
+            threshold = 0.2  # 20% for small datasets
+        elif total_rows < 2000:
+            threshold = 0.1  # 10% for medium datasets
+        else:
+            threshold = 0.05  # 5% for large datasets
+
+        if self._config.get('sampler_verbose', False):
+            logging.info(
+                f'Using adaptive categorical threshold: {threshold:.2%} '
+                f'(dataset size: {total_rows} rows)')
+
+        return threshold
+
     def _detect_categorical_columns(self, rows: list[list[str]],
                                      headers: list[str]) -> dict[int, set[str]]:
         """Analyze rows to detect categorical columns.
@@ -332,8 +591,9 @@ class DataSampler:
         if not rows:
             return {}
 
-        threshold = self._config.get('sampler_categorical_threshold', 0.1)
         num_rows = len(rows)
+        # Use adaptive threshold based on dataset size
+        threshold = self._get_adaptive_threshold(num_rows)
         num_columns = len(headers) if headers else (len(rows[0]) if rows else 0)
 
         # Count unique values per column
@@ -899,6 +1159,13 @@ class DataSampler:
         input_files = file_util.file_get_matching(input_file)
         if not input_files:
             return None
+
+        # Auto-detect header rows if enabled
+        auto_detect_headers = self._config.get('sampler_auto_detect_headers', True)
+        if auto_detect_headers and header_rows == 1:
+            # Only auto-detect if default value (1) is being used
+            detected_headers = self._auto_detect_header_rows(input_files[0])
+            header_rows = detected_headers
         output_delimiter = self._config.get('output_delimiter')
         if not output_file:
             # Save in the same directory as input with naming convention sampled_data.csv
@@ -906,6 +1173,18 @@ class DataSampler:
             output_file = os.path.join(input_dir, 'sampled_data.csv')
         # Set sampling rate by file size
         num_rows = file_util.file_estimate_num_rows(input_files)
+
+        # NEW: Early exit for tiny datasets
+        min_rows = self._config.get('sampler_min_rows', 40)
+        if num_rows and num_rows <= min_rows:
+            if self._config.get('sampler_verbose', True):
+                logging.info(
+                    f'Dataset has {num_rows} rows (≤ min {min_rows}). '
+                    'Outputting entire dataset without sampling.'
+                )
+            # Just copy the entire file
+            return self._copy_entire_file(input_files[0], output_file, header_rows, output_delimiter)
+
         if num_rows and self._config.get('sampler_rate') < 0:
             if max_rows > 0:
                 sample_rate = float(max_rows) / float(num_rows)
@@ -1006,9 +1285,31 @@ class DataSampler:
                             f'Coverage for {col_name}: {col_stats["covered"]}/{col_stats["total"]} values'
                         )
 
+        # NEW: Minimum row guarantee - add more rows if needed
+        min_rows = self._config.get('sampler_min_rows', 40)
+        max_rows_target = self._config.get('sampler_max_rows', 80)
+
+        if self._selected_rows < min_rows:
+            rows_needed = min_rows - self._selected_rows
+            if self._config.get('sampler_verbose', True):
                 logging.info(
-                    f'Sampled {self._selected_rows} rows from {file} into {output_file}'
+                    f'Categorical coverage produced {self._selected_rows} rows. '
+                    f'Adding {rows_needed} random rows to reach minimum ({min_rows}).'
                 )
+            self._add_random_rows_to_output(input_files, output_file, header_rows, rows_needed, output_delimiter)
+
+        elif self._selected_rows < max_rows_target:
+            rows_to_add = min(max_rows_target - self._selected_rows, num_rows - self._selected_rows if num_rows else 0)
+            if rows_to_add > 0 and self._config.get('sampler_verbose', True):
+                logging.info(
+                    f'Adding {rows_to_add} more random rows to approach target ({max_rows_target}).'
+                )
+            if rows_to_add > 0:
+                self._add_random_rows_to_output(input_files, output_file, header_rows, rows_to_add, output_delimiter)
+
+        logging.info(
+            f'Sampled {self._selected_rows} rows from {input_files} into {output_file}'
+        )
         logging.level_debug() and logging.debug(
             f'Column counts: {self._column_counts}')
         return output_file
@@ -1115,6 +1416,10 @@ def get_default_config() -> dict:
         'sampler_verbose': _FLAGS.sampler_verbose,
         'sampler_aggregation_keywords': _FLAGS.sampler_aggregation_keywords,
         'sampler_max_aggregation_rows': _FLAGS.sampler_max_aggregation_rows,
+        'sampler_auto_detect_headers': _FLAGS.sampler_auto_detect_headers,
+        'sampler_skip_empty_columns': _FLAGS.sampler_skip_empty_columns,
+        'sampler_detect_footers': _FLAGS.sampler_detect_footers,
+        'sampler_footer_keywords': _FLAGS.sampler_footer_keywords,
     }
 
 

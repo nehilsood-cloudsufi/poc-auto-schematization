@@ -28,12 +28,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Import data sampler for Phase 2 integration
+from tools.data_sampler import sample_csv_file as data_sample_csv_file
+
+# Import schema selector for Phase 2.5 integration
+from tools import schema_selector
+
 # Constants
 BASE_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 TOOLS_DIR = BASE_DIR / "tools"
 LOGS_DIR = BASE_DIR / "logs"
+SCHEMA_BASE_DIR = BASE_DIR / "schema_example_files"
 PROMPT_TEMPLATE = TOOLS_DIR / "improved_pvmap_prompt.txt"
 
 MAX_RETRIES = 2
@@ -49,6 +56,7 @@ class DatasetInfo:
 
         # Files to be discovered
         self.schema_examples: Optional[Path] = None
+        self.schema_mcf: Optional[Path] = None
         self.metadata_files: List[Path] = []
         self.sampled_data_files: List[Path] = []
         self.input_data_files: List[Path] = []
@@ -128,6 +136,11 @@ def discover_datasets(input_dir: Path) -> List[DatasetInfo]:
         schema_files = list(dataset_path.glob("scripts_*_schema_examples_*.txt"))
         if schema_files:
             dataset.schema_examples = schema_files[0]
+
+        # Find schema MCF files
+        schema_mcf_files = list(dataset_path.glob("scripts_statvar_llm_config_vertical_*.mcf"))
+        if schema_mcf_files:
+            dataset.schema_mcf = schema_mcf_files[0]
 
         # Find metadata files
         dataset.metadata_files = list(dataset_path.glob("*_metadata.csv"))
@@ -238,12 +251,34 @@ def merge_metadata_files(files: List[Path], output_path: Path, logger: logging.L
         return False
 
 
-def prepare_dataset(dataset: DatasetInfo, logger: logging.Logger) -> bool:
-    """Prepare dataset by combining/merging files as needed."""
+def prepare_dataset(
+    dataset: DatasetInfo,
+    logger: logging.Logger,
+    skip_sampling: bool = False,
+    force_resample: bool = False,
+    skip_schema_selection: bool = False,
+    force_schema_selection: bool = False,
+    schema_base_dir: Path = None
+) -> bool:
+    """Prepare dataset by combining/merging files as needed (integrates Phase 2 sampling and Phase 2.5 schema selection)."""
     logger.info(f"Preparing dataset: {dataset.name}")
 
     # Create output directory
     dataset.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # [PHASE 2 INTEGRATION] Sample data if needed
+    if not skip_sampling:
+        if not sample_dataset_files(dataset, logger, force_resample):
+            logger.error(f"Failed to sample data for {dataset.name}")
+            return False
+
+    # [PHASE 2.5 INTEGRATION] Select and copy schema files
+    if not skip_schema_selection:
+        if schema_base_dir is None:
+            schema_base_dir = SCHEMA_BASE_DIR
+        if not select_schema_for_dataset(dataset, logger, schema_base_dir, force_schema_selection):
+            logger.error(f"Failed to select schema for {dataset.name}")
+            return False
 
     # Combine sampled data files
     if dataset.sampled_data_files:
@@ -278,6 +313,216 @@ def prepare_dataset(dataset: DatasetInfo, logger: logging.Logger) -> bool:
         return False
 
     logger.info(f"Dataset {dataset.name} prepared successfully")
+    return True
+
+
+def sample_dataset_files(
+    dataset: DatasetInfo,
+    logger: logging.Logger,
+    force_resample: bool = False
+) -> bool:
+    """Sample input data files if needed (Phase 2 integration).
+
+    Args:
+        dataset: DatasetInfo object
+        logger: Logger instance
+        force_resample: If True, resample even if files exist
+
+    Returns:
+        True if sampling successful or skipped, False if error
+    """
+    # Check if sampled files already exist
+    existing_sampled = list(dataset.test_data_path.glob("*_sampled_data.csv"))
+    existing_sampled = [f for f in existing_sampled if not f.name.startswith("combined_")]
+
+    if existing_sampled and not force_resample:
+        logger.info(f"Using existing sampled data: {[f.name for f in existing_sampled]}")
+        dataset.sampled_data_files = existing_sampled
+        return True
+
+    if not dataset.input_data_files:
+        logger.warning(f"No input data files found for sampling in {dataset.name}")
+        return False
+
+    # Sample each input file
+    logger.info(f"Sampling {len(dataset.input_data_files)} input file(s)...")
+    sampled_files = []
+
+    # Default sampler configuration (matching README Phase 2)
+    sampler_config = {
+        'sampler_output_rows': 100,
+        'sampler_rows_per_key': 5,
+        'sampler_categorical_threshold': 0.1,
+        'sampler_max_aggregation_rows': 2,
+        'sampler_ensure_coverage': True,
+        'sampler_smart_columns': True,
+        'sampler_detect_aggregation': True,
+        'sampler_auto_detect_categorical': True,
+    }
+
+    for input_file in dataset.input_data_files:
+        try:
+            # Generate output path: {input_basename}_sampled_data.csv
+            output_name = f"{input_file.stem}_sampled_data.csv"
+            output_path = dataset.test_data_path / output_name
+
+            logger.info(f"  Sampling {input_file.name} → {output_name}")
+
+            # Call data sampler
+            result = data_sample_csv_file(
+                input_file=str(input_file),
+                output_file=str(output_path),
+                config=sampler_config
+            )
+
+            if result and Path(result).exists():
+                sampled_files.append(Path(result))
+                logger.info(f"  ✓ Sampled {input_file.name} ({Path(result).stat().st_size} bytes)")
+            else:
+                logger.error(f"  ✗ Failed to sample {input_file.name}")
+                return False
+
+        except Exception as e:
+            logger.error(f"  ✗ Error sampling {input_file.name}: {e}")
+            return False
+
+    dataset.sampled_data_files = sampled_files
+    logger.info(f"Successfully sampled {len(sampled_files)} file(s)")
+    return True
+
+
+def select_schema_for_dataset(
+    dataset: DatasetInfo,
+    logger: logging.Logger,
+    schema_base_dir: Path,
+    force: bool = False
+) -> bool:
+    """
+    Select and copy appropriate schema files for a dataset.
+
+    Args:
+        dataset: DatasetInfo object with dataset details
+        logger: Logger instance for tracking progress
+        schema_base_dir: Path to schema_example_files directory
+        force: If True, re-select schema even if files exist
+
+    Returns:
+        bool: True if successful or skipped, False if error
+    """
+    logger.info(f"Phase 2.5: Selecting schema for {dataset.name}...")
+
+    # Check if schema files already exist
+    if not force:
+        has_schema = schema_selector.check_schema_files_exist(dataset.path)
+        if has_schema:
+            logger.info(f"  ✓ Schema files already exist (use --force-schema-selection to re-select)")
+            return True
+
+    # Validate schema base directory
+    if not schema_base_dir.exists():
+        logger.error(f"  ✗ Schema base directory not found: {schema_base_dir}")
+        return False
+
+    # Validate input directory and get metadata files
+    try:
+        metadata_files = schema_selector.validate_input_directory(dataset.path)
+    except ValueError as e:
+        logger.error(f"  ✗ Directory validation failed: {e}")
+        return False
+
+    # Merge metadata files if multiple
+    combined_metadata_path = None
+    try:
+        if len(metadata_files) > 1:
+            logger.info(f"  Found {len(metadata_files)} metadata files, merging...")
+            combined_metadata_path = dataset.path / "combined_metadata_temp.csv"
+            schema_selector.merge_metadata_files(metadata_files, combined_metadata_path)
+            metadata_file = combined_metadata_path
+        else:
+            metadata_file = metadata_files[0]
+    except Exception as e:
+        logger.error(f"  ✗ Failed to merge metadata files: {e}")
+        return False
+
+    # Generate data preview
+    try:
+        logger.info("  Generating data preview from sampled data...")
+        data_preview = schema_selector.generate_data_preview(dataset.path)
+    except Exception as e:
+        logger.error(f"  ✗ Failed to generate data preview: {e}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+
+    # Get category information
+    category_info = schema_selector.get_category_info(schema_base_dir)
+    if not category_info:
+        logger.error(f"  ✗ No schema categories found in {schema_base_dir}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+
+    # Generate schema previews
+    try:
+        schema_previews = schema_selector.generate_schema_previews(schema_base_dir)
+    except Exception as e:
+        logger.error(f"  ✗ Failed to generate schema previews: {e}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+
+    # Build Claude prompt
+    prompt = schema_selector.build_claude_prompt(
+        category_info,
+        schema_previews,
+        metadata_file,
+        data_preview
+    )
+
+    # Invoke Claude CLI
+    try:
+        logger.info("  Invoking Claude CLI to select schema category...")
+        selected_category = schema_selector.invoke_claude_cli(prompt, logger)
+
+        if not selected_category:
+            logger.error("  ✗ Failed to select schema category")
+            if combined_metadata_path and combined_metadata_path.exists():
+                combined_metadata_path.unlink()
+            return False
+
+        logger.info(f"  ✓ Selected schema category: {selected_category}")
+    except Exception as e:
+        logger.error(f"  ✗ Claude CLI invocation failed: {e}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+
+    # Copy schema files
+    try:
+        copied_files = schema_selector.copy_schema_files(
+            schema_base_dir,
+            selected_category,
+            dataset.path
+        )
+
+        if copied_files:
+            logger.info(f"  ✓ Successfully copied {len(copied_files)} schema file(s):")
+            for file in copied_files:
+                logger.info(f"    - {file.name}")
+        else:
+            logger.warning(f"  ⚠ No schema files were copied for category: {selected_category}")
+    except Exception as e:
+        logger.error(f"  ✗ Failed to copy schema files: {e}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+    finally:
+        # Clean up temporary combined metadata file
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+            logger.debug("  Cleaned up temporary metadata file")
+
+    logger.info(f"✓ Phase 2.5: Schema selection completed for {dataset.name}")
     return True
 
 
@@ -637,13 +882,152 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
         return False, error_msg
 
 
+def find_ground_truth_pvmap(dataset_name: str, source_repo: Path) -> Optional[Path]:
+    """Find ground truth PVMAP in datacommonsorg-data repo (Phase 5 integration).
+
+    Args:
+        dataset_name: Name of dataset (e.g., 'bis_bis_central_bank_policy_rate')
+        source_repo: Path to datacommonsorg-data repo
+
+    Returns:
+        Path to ground truth PVMAP if found, None otherwise
+    """
+    if not source_repo or not source_repo.exists():
+        return None
+
+    statvar_imports = source_repo / "statvar_imports"
+    if not statvar_imports.exists():
+        return None
+
+    # Extract category from dataset name (e.g., 'bis' from 'bis_bis_central_bank_policy_rate')
+    parts = dataset_name.split('_')
+
+    # Strategy 1: Direct folder match
+    if parts:
+        category_path = statvar_imports / parts[0]
+        if category_path.exists():
+            for potential_folder in category_path.iterdir():
+                if potential_folder.is_dir():
+                    pvmap_files = list(potential_folder.glob("*_pvmap.csv"))
+                    if pvmap_files and dataset_name.lower() in potential_folder.name.lower():
+                        return pvmap_files[0]
+
+    # Strategy 2: Substring match across all categories
+    for category_folder in statvar_imports.iterdir():
+        if not category_folder.is_dir():
+            continue
+        for dataset_folder in category_folder.iterdir():
+            if not dataset_folder.is_dir():
+                continue
+            # Check if dataset name matches folder
+            if dataset_name.lower() in dataset_folder.name.lower():
+                pvmap_files = list(dataset_folder.glob("*_pvmap.csv"))
+                if pvmap_files:
+                    return pvmap_files[0]
+
+    return None
+
+
+def evaluate_generated_pvmap(
+    dataset: DatasetInfo,
+    logger: logging.Logger,
+    source_repo: Path,
+    skip_eval: bool = False
+) -> Tuple[bool, Optional[Dict]]:
+    """Evaluate generated PVMAP against ground truth (Phase 5 integration).
+
+    Args:
+        dataset: DatasetInfo object
+        logger: Logger instance
+        source_repo: Path to datacommonsorg-data repo
+        skip_eval: If True, skip evaluation
+
+    Returns:
+        Tuple of (success, metrics_dict or None)
+    """
+    if skip_eval:
+        logger.info("Evaluation skipped (--skip-evaluation)")
+        return True, None
+
+    if not dataset.pvmap_path.exists():
+        logger.warning("Generated PVMAP not found, skipping evaluation")
+        return True, None
+
+    try:
+        # Find ground truth
+        gt_pvmap_path = find_ground_truth_pvmap(dataset.name, source_repo)
+        if not gt_pvmap_path:
+            logger.info(f"Ground truth PVMAP not found for {dataset.name}, skipping evaluation")
+            return True, None
+
+        logger.info(f"Found ground truth: {gt_pvmap_path.name}")
+
+        # Lazy import evaluation function
+        try:
+            from evaluate_pvmap_diff import compare_pvmaps_diff
+        except ImportError:
+            logger.warning("evaluate_pvmap_diff module not available, skipping evaluation")
+            return True, None
+
+        # Create evaluation output directory
+        eval_dir = dataset.output_dir / "eval_results"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run comparison
+        logger.info(f"Evaluating PVMAP against ground truth...")
+        counters, diff_str = compare_pvmaps_diff(
+            str(dataset.pvmap_path),
+            str(gt_pvmap_path),
+            str(eval_dir)
+        )
+
+        # Calculate and log metrics
+        nodes_gt = counters.get('nodes-ground-truth', 0)
+        nodes_matched = counters.get('nodes-matched', 0)
+        pvs_matched = counters.get('PVs-matched', 0)
+        pvs_total = pvs_matched + counters.get('pvs-modified', 0) + counters.get('pvs-deleted', 0)
+
+        node_accuracy = (nodes_matched / nodes_gt * 100) if nodes_gt > 0 else 0
+        pv_accuracy = (pvs_matched / pvs_total * 100) if pvs_total > 0 else 0
+
+        logger.info(f"Evaluation complete: Node Acc={node_accuracy:.1f}%, PV Acc={pv_accuracy:.1f}%")
+
+        # Return metrics for aggregate reporting
+        return True, {
+            'node_accuracy': node_accuracy,
+            'pv_accuracy': pv_accuracy,
+            'nodes_matched': nodes_matched,
+            'nodes_ground_truth': nodes_gt,
+            'pvs_matched': pvs_matched,
+            'pvs_total': pvs_total
+        }
+
+    except FileNotFoundError as e:
+        logger.warning(f"Evaluation failed - file not found: {e}")
+        return True, None
+    except Exception as e:
+        logger.warning(f"Evaluation failed (non-critical): {e}")
+        return True, None
+
+
 def process_dataset(
     dataset: DatasetInfo,
     logger: logging.Logger,
     dataset_logger: logging.Logger,
-    dry_run: bool = False
-) -> bool:
-    """Process a single dataset through the full pipeline."""
+    dry_run: bool = False,
+    skip_sampling: bool = False,
+    force_resample: bool = False,
+    skip_schema_selection: bool = False,
+    force_schema_selection: bool = False,
+    schema_base_dir: Optional[Path] = None,
+    skip_evaluation: bool = False,
+    ground_truth_repo: Optional[Path] = None
+) -> Tuple[bool, Optional[Dict]]:
+    """Process a single dataset through the full pipeline (integrates Phase 2, 2.5 & 5).
+
+    Returns:
+        Tuple of (success, eval_metrics_dict or None)
+    """
     logger.info(f"\n{'='*60}")
     logger.info(f"Processing dataset: {dataset.name}")
     logger.info(f"{'='*60}")
@@ -662,18 +1046,26 @@ def process_dataset(
 
     if dry_run:
         logger.info("[DRY RUN] Would process this dataset")
-        return True
+        return True, None
 
-    # Step 1: Prepare dataset (combine/merge files)
-    if not prepare_dataset(dataset, dataset_logger):
+    # Step 1: Prepare dataset (combine/merge files, includes Phase 2 sampling & Phase 2.5 schema selection)
+    if not prepare_dataset(
+        dataset,
+        dataset_logger,
+        skip_sampling,
+        force_resample,
+        skip_schema_selection,
+        force_schema_selection,
+        schema_base_dir or SCHEMA_BASE_DIR
+    ):
         logger.error(f"Failed to prepare dataset: {dataset.name}")
-        return False
+        return False, None
 
     # Step 2: Populate prompt
     prompt = populate_prompt(dataset, dataset_logger)
     if not prompt:
         logger.error(f"Failed to populate prompt for: {dataset.name}")
-        return False
+        return False, None
 
     # Step 3: Generate PVMAP (with retry logic)
     error_feedback = None
@@ -690,23 +1082,31 @@ def process_dataset(
                 continue
             else:
                 logger.error(f"Max retries exceeded for: {dataset.name}")
-                return False
+                return False, None
 
         # Step 4: Automated validation
         valid, error = run_validation(dataset, dataset_logger)
 
         if valid:
+            # [PHASE 5 INTEGRATION] Evaluate against ground truth
+            eval_success, eval_metrics = evaluate_generated_pvmap(
+                dataset,
+                dataset_logger,
+                ground_truth_repo,
+                skip_evaluation
+            )
+
             logger.info(f"Dataset completed successfully: {dataset.name}")
-            return True
+            return True, eval_metrics
         else:
             # Retry with error feedback
             logger.warning(f"Validation failed, will retry with error feedback")
             error_feedback = error
             if attempt >= MAX_RETRIES:
                 logger.error(f"Max retries exceeded for: {dataset.name}")
-                return False
+                return False, None
 
-    return False
+    return False, None
 
 
 def main():
@@ -729,8 +1129,62 @@ def main():
         action='store_true',
         help='Show what would be processed without executing'
     )
+    parser.add_argument(
+        '--skip-sampling',
+        action='store_true',
+        help='Skip sampling phase (use existing sampled data)'
+    )
+    parser.add_argument(
+        '--force-resample',
+        action='store_true',
+        help='Force re-sampling even if sampled data exists'
+    )
+    parser.add_argument(
+        '--skip-schema-selection',
+        action='store_true',
+        help='Skip schema selection phase (use existing schema files)'
+    )
+    parser.add_argument(
+        '--force-schema-selection',
+        action='store_true',
+        help='Force re-selection of schema files even if they exist'
+    )
+    parser.add_argument(
+        '--schema-base-dir',
+        type=str,
+        default=str(BASE_DIR / "schema_example_files"),
+        help='Path to schema files directory (default: schema_example_files/)'
+    )
+    parser.add_argument(
+        '--skip-evaluation',
+        action='store_true',
+        help='Skip evaluation phase (Phase 5)'
+    )
+    parser.add_argument(
+        '--ground-truth-repo',
+        type=str,
+        default=str(BASE_DIR.parent / "datacommonsorg-data"),
+        help='Path to datacommonsorg-data repo for ground truth PVMAPs'
+    )
+    parser.add_argument(
+        '--input-dir',
+        type=str,
+        default='input',
+        help='Input directory containing datasets (default: input/)'
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='output',
+        help='Output directory for generated PVMAPs (default: output/)'
+    )
 
     args = parser.parse_args()
+
+    # Override INPUT_DIR and OUTPUT_DIR from command-line arguments
+    global INPUT_DIR, OUTPUT_DIR
+    INPUT_DIR = BASE_DIR / args.input_dir
+    OUTPUT_DIR = BASE_DIR / args.output_dir
 
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -768,21 +1222,45 @@ def main():
         'processed': 0,
         'successful': 0,
         'failed': 0,
-        'skipped': 0
+        'skipped': 0,
+        'evaluated': 0
     }
+
+    # Track evaluation metrics for aggregate reporting
+    eval_metrics_list = []
+    ground_truth_repo_path = Path(args.ground_truth_repo) if args.ground_truth_repo else None
+
+    # Determine schema base directory
+    schema_base_dir_path = Path(args.schema_base_dir) if args.schema_base_dir else SCHEMA_BASE_DIR
+    if not schema_base_dir_path.exists():
+        logger.warning(f"Schema base directory not found: {schema_base_dir_path}")
+        logger.warning("Schema selection may fail for some datasets")
 
     for dataset in datasets:
         # Setup per-dataset logging
         dataset_logger = setup_dataset_logging(dataset.name, timestamp)
 
         try:
-            success = process_dataset(
-                dataset, logger, dataset_logger, dry_run=args.dry_run
+            success, eval_metrics = process_dataset(
+                dataset,
+                logger,
+                dataset_logger,
+                dry_run=args.dry_run,
+                skip_sampling=args.skip_sampling,
+                force_resample=args.force_resample,
+                skip_schema_selection=args.skip_schema_selection,
+                force_schema_selection=args.force_schema_selection,
+                schema_base_dir=schema_base_dir_path,
+                skip_evaluation=args.skip_evaluation,
+                ground_truth_repo=ground_truth_repo_path
             )
 
             results['processed'] += 1
             if success:
                 results['successful'] += 1
+                if eval_metrics:
+                    results['evaluated'] += 1
+                    eval_metrics_list.append(eval_metrics)
             else:
                 results['failed'] += 1
 
@@ -801,7 +1279,19 @@ def main():
     logger.info(f"Processed: {results['processed']}")
     logger.info(f"Successful: {results['successful']}")
     logger.info(f"Failed: {results['failed']}")
-    logger.info(f"Completed: {datetime.now().isoformat()}")
+
+    # Add evaluation metrics summary (Phase 5 integration)
+    if eval_metrics_list:
+        avg_node_acc = sum(m['node_accuracy'] for m in eval_metrics_list) / len(eval_metrics_list)
+        avg_pv_acc = sum(m['pv_accuracy'] for m in eval_metrics_list) / len(eval_metrics_list)
+        logger.info(f"\nEvaluation Metrics:")
+        logger.info(f"  Evaluated: {results['evaluated']}/{results['processed']} datasets")
+        logger.info(f"  Avg Node Accuracy: {avg_node_acc:.1f}%")
+        logger.info(f"  Avg PV Accuracy: {avg_pv_acc:.1f}%")
+    elif not args.skip_evaluation:
+        logger.info(f"\nEvaluation: 0 datasets evaluated (no ground truth found)")
+
+    logger.info(f"\nCompleted: {datetime.now().isoformat()}")
     logger.info(f"Log file: {log_file}")
 
     return 0 if results['failed'] == 0 else 1

@@ -218,3 +218,6 @@ __marimo__/
 # Project-specific
 input/*
 output/*
+test_input/*
+test_output/*
+.DS_Store

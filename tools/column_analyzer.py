@@ -168,25 +168,44 @@ class ColumnAnalyzer:
             return None
 
     def _detect_constant_columns(self) -> set:
-        """Detect columns with very few unique values (nearly constant).
+        """Detect columns with very few unique values (nearly constant) or empty columns.
 
         Returns:
-            Set of column indices that are constant or near-constant.
+            Set of column indices that are constant, near-constant, or empty.
         """
         constant_cols = set()
 
         for col_idx in range(self._num_cols):
+            header = self._headers[col_idx] if col_idx < len(self._headers) else f'col_{col_idx}'
+
+            # Check for empty header
+            if not header or not header.strip():
+                constant_cols.add(col_idx)
+                logging.debug(f'Empty header detected at column {col_idx}')
+                continue
+
             unique_count = len(self._column_unique[col_idx])
             unique_ratio = unique_count / self._num_rows if self._num_rows > 0 else 1.0
 
-            # Column is constant if it has very few unique values
-            if unique_ratio <= self._constant_threshold or unique_count <= 1:
+            # Count empty values in column
+            empty_count = sum(1 for val in self._column_values[col_idx] if not val or not val.strip())
+            empty_ratio = empty_count / self._num_rows if self._num_rows > 0 else 0
+
+            # Column is constant/empty if:
+            # - Has very few unique values
+            # - Has only 1 unique value
+            # - Has >95% empty values
+            if unique_ratio <= self._constant_threshold or unique_count <= 1 or empty_ratio > 0.95:
                 constant_cols.add(col_idx)
-                header = self._headers[col_idx] if col_idx < len(self._headers) else f'col_{col_idx}'
-                logging.debug(
-                    f'Constant column detected: "{header}" '
-                    f'({unique_count} unique / {self._num_rows} rows = {unique_ratio:.2%})'
-                )
+                if empty_ratio > 0.95:
+                    logging.debug(
+                        f'Empty column detected: "{header}" '
+                        f'({empty_count}/{self._num_rows} empty = {empty_ratio:.1%})')
+                else:
+                    logging.debug(
+                        f'Constant column detected: "{header}" '
+                        f'({unique_count} unique / {self._num_rows} rows = {unique_ratio:.2%})'
+                    )
 
         return constant_cols
 
