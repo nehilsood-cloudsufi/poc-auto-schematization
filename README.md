@@ -50,7 +50,10 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 
 - Python 3.12+ installed
 - Claude Code CLI installed ([guide](https://github.com/anthropics/claude-code))
-- Anthropic API key
+- **Anthropic API key** (required only if you don't have an active Claude Code subscription)
+  - Currently, this pipeline only supports Claude CLI
+  - If using API key: `export ANTHROPIC_API_KEY="your-api-key-here"`
+  - If you have a Claude Code subscription, the CLI will use your subscription automatically
 
 ### Installation
 
@@ -70,7 +73,8 @@ source .venv/bin/activate        # uv
 source venv/bin/activate         # pip
 
 # Set environment variables
-export ANTHROPIC_API_KEY="your-api-key-here"
+# NOTE: ANTHROPIC_API_KEY is only required if you don't have an active Claude Code subscription
+export ANTHROPIC_API_KEY="your-api-key-here"  # Skip this if you have Claude Code subscription
 export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
 ```
 
