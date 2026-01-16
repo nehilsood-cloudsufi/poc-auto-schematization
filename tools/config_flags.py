@@ -529,13 +529,13 @@ def get_value_type(value: str, default_value):
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
-            match value.lower():
-                case 'true':
-                    return True
-                case 'false':
-                    return False
-                case '':
-                    return False
+            value_lower = value.lower()
+            if value_lower == 'true':
+                return True
+            elif value_lower == 'false':
+                return False
+            elif value_lower == '':
+                return False
         return get_numeric_value(value) > 0
     if value_type is dict or value_type is OrderedDict:
         if isinstance(value, str):

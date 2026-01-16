@@ -5,7 +5,7 @@ This guide walks you through setting up the PVMAP Pipeline environment from scra
 ## Prerequisites
 
 Before starting, ensure you have:
-- **Python 3.9 or higher** installed
+- **Python 3.12 or higher** installed
 - **Git** installed
 - An **Anthropic API key** for Claude Code CLI
 - **Claude Code CLI** ([installation guide](https://github.com/anthropics/claude-code))
@@ -13,7 +13,7 @@ Before starting, ensure you have:
 ### Verify Prerequisites
 
 ```bash
-# Check Python version (should be 3.9+)
+# Check Python version (should be 3.12+)
 python3 --version
 
 # Check Git
@@ -155,6 +155,7 @@ poc-auto-schematization/
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | Claude API authentication | `sk-ant-api03-...` |
 | `PYTHONPATH` | Module import resolution | `$(pwd):$(pwd)/tools:$(pwd)/util` |
+| `GROUND_TRUTH_REPO` | Default ground truth directory (optional) | `/path/to/datacommonsorg-data/ground_truth` |
 | `DC_API_KEY` | Data Commons API (optional) | `your_dc_api_key` |
 | `MAPS_API_KEY` | Google Maps API (optional) | `your_maps_api_key` |
 
@@ -164,7 +165,7 @@ poc-auto-schematization/
 
 Before running the pipeline, verify:
 
-- [ ] Python 3.9+ installed (`python3 --version`)
+- [ ] Python 3.12+ installed (`python3 --version`)
 - [ ] Virtual environment activated (`which python` shows venv path)
 - [ ] Dependencies installed (`python -c "import pandas, datacommons"`)
 - [ ] Claude Code CLI installed (`claude --version`)

@@ -115,3 +115,37 @@ Restructure whole @README.md properly to keep the important information and inst
 do mention how the input is required and how the input should be structured (without sampling file and with sampling file, both cases)
 metadata.csv other required input files
 remove the redundant and repeated information
+------------------
+
+Failure Categories
+Based on analysis of generation logs and diffs, failures fall into these categories:
+Category 1: Processor Limitations
+Issues where the PVMAP syntax is correct but the processor doesn't support it:
+#Format directive not resolving observationAbout
+Global static properties not supported
+Complex regex patterns not matching correctly
+
+manager recommend solution:
+We don't need to make any changes in the processor or any code files.
+If we are getting an error then it is a pvmap problem that we need to solve by modifying the pvmap file.
+
+Category 2: Data Quality Issues
+Issues caused by source data problems:
+Missing or malformed FIPS codes
+Inconsistent country code formats (ISO2 vs ISO3)
+Ambiguous column headers
+
+manager recommend solution:
+Afaik, DC uses ISO3 to represent countries, if an original data has ISO 2, we can write scrips to process them. 
+No change should be made in the input file. The scripts can be shell scripts or python scripts.
+
+Category 3: Data Structure Issues
+Issues where data format doesn't fit PVMAP model:
+Multi-row headers (crosstab format)
+Carry-forward values (state appears once for multiple rows)
+Wide data format requiring column-to-row transformation
+
+manager recommend solution:
+We can fit all scenarios to PV map. It just becomes non trivial to do that. 
+Ask DE team for sample PV  maps that has these scenarios.
+Extract the findings and modify claude cli prompt

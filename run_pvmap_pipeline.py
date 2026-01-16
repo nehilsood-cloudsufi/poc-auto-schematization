@@ -16,16 +16,34 @@ Usage:
     python3 run_pvmap_pipeline.py --dry-run          # Show what would be processed
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Load environment variables FIRST before any other imports
+from dotenv import load_dotenv
+
+# Constants - set BASE_DIR first
+BASE_DIR = Path(__file__).parent.resolve()
+
+# Load .env file at module level
+load_dotenv(BASE_DIR / ".env")
+
+# Add paths from PYTHONPATH to sys.path for imports
+pythonpath = os.getenv('PYTHONPATH', '')
+if pythonpath:
+    for path in pythonpath.split(':'):
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
+
+# Now import everything else
 import argparse
 import csv
 import glob
 import logging
-import os
 import random
 import subprocess
-import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Import data sampler for Phase 2 integration
@@ -33,9 +51,6 @@ from tools.data_sampler import sample_csv_file as data_sample_csv_file
 
 # Import schema selector for Phase 2.5 integration
 from tools import schema_selector
-
-# Constants
-BASE_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 TOOLS_DIR = BASE_DIR / "tools"
@@ -882,48 +897,127 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
         return False, error_msg
 
 
-def find_ground_truth_pvmap(dataset_name: str, source_repo: Path) -> Optional[Path]:
-    """Find ground truth PVMAP in datacommonsorg-data repo (Phase 5 integration).
+def is_pvmap_filename(filename: str) -> bool:
+    """Check if filename appears to be a PVMAP file.
+
+    Args:
+        filename: Name of file to check
+
+    Returns:
+        True if filename matches PVMAP pattern
+    """
+    f_lower = filename.lower()
+    return (
+        f_lower.endswith('.csv') and
+        ('pvmap' in f_lower or 'pv_map' in f_lower or 'pv-map' in f_lower)
+    )
+
+
+def find_ground_truth_pvmap(
+    dataset_name: str,
+    source_repo: Optional[Path] = None,
+    explicit_pvmap: Optional[Path] = None,
+    search_dir: Optional[Path] = None
+) -> Optional[Path]:
+    """Find ground truth PVMAP with three-tier precedence.
 
     Args:
         dataset_name: Name of dataset (e.g., 'bis_bis_central_bank_policy_rate')
-        source_repo: Path to datacommonsorg-data repo
+        source_repo: Path to datacommonsorg-data repo (auto-discovery)
+        explicit_pvmap: Path to explicit PVMAP file (highest precedence)
+        search_dir: Path to directory to search for PVMAP (medium precedence)
 
     Returns:
         Path to ground truth PVMAP if found, None otherwise
+
+    Precedence:
+        1. explicit_pvmap (if provided and exists)
+        2. search_dir (if provided, search by dataset name)
+        3. source_repo (existing auto-discovery logic)
     """
+    # Tier 1: Explicit single file (highest precedence)
+    if explicit_pvmap:
+        if explicit_pvmap.exists():
+            return explicit_pvmap
+        else:
+            return None
+
+    # Tier 2: Directory search (medium precedence)
+    if search_dir:
+        if not search_dir.exists():
+            return None
+
+        # Search strategy:
+        # 1. Direct file search: Look for *{dataset_name}*pvmap*.csv
+        # 2. Subdirectory search: Look for subdirs matching dataset name, then pvmap files
+
+        # Direct file search in directory
+        pvmap_candidates = []
+        for file in search_dir.iterdir():
+            if file.is_file() and is_pvmap_filename(file.name):
+                # Check if filename contains dataset name (partial match)
+                if dataset_name.lower() in file.name.lower():
+                    pvmap_candidates.append(file)
+
+        if pvmap_candidates:
+            # Prefer exact match, then shortest name
+            pvmap_candidates.sort(key=lambda f: (
+                dataset_name.lower() not in f.stem.lower(),  # Exact match first
+                len(f.name)  # Then shortest
+            ))
+            return pvmap_candidates[0]
+
+        # Subdirectory search (1 level deep)
+        for subdir in search_dir.iterdir():
+            if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
+                # Look for pvmap files in this subdirectory
+                for file in subdir.iterdir():
+                    if file.is_file() and is_pvmap_filename(file.name):
+                        return file
+
+        return None
+
+    # Tier 3: Auto-discovery (lowest precedence)
     if not source_repo or not source_repo.exists():
         return None
 
+    # Strategy 1: Flat directory structure (e.g., ground_truth/{dataset}/*_pvmap.csv)
+    # Look for subdirectory matching dataset name
+    for subdir in source_repo.iterdir():
+        if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
+            # Look for pvmap files in this subdirectory
+            for file in subdir.iterdir():
+                if file.is_file() and is_pvmap_filename(file.name):
+                    return file
+
+    # Strategy 2: Nested structure with statvar_imports (e.g., repo/statvar_imports/{category}/{dataset}/*_pvmap.csv)
     statvar_imports = source_repo / "statvar_imports"
-    if not statvar_imports.exists():
-        return None
+    if statvar_imports.exists():
+        # Extract category from dataset name (e.g., 'bis' from 'bis_bis_central_bank_policy_rate')
+        parts = dataset_name.split('_')
 
-    # Extract category from dataset name (e.g., 'bis' from 'bis_bis_central_bank_policy_rate')
-    parts = dataset_name.split('_')
+        # Strategy 2a: Direct folder match
+        if parts:
+            category_path = statvar_imports / parts[0]
+            if category_path.exists():
+                for potential_folder in category_path.iterdir():
+                    if potential_folder.is_dir():
+                        pvmap_files = list(potential_folder.glob("*_pvmap.csv"))
+                        if pvmap_files and dataset_name.lower() in potential_folder.name.lower():
+                            return pvmap_files[0]
 
-    # Strategy 1: Direct folder match
-    if parts:
-        category_path = statvar_imports / parts[0]
-        if category_path.exists():
-            for potential_folder in category_path.iterdir():
-                if potential_folder.is_dir():
-                    pvmap_files = list(potential_folder.glob("*_pvmap.csv"))
-                    if pvmap_files and dataset_name.lower() in potential_folder.name.lower():
-                        return pvmap_files[0]
-
-    # Strategy 2: Substring match across all categories
-    for category_folder in statvar_imports.iterdir():
-        if not category_folder.is_dir():
-            continue
-        for dataset_folder in category_folder.iterdir():
-            if not dataset_folder.is_dir():
+        # Strategy 2b: Substring match across all categories
+        for category_folder in statvar_imports.iterdir():
+            if not category_folder.is_dir():
                 continue
-            # Check if dataset name matches folder
-            if dataset_name.lower() in dataset_folder.name.lower():
-                pvmap_files = list(dataset_folder.glob("*_pvmap.csv"))
-                if pvmap_files:
-                    return pvmap_files[0]
+            for dataset_folder in category_folder.iterdir():
+                if not dataset_folder.is_dir():
+                    continue
+                # Check if dataset name matches folder
+                if dataset_name.lower() in dataset_folder.name.lower():
+                    pvmap_files = list(dataset_folder.glob("*_pvmap.csv"))
+                    if pvmap_files:
+                        return pvmap_files[0]
 
     return None
 
@@ -931,16 +1025,20 @@ def find_ground_truth_pvmap(dataset_name: str, source_repo: Path) -> Optional[Pa
 def evaluate_generated_pvmap(
     dataset: DatasetInfo,
     logger: logging.Logger,
-    source_repo: Path,
-    skip_eval: bool = False
+    source_repo: Optional[Path] = None,
+    skip_eval: bool = False,
+    explicit_pvmap: Optional[Path] = None,
+    search_dir: Optional[Path] = None
 ) -> Tuple[bool, Optional[Dict]]:
     """Evaluate generated PVMAP against ground truth (Phase 5 integration).
 
     Args:
         dataset: DatasetInfo object
         logger: Logger instance
-        source_repo: Path to datacommonsorg-data repo
+        source_repo: Path to datacommonsorg-data repo (auto-discovery)
         skip_eval: If True, skip evaluation
+        explicit_pvmap: Path to explicit ground truth PVMAP file
+        search_dir: Path to directory to search for ground truth PVMAP
 
     Returns:
         Tuple of (success, metrics_dict or None)
@@ -954,13 +1052,27 @@ def evaluate_generated_pvmap(
         return True, None
 
     try:
-        # Find ground truth
-        gt_pvmap_path = find_ground_truth_pvmap(dataset.name, source_repo)
+        # Find ground truth with new precedence logic
+        gt_pvmap_path = find_ground_truth_pvmap(
+            dataset.name,
+            source_repo=source_repo,
+            explicit_pvmap=explicit_pvmap,
+            search_dir=search_dir
+        )
+
         if not gt_pvmap_path:
-            logger.info(f"Ground truth PVMAP not found for {dataset.name}, skipping evaluation")
+            # Enhanced logging to show which method was attempted
+            if explicit_pvmap:
+                logger.info(f"Explicit PVMAP not found: {explicit_pvmap}")
+            elif search_dir:
+                logger.info(f"Ground truth PVMAP not found in directory: {search_dir}")
+            else:
+                logger.info(f"Ground truth PVMAP not found in repo for {dataset.name}")
+            logger.info("Skipping evaluation")
             return True, None
 
         logger.info(f"Found ground truth: {gt_pvmap_path.name}")
+        logger.info(f"  Source: {gt_pvmap_path.parent}")
 
         # Lazy import evaluation function
         try:
@@ -1021,7 +1133,9 @@ def process_dataset(
     force_schema_selection: bool = False,
     schema_base_dir: Optional[Path] = None,
     skip_evaluation: bool = False,
-    ground_truth_repo: Optional[Path] = None
+    ground_truth_repo: Optional[Path] = None,
+    ground_truth_pvmap: Optional[Path] = None,
+    ground_truth_dir: Optional[Path] = None
 ) -> Tuple[bool, Optional[Dict]]:
     """Process a single dataset through the full pipeline (integrates Phase 2, 2.5 & 5).
 
@@ -1092,8 +1206,10 @@ def process_dataset(
             eval_success, eval_metrics = evaluate_generated_pvmap(
                 dataset,
                 dataset_logger,
-                ground_truth_repo,
-                skip_evaluation
+                source_repo=ground_truth_repo,
+                skip_eval=skip_evaluation,
+                explicit_pvmap=ground_truth_pvmap,
+                search_dir=ground_truth_dir
             )
 
             logger.info(f"Dataset completed successfully: {dataset.name}")
@@ -1163,8 +1279,18 @@ def main():
     parser.add_argument(
         '--ground-truth-repo',
         type=str,
-        default=str(BASE_DIR.parent / "datacommonsorg-data"),
-        help='Path to datacommonsorg-data repo for ground truth PVMAPs'
+        default=os.environ.get('GROUND_TRUTH_REPO', str(BASE_DIR.parent / "datacommonsorg-data" / "ground_truth")),
+        help='Path to datacommonsorg-data repo for ground truth PVMAPs (default: $GROUND_TRUTH_REPO or ../datacommonsorg-data/ground_truth)'
+    )
+    parser.add_argument(
+        '--ground-truth-pvmap',
+        type=str,
+        help='Path to a single ground truth PVMAP file (takes precedence over --ground-truth-dir and --ground-truth-repo)'
+    )
+    parser.add_argument(
+        '--ground-truth-dir',
+        type=str,
+        help='Path to directory containing ground truth PVMAP files (searched by dataset name, takes precedence over --ground-truth-repo)'
     )
     parser.add_argument(
         '--input-dir',
@@ -1189,6 +1315,26 @@ def main():
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger, log_file = setup_logging(timestamp)
+
+    # Convert ground truth paths
+    ground_truth_pvmap_path = Path(args.ground_truth_pvmap) if args.ground_truth_pvmap else None
+    ground_truth_dir_path = Path(args.ground_truth_dir) if args.ground_truth_dir else None
+
+    # Validate paths exist
+    if ground_truth_pvmap_path and not ground_truth_pvmap_path.exists():
+        logger.error(f"Ground truth PVMAP file not found: {ground_truth_pvmap_path}")
+        sys.exit(1)
+
+    if ground_truth_dir_path and not ground_truth_dir_path.exists():
+        logger.error(f"Ground truth directory not found: {ground_truth_dir_path}")
+        sys.exit(1)
+
+    # Warn about conflicting arguments
+    if ground_truth_pvmap_path and ground_truth_dir_path:
+        logger.warning(
+            "Both --ground-truth-pvmap and --ground-truth-dir provided. "
+            "--ground-truth-pvmap takes precedence."
+        )
 
     logger.info("=" * 70)
     logger.info("PVMAP Generation & Validation Pipeline")
@@ -1217,6 +1363,14 @@ def main():
         else:
             logger.warning(f"Could not find dataset matching '{args.resume_from}'")
 
+    # Warn about single file with multiple datasets
+    if ground_truth_pvmap_path and not args.dataset and len(datasets) > 1:
+        logger.warning(
+            f"--ground-truth-pvmap provided with {len(datasets)} datasets. "
+            f"The single file will only be used for the first dataset. "
+            f"Evaluation will be skipped for remaining datasets."
+        )
+
     # Process datasets
     results = {
         'processed': 0,
@@ -1236,11 +1390,44 @@ def main():
         logger.warning(f"Schema base directory not found: {schema_base_dir_path}")
         logger.warning("Schema selection may fail for some datasets")
 
+    # Track if explicit pvmap has been used
+    explicit_pvmap_used = False
+
     for dataset in datasets:
         # Setup per-dataset logging
         dataset_logger = setup_dataset_logging(dataset.name, timestamp)
 
+        # Handle single-file-multiple-datasets scenario
+        current_ground_truth_pvmap = None
+        current_ground_truth_dir = ground_truth_dir_path
+
+        if ground_truth_pvmap_path:
+            if not explicit_pvmap_used:
+                # First dataset: use the explicit file
+                current_ground_truth_pvmap = ground_truth_pvmap_path
+                explicit_pvmap_used = True
+                logger.info(
+                    f"Using explicit ground truth PVMAP for {dataset.name}: "
+                    f"{ground_truth_pvmap_path.name}"
+                )
+            else:
+                # Subsequent datasets: skip evaluation by passing None
+                logger.info(
+                    f"Skipping evaluation for {dataset.name} "
+                    f"(explicit PVMAP already used for first dataset)"
+                )
+                current_ground_truth_pvmap = None
+                current_ground_truth_dir = None
+                # Note: ground_truth_repo will still be passed, but won't be used
+                # since we're explicitly setting the other params to None
+
         try:
+            # Determine ground_truth_repo: pass None if we're using explicit file or dir
+            # (or if subsequent dataset after explicit file was used)
+            current_ground_truth_repo = ground_truth_repo_path
+            if ground_truth_pvmap_path or ground_truth_dir_path:
+                current_ground_truth_repo = None
+
             success, eval_metrics = process_dataset(
                 dataset,
                 logger,
@@ -1252,7 +1439,9 @@ def main():
                 force_schema_selection=args.force_schema_selection,
                 schema_base_dir=schema_base_dir_path,
                 skip_evaluation=args.skip_evaluation,
-                ground_truth_repo=ground_truth_repo_path
+                ground_truth_repo=current_ground_truth_repo,
+                ground_truth_pvmap=current_ground_truth_pvmap,
+                ground_truth_dir=current_ground_truth_dir
             )
 
             results['processed'] += 1

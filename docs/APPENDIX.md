@@ -192,17 +192,86 @@ Ground truth PVMAP not found, skipping evaluation
 
 **Notes:**
 - Evaluation is **non-blocking** - pipeline continues successfully
-- Only datasets with ground truth in `datacommonsorg-data` repo will be evaluated
+- The system uses a three-tier precedence for finding ground truth
+- Pipeline logs which discovery method is being used
+
+**Three-Tier Ground Truth Discovery:**
+
+1. **Tier 1 (Highest):** `--ground-truth-pvmap` - Explicit single file
+2. **Tier 2 (Medium):** `--ground-truth-dir` - Directory search by dataset name
+3. **Tier 3 (Lowest):** `--ground-truth-repo` - Auto-discovery from repository structure
 
 **Verify ground truth exists:**
+
 ```bash
-ls ../datacommonsorg-data/statvar_imports/your_dataset/*_pvmap.csv
+# Check logs to see which method is being used
+grep "ground truth" logs/pipeline_*.log
+
+# Tier 3: Auto-discovery (default)
+ls /Users/nehilsood/work/datacommonsorg-data/ground_truth/statvar_imports/your_dataset/*_pvmap.csv
+
+# Tier 2: Directory search
+ls /path/to/ground_truth/*your_dataset*pvmap*.csv
+
+# Tier 1: Explicit file
+ls /path/to/explicit/file.csv
 ```
 
-**Specify custom ground truth location:**
+**Solutions:**
+
+**Option 1: Skip evaluation entirely**
 ```bash
-python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/datacommonsorg-data
+python3 run_pvmap_pipeline.py --skip-evaluation
 ```
+
+**Option 2: Provide explicit ground truth file (single dataset)**
+```bash
+python3 run_pvmap_pipeline.py --dataset=bis \
+    --ground-truth-pvmap=/path/to/bis_reference.csv
+```
+
+**Option 3: Use ground truth directory (multiple datasets)**
+```bash
+# Best for organized ground truth files
+python3 run_pvmap_pipeline.py \
+    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+```
+
+**Option 4: Custom repository location (auto-discovery)**
+```bash
+# For standard datacommonsorg-data structure
+python3 run_pvmap_pipeline.py \
+    --ground-truth-repo=/path/to/datacommonsorg-data/statvar_imports
+```
+
+**Troubleshooting Precedence Issues:**
+
+If multiple arguments are provided, check which one takes precedence:
+
+```bash
+# This will use explicit file (Tier 1, highest)
+python3 run_pvmap_pipeline.py \
+    --ground-truth-pvmap=/path/file.csv \
+    --ground-truth-dir=/path/dir/ \
+    --ground-truth-repo=/path/repo/
+```
+
+**Check logs for:**
+- "Using explicit ground truth PVMAP for {dataset}: {filename}"
+- "Found ground truth: {filename}"
+- "Source: {directory_path}"
+
+**Common Issues:**
+
+1. **Single file with multiple datasets:** Only first dataset is evaluated, rest are skipped
+   - **Solution:** Use `--ground-truth-dir` instead for multiple datasets
+
+2. **Wrong precedence used:** Lower-tier source is being used when higher-tier is provided
+   - **Check:** Verify path exists and is accessible
+   - **Check:** Look for warnings about conflicting arguments in logs
+
+3. **Directory search finds wrong file:** Multiple matching files in directory
+   - **Solution:** Use more specific naming or `--ground-truth-pvmap` for exact control
 
 ---
 
@@ -404,7 +473,7 @@ If you encounter issues not covered here:
 
 2. **Verify your setup:**
    ```bash
-   # Check Python version (should be 3.9+)
+   # Check Python version (should be 3.12+)
    python --version
 
    # Check Claude CLI version

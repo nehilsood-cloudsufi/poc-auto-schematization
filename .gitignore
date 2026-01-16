@@ -221,3 +221,6 @@ output/*
 test_input/*
 test_output/*
 .DS_Store
+input_new/*
+tmp/
+output_test/*

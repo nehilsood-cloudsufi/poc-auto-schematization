@@ -86,7 +86,9 @@ python3 run_pvmap_pipeline.py --dry-run
 | `--schema-base-dir` | Path to schema files directory | `schema_example_files/` | `--schema-base-dir=/path/to/schemas` |
 | `--skip-evaluation` | Skip evaluation phase | False | `--skip-evaluation` |
 | **Evaluation Configuration** |
-| `--ground-truth-repo` | Path to datacommonsorg-data repo | `../datacommonsorg-data` | `--ground-truth-repo=/custom/path` |
+| `--ground-truth-pvmap` | Path to single ground truth PVMAP file (Tier 1 precedence) | None | `--ground-truth-pvmap=/path/to/file.csv` |
+| `--ground-truth-dir` | Directory containing ground truth files (Tier 2 precedence) | None | `--ground-truth-dir=/path/to/ground_truth` |
+| `--ground-truth-repo` | Path to datacommonsorg-data repo (Tier 3 precedence) | `$GROUND_TRUTH_REPO` or `../datacommonsorg-data/ground_truth` | `--ground-truth-repo=/custom/path` |
 
 ---
 
@@ -174,18 +176,44 @@ python3 tools/schema_selector.py --input_dir=input/your_dataset/ --force
 ### Phase 4: Evaluation (Optional)
 
 **What it does:**
-- Searches for ground truth PVMAP in ground-truth repo
+- Searches for ground truth PVMAP using three-tier precedence system
 - Compares generated vs ground truth using diff-based metrics
 - Gracefully skips if ground truth not found (non-blocking)
 
-**Output:**
-- `eval_results/diff_results.json`
-- `eval_results/diff.txt`
+**Ground Truth Discovery (Three-Tier Precedence):**
 
-**Skip this phase:**
+1. **Tier 1 (Highest):** Explicit file via `--ground-truth-pvmap`
+2. **Tier 2 (Medium):** Directory search via `--ground-truth-dir`
+3. **Tier 3 (Lowest):** Auto-discovery via `--ground-truth-repo`
+
+**Output:**
+- `eval_results/diff_results.json` - Raw metrics
+- `eval_results/diff.txt` - Detailed diff
+
+**Usage Examples:**
+
 ```bash
+# Skip evaluation entirely
 python3 run_pvmap_pipeline.py --skip-evaluation
+
+# Use explicit ground truth file (single dataset)
+python3 run_pvmap_pipeline.py --dataset=bis \
+    --ground-truth-pvmap=/path/to/bis_pvmap.csv
+
+# Search directory for ground truth files (multiple datasets)
+python3 run_pvmap_pipeline.py \
+    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+
+# Use custom repository structure (auto-discovery)
+python3 run_pvmap_pipeline.py \
+    --ground-truth-repo=/path/to/datacommonsorg-data
 ```
+
+**Important Notes:**
+
+- When using `--ground-truth-pvmap` with multiple datasets, only the **first dataset** is evaluated
+- The system logs which ground truth source is being used for transparency
+- Multiple arguments can be provided; highest tier takes precedence
 
 ---
 
@@ -439,7 +467,42 @@ python3 run_pvmap_pipeline.py --dataset=failed_dataset_name
 
 ### Task: Compare Against Ground Truth
 
-Ensure you have the ground truth repository:
+**Option 1: Use Explicit PVMAP File (Single Dataset)**
+
+Best for testing one specific dataset with a known reference:
+
+```bash
+# Run pipeline with explicit ground truth file
+python3 run_pvmap_pipeline.py --dataset=bis \
+    --ground-truth-pvmap=/path/to/bis_reference_pvmap.csv
+
+# View evaluation results
+cat output/bis_bis_central_bank_policy_rate/eval_results/diff.txt
+```
+
+**Option 2: Use Ground Truth Directory (Multiple Datasets)**
+
+Best when you have organized ground truth files by dataset name:
+
+```bash
+# Directory structure example:
+# ground_truth/
+# ├── bis_pvmap.csv
+# ├── cdc_social_vulnerability_pvmap.csv
+# └── finland_census_pvmap.csv
+
+# Run pipeline with ground truth directory
+python3 run_pvmap_pipeline.py \
+    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+
+# View evaluation results for each dataset
+cat output/bis_bis_central_bank_policy_rate/eval_results/diff.txt
+cat output/cdc_social_vulnerability_index/eval_results/diff.txt
+```
+
+**Option 3: Use Ground Truth Repository (Auto-Discovery)**
+
+Best for standard datacommonsorg-data repository structure:
 
 ```bash
 # Clone datacommonsorg-data repo (if not already cloned)
@@ -447,11 +510,25 @@ cd ..
 git clone https://github.com/datacommonsorg/data.git datacommonsorg-data
 cd poc-auto-schematization
 
-# Run pipeline with evaluation
-python3 run_pvmap_pipeline.py --ground-truth-repo=../datacommonsorg-data
+# Run pipeline with auto-discovery (default path updated)
+python3 run_pvmap_pipeline.py
+
+# Or specify custom repository path
+python3 run_pvmap_pipeline.py --ground-truth-repo=../datacommonsorg-data/statvar_imports
 
 # View evaluation results
 cat output/your_dataset/eval_results/diff.txt
+```
+
+**Understanding Evaluation Metrics:**
+
+After evaluation, check the aggregate metrics in the pipeline summary:
+
+```
+Evaluation Metrics:
+  Evaluated: 15/20 datasets
+  Avg Node Accuracy: 24.5%    # Percentage of nodes that matched exactly
+  Avg PV Accuracy: 38.2%      # Percentage of property-value pairs matched
 ```
 
 ---
@@ -503,8 +580,37 @@ cat input/your_dataset/*_metadata.csv
 **Note:** This is expected behavior if ground truth doesn't exist.
 
 **To verify:**
+
 ```bash
-ls ../datacommonsorg-data/statvar_imports/your_dataset/*_pvmap.csv
+# Check which discovery method is being used (check logs)
+grep "ground truth" logs/pipeline_*.log
+
+# If using --ground-truth-repo (auto-discovery)
+ls ../datacommonsorg-data/ground_truth/statvar_imports/your_dataset/*_pvmap.csv
+
+# If using --ground-truth-dir
+ls /path/to/ground_truth/*your_dataset*pvmap*.csv
+
+# If using --ground-truth-pvmap
+ls /path/to/explicit/file.csv
 ```
+
+**Solutions:**
+
+1. **Skip evaluation** if you don't have ground truth:
+   ```bash
+   python3 run_pvmap_pipeline.py --skip-evaluation
+   ```
+
+2. **Provide explicit ground truth file** if you have it elsewhere:
+   ```bash
+   python3 run_pvmap_pipeline.py --dataset=bis \
+       --ground-truth-pvmap=/path/to/known/reference.csv
+   ```
+
+3. **Check precedence** if multiple arguments provided:
+   - `--ground-truth-pvmap` (highest priority)
+   - `--ground-truth-dir` (medium priority)
+   - `--ground-truth-repo` (lowest priority, default)
 
 For more troubleshooting, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide).

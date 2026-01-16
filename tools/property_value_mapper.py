@@ -17,6 +17,7 @@ import csv
 import os
 import re
 import sys
+from typing import Optional, Dict, Tuple
 
 from absl import app
 from absl import flags
@@ -155,7 +156,7 @@ class PropertyValueMapper:
         return pv_map_input
 
     def _process_csv_row(self, row: list[str], namespace: str,
-                         filename: str) -> tuple[str | None, dict | None]:
+                         filename: str) -> Tuple[Optional[str], Optional[Dict]]:
         # Drop trailing empty columns in the row
         last_col = len(row) - 1
         while last_col >= 0 and row[last_col].strip() == '':
