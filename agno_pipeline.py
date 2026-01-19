@@ -31,7 +31,7 @@ SCHEMA_CATEGORIES = ['Demographics', 'Economy', 'Education', 'Employment', 'Ener
 class PVMAPAgent:
     """Agno agent for PVMAP generation using Gemini."""
 
-    def __init__(self, api_key: str, model_id: str = "gemini-2.0-flash"):
+    def __init__(self, api_key: str, model_id: str = "gemini-3-pro-preview"):
         """Initialize the agent with Gemini model."""
         self.api_key = api_key
         self.model_id = model_id
@@ -39,7 +39,7 @@ class PVMAPAgent:
 
         # Create Agno agent with Gemini
         self.agent = Agent(
-            model=Gemini(id=model_id),
+            model=Gemini(id=model_id, api_key=api_key),
             markdown=True,
             description="Data Commons PVMAP generation expert"
         )
@@ -149,8 +149,8 @@ Selected Category:"""
 
         # Replace placeholders
         prompt = template.replace("{{SCHEMA_EXAMPLES}}", schema_examples)
-        prompt = template.replace("{{SAMPLED_DATA}}", sampled_data)
-        prompt = template.replace("{{METADATA_CONFIG}}", metadata)
+        prompt = prompt.replace("{{SAMPLED_DATA}}", sampled_data)
+        prompt = prompt.replace("{{METADATA_CONFIG}}", metadata)
 
         # Add error feedback if retrying
         if error_feedback:
@@ -258,7 +258,7 @@ def run_validation(input_file: Path, pvmap_file: Path, metadata_file: Path,
 def run_pipeline(dataset_name: str, input_dir: Path, output_dir: Path,
                  schema_category: Optional[str] = None,
                  api_key: Optional[str] = None,
-                 model_id: str = "gemini-2.0-flash",
+                 model_id: str = "gemini-3-pro-preview",
                  max_retries: int = 2) -> Tuple[bool, str]:
     """
     Run the complete PVMAP generation pipeline using Agno + Gemini.
@@ -367,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument("--input-dir", default="input", help="Input directory")
     parser.add_argument("--output-dir", default="output", help="Output directory")
     parser.add_argument("--schema", help="Schema category (auto-detected if not provided)")
-    parser.add_argument("--model", default="gemini-2.0-flash", help="Gemini model ID")
+    parser.add_argument("--model", default="gemini-3-pro-preview", help="Gemini model ID")
 
     args = parser.parse_args()
 
