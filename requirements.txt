@@ -121,3 +121,4 @@ xlsxwriter==3.2.9
 xmltodict==1.0.2
 yarl==1.22.0
 zipp==3.23.0
+streamlit==1.41.1

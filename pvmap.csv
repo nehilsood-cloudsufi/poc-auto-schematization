@@ -1,10 +1,7 @@
-key,property1,value1,property2,value2,property3,value3,property4,value4,property5,value5
-FREQ:M,measurementQualifier,Monthly,observationPeriod,P1M
-FREQ:D,measurementQualifier,Daily,observationPeriod,P1D
-UNIT_MEASURE:368,unit,PercentPerAnnum
-REF_AREA:AR,observationAbout,country/ARG
-REF_AREA:GB,observationAbout,country/GBR
-TIME_PERIOD,observationDate,{Data}
-OBS_VALUE,value,{Number}
-OBS_STATUS:A,UnusedProperty,''
-ACTION:I,populationType,FinancialIndicator,measuredProperty,interestRate,statType,measuredValue,indicatorType,CentralBankPolicyRate
+key,property,value,p2,v2,p3,v3,p4,v4,p5,v5,p6,v6
+GEOID,#Format,"observationAbout=geoId/{Number:05d}"
+"1990 Decennial Census, % in Poverty",observationDate,1990,value,{Number},populationType,Person,measuredProperty,povertyRate,statType,measuredValue,measurementMethod,DecennialCensus
+"2000 Decennial Census, % in Poverty",observationDate,2000,value,{Number},populationType,Person,measuredProperty,povertyRate,statType,measuredValue,measurementMethod,DecennialCensus
+"Most Recent Estimate, % in Poverty* ",observationDate,2021,value,{Number},populationType,Person,measuredProperty,povertyRate,statType,measuredValue,measurementMethod,SAIPE
+FY23 Persistent Poverty:Yes,observationDate,2023,value,1,populationType,County,measuredProperty,persistentPovertyStatus,statType,measuredValue,measurementQualifier,PersistentPoverty
+FY23 Persistent Poverty:No,observationDate,2023,value,0,populationType,County,measuredProperty,persistentPovertyStatus,statType,measuredValue

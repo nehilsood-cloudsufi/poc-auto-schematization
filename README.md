@@ -16,10 +16,9 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 - 🧠 **Intelligent Schema Selection** - AI-powered category selection from 7 schema types
 - 🔄 **Retry Logic** - Self-corrects validation errors with LLM feedback
 - ✅ **Built-in Validation** - Automatic validation with stat_var_processor.py
-- 📈 **Evaluation** - Compares against ground truth with diff-based metrics
+- 📈 **Evaluation** - Compares against ground truth with diff-based metrics Markdown Preview Github Styling
 - 🎯 **100% Success Rate** - Tested on 4 diverse datasets (BIS, CDC, Finland Census, WHO COVID-19)
 
-### Quick Stats
 
 | Metric | Value |
 |--------|-------|
