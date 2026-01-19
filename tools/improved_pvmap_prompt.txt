@@ -10,6 +10,55 @@ The processor converts each data cell into a StatVarObservation by collecting PV
 
 **Key Insight**: Column header properties apply to ALL cells in that column.
 
+## CRITICAL: Detect Pre-Formatted Data Commons Data
+
+**Before generating PVMAP, check if data is ALREADY in Data Commons format:**
+
+### Detection Criteria:
+1. **Has `variableMeasured` column** with DCID values like:
+   - `dcid:Count_Person_Female`
+   - `dcid:CumulativeCount_FoodBasket_Delivered`
+   - `dcid:InterestRate_TreasuryBill_3Month_Primary`
+
+2. **Has `observationAbout` column** with place/entity DCIDs:
+   - `country/USA`, `geoId/06`, `wikidataId/Q391149`
+
+3. **Has `observationDate` column** with standard formats:
+   - `YYYY`, `YYYY-MM`, `YYYY-MM-DD`
+
+4. **Has `value` column** with numeric measurements
+
+### If Pre-Formatted → Use Passthrough Mapping:
+
+```csv
+observationAbout,observationAbout,{Data}
+observationDate,observationDate,{Data}
+variableMeasured,variableMeasured,{Data}
+value,value,{Number}
+```
+
+**DO NOT:**
+- ❌ Try to construct new `variableMeasured` entries
+- ❌ Parse or deconstruct existing DCIDs
+- ❌ Add `populationType`, `measuredProperty`, `statType` to columns that already have `variableMeasured`
+
+**Example Pre-Formatted Data:**
+```csv
+observationAbout,observationDate,variableMeasured,value
+country/BRA,2020-01,dcid:CumulativeCount_FoodBasket_Delivered,1500
+```
+
+**Correct PVMAP:**
+```csv
+key,property,value
+observationAbout,observationAbout,{Data}
+observationDate,observationDate,{Data}
+variableMeasured,variableMeasured,{Data}
+value,value,{Number}
+```
+
+---
+
 ## Required Properties
 
 **StatVarObservation**: `value`, `observationDate`, `observationAbout`, `observationPeriod`, `unit`, `measurementMethod`, `scalingFactor`
@@ -27,6 +76,28 @@ The processor converts each data cell into a StatVarObservation by collecting PV
 - Keys must **exactly match** column headers or cell values (case-sensitive)
 - Use `COLUMN:VALUE` syntax for values in specific columns (e.g., `place:Alabama`)
 - Quote keys containing commas/special chars: `"ICD-10:#Heart (I00-I51)",causeOfDeath,X`
+
+## CSV Escaping Rules
+
+**Critical**: Output must be valid CSV parseable by Python's csv.reader:
+
+1. **Backslashes must be escaped**: Use `\\` for literal backslash
+   - ❌ Wrong: `"Doctor's\1\"`
+   - ✅ Correct: `"Doctor's\\1"` or avoid backslashes entirely
+
+2. **Quotes inside quoted fields**: Use double quotes `""`
+   - ❌ Wrong: `"She said "hi""`
+   - ✅ Correct: `"She said ""hi"""`
+
+3. **Commas in keys**: Must double-quote the entire key
+   - ✅ Correct: `"ICD-10:#Heart (I00-I51)",causeOfDeath,HeartDisease`
+
+4. **Special characters to avoid**: `\`, unmatched quotes, newlines in keys
+
+**Validation**: After generating PVMAP, ensure each line has:
+- Proper comma separation
+- Balanced quotes
+- No trailing commas (unless intended empty values)
 
 ---
 
@@ -94,7 +165,49 @@ Female,gender,Female,value,{Number},populationType,Person,measuredProperty,count
 place:Alabama,observationAbout,geoId/01
 ```
 
-## Pattern D: Series ID Multiplexing (BLS-style)
+## Pattern D: Dimension Properties (Categorical Constraints)
+
+When data has categorical columns that constrain the StatVar (age, gender, race, education, etc.), map them as constraint properties:
+
+```csv
+# Core observation properties
+Country,observationAbout,country/{Data}
+Year,observationDate,{Data}
+Value,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
+
+# Dimension constraints (map each category value)
+gender:Male,gender,Male
+gender:Female,gender,Female
+gender:All,gender,
+age:0-17,age,Years0To17
+age:18-64,age,Years18To64
+age:65+,age,Years65Onwards
+race:White,race,WhiteAlone
+race:Black,race,BlackOrAfricanAmericanAlone
+```
+
+**CRITICAL**: Dimension columns constrain the StatVar. They are NOT separate observation properties.
+
+**When to use dimension properties:**
+- Column represents a categorical attribute of the population being measured
+- Values split the same measurement across different demographic groups
+- Examples: age, gender, race, ethnicity, educationalAttainment, employmentStatus, disability, citizenship
+
+**Wrong approach** (treating dimension as observation property):
+```csv
+# ❌ DON'T DO THIS
+Value,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue,gender,Male
+```
+
+**Correct approach** (dimension as constraint):
+```csv
+# ✅ DO THIS
+Value,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
+gender:Male,gender,Male
+gender:Female,gender,Female
+```
+
+## Pattern E: Series ID Multiplexing (BLS-style)
 ```csv
 Series ID,#ignore,skip
 Series ID:CEU0000000001,populationType,BLSWorker,measuredProperty,count,naics,NAICS/10,name,"All Employees"
@@ -172,11 +285,24 @@ countyfips,#Format,"observationAbout=geoId/{StateFips}{Number:03d}"
 
 # CRITICAL RULES
 
-1. **Keys must exactly match** input data (case-sensitive)
-2. **Quote keys with special chars**: commas, parentheses, quotes
-3. **Every value column needs ALL properties**: `value,{Number}`, `populationType`, `measuredProperty`, `statType`
-4. **>5-10 categorical values?** Use explicit mappings, not regex
-5. **Place names require explicit DCID mappings** - no dynamic resolution
+1. **EVERY observation MUST have observationAbout** - This is the geographic/organizational unit being measured
+   - Without it: Validation will fail with "Unable to resolve SVObs place" and produce 0 output rows
+   - Common sources: Country columns, state columns, county codes, organization IDs
+   - If no place column exists, check if data is about a single fixed location (e.g., country/USA)
+   - **Test your PVMAP**: Search for "observationAbout" in your mappings - there MUST be at least one
+
+2. **Keys must exactly match** input data (case-sensitive)
+3. **Use exact Data Commons vocabulary** - Property names must match DC schema exactly
+   - Check schema examples for correct property names
+   - Common mistakes:
+     - ❌ `benefitProgram` → ✅ `beneficiaryProgram`
+     - ❌ `populationGroup` → ✅ `populationType`
+     - ❌ `measurement` → ✅ `measuredProperty`
+   - If unsure, reference the schema examples provided
+4. **Quote keys with special chars**: commas, parentheses, quotes
+5. **Every value column needs ALL properties**: `value,{Number}`, `populationType`, `measuredProperty`, `statType`
+6. **>5-10 categorical values?** Use explicit mappings, not regex
+7. **Place names require explicit DCID mappings** - no dynamic resolution
 
 ---
 
@@ -199,12 +325,103 @@ Non-numeric placeholders (`#`, `*`, `N/A`, `Unreliable`) are auto-skipped.
 4. Dynamic place construction instead of explicit mappings
 5. Single regex for 50+ codes instead of explicit list
 6. Ignoring column then referencing it (`#ignore` + `{Year}`)
+7. Missing observationAbout entirely (causes complete validation failure with 0 rows)
+8. Mapping date/time columns instead of place columns to key observations
+9. Using similar but incorrect property names (benefitProgram vs beneficiaryProgram)
+10. Inventing new property names not in Data Commons vocabulary
 
 ---
 
 # SCHEMA EXAMPLES
 
 {{SCHEMA_EXAMPLES}}
+
+---
+
+# WORKED EXAMPLES FROM FAILED DATASETS
+
+## Example 1: Missing observationAbout (FEMA Dataset)
+
+**Input Data:**
+```csv
+State,Year,Disasters,TotalAmount
+AL,2020,5,1234567
+FL,2021,8,9876543
+```
+
+**Wrong PVMAP** (causes validation failure):
+```csv
+Year,observationDate,{Data}
+Disasters,value,{Number},populationType,NaturalDisaster,measuredProperty,count,statType,measuredValue
+```
+**Error**: "Unable to resolve SVObs place" → 0 output rows
+
+**Correct PVMAP:**
+```csv
+State,observationAbout,geoId/{StateCode}
+State:AL,StateCode,01
+State:FL,StateCode,12
+Year,observationDate,{Data}
+Disasters,value,{Number},populationType,NaturalDisaster,measuredProperty,count,statType,measuredValue
+```
+
+---
+
+## Example 2: Pre-Formatted Data (Brazil Food Basket)
+
+**Input Data:**
+```csv
+observationAbout,observationDate,variableMeasured,value
+country/BRA,2020-01,dcid:CumulativeCount_FoodBasket_Delivered,1500
+country/BRA,2020-02,dcid:CumulativeCount_FoodBasket_Delivered,1750
+```
+
+**Wrong PVMAP** (tries to reconstruct):
+```csv
+variableMeasured:dcid:CumulativeCount_FoodBasket_Delivered,populationType,FoodBasket,measuredProperty,cumulativeCount,statType,measuredValue,measurementMethod,Delivered
+```
+**Result**: 0% accuracy - completely wrong structure
+
+**Correct PVMAP** (passthrough):
+```csv
+observationAbout,observationAbout,{Data}
+observationDate,observationDate,{Data}
+variableMeasured,variableMeasured,{Data}
+value,value,{Number}
+```
+
+---
+
+## Example 3: Missing Dimension Properties (School Retention)
+
+**Input Data:**
+```csv
+State,Year,Gender,Race,Grade,Value
+AL,2020,Male,White,9,95.5
+AL,2020,Female,Black,9,93.2
+```
+
+**Wrong PVMAP** (ignores dimensions):
+```csv
+State,observationAbout,geoId/{StateCode}
+Year,observationDate,{Data}
+Value,value,{Number},populationType,Student,measuredProperty,retentionRate,statType,measuredValue
+```
+**Result**: 0% accuracy - missing all categorical dimensions
+
+**Correct PVMAP:**
+```csv
+State,observationAbout,geoId/{StateCode}
+Year,observationDate,{Data}
+Value,value,{Number},populationType,Student,measuredProperty,retentionRate,statType,measuredValue
+
+# Map dimension columns
+Gender:Male,gender,Male
+Gender:Female,gender,Female
+Race:White,race,WhiteAlone
+Race:Black,race,BlackOrAfricanAmericanAlone
+Grade:9,schoolGradeLevel,Grade9
+```
 
 ---
 
@@ -225,11 +442,26 @@ Non-numeric placeholders (`#`, `*`, `N/A`, `Unreliable`) are auto-skipped.
 Provide ONLY pvmap.csv content in a csv code block.
 
 **CHECKLIST:**
-- [ ] Keys exactly match input (case-sensitive)
-- [ ] Special char keys are double-quoted
-- [ ] **Every value column** has: `value,{Number}`, `populationType`, `measuredProperty`, `statType`
-- [ ] `observationDate` format: YYYY, YYYY-MM, or YYYY-MM-DD
-- [ ] `observationAbout` uses valid DCID (geoId/, country/, wikidataId/, Earth)
-- [ ] No dynamic place construction - explicit mappings only
-- [ ] #Regex uses named groups `(?P<Name>...)`
+- [ ] **Data format detected**: Is this pre-formatted DC data or raw data?
+  - [ ] If pre-formatted (has variableMeasured column with DCIDs): Use passthrough mapping
+  - [ ] If raw data: Construct full StatVar properties
+- [ ] **observationAbout mapped**: MUST have at least one mapping for observationAbout
+  - [ ] Identify location/entity column in input data
+  - [ ] Map to correct DCID format (country/, geoId/, wikidataId/, Earth)
+- [ ] **Keys exactly match input** (case-sensitive)
+- [ ] **Special char keys double-quoted**
+- [ ] **CSV formatting valid**:
+  - [ ] No unescaped backslashes
+  - [ ] Proper quote escaping
+  - [ ] Parseable by Python csv.reader
+- [ ] **Every value column has**:
+  - [ ] `value,{Number}` (or appropriate placeholder)
+  - [ ] `populationType`, `measuredProperty`, `statType` (if NOT pre-formatted data)
+  - [ ] OR `variableMeasured,{Data}` (if pre-formatted data)
+- [ ] **Dimension columns mapped**: If data has categorical splits (age, gender, race), map each value
+- [ ] **observationDate format**: YYYY, YYYY-MM, or YYYY-MM-DD
+- [ ] **observationAbout uses valid DCID** (geoId/, country/, wikidataId/, Earth)
+- [ ] **No dynamic place construction** - explicit mappings only
+- [ ] **#Regex uses named groups** `(?P<Name>...)`
+- [ ] **Property names match DC vocabulary** - check schema examples
 - [ ] Note any data limitations in response

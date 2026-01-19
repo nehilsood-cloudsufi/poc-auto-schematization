@@ -273,8 +273,7 @@ input/dataset_name/
 │   ├── *_input.csv
 │   └── *_sampled_data.csv
 ├── *_metadata.csv
-├── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt  # ← Added
-└── scripts_statvar_llm_config_vertical_dc_topic_{Category}_statvars.mcf # ← Added
+└── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt  # ← Added
 ```
 
 ---

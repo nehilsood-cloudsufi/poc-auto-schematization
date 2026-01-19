@@ -17,11 +17,10 @@ input/{dataset_name}/
 ├── test_data/
 │   └── *_input.csv              # Your source data (REQUIRED)
 ├── *_metadata.csv                # Configuration file (REQUIRED)
-├── scripts_*_schema_examples_*.txt  # Schema examples (REQUIRED or AUTO-SELECTED)
-└── scripts_*_statvars.mcf        # StatVar definitions (REQUIRED or AUTO-SELECTED)
+└── scripts_*_schema_examples_*.txt  # Schema examples (REQUIRED or AUTO-SELECTED)
 ```
 
-**Note:** Schema files (`.txt` and `.mcf`) can be automatically selected by the pipeline using Phase 1.5: Schema Selection (see below).
+**Note:** Schema example files (`.txt`) can be automatically selected by the pipeline using Phase 1.5: Schema Selection (see below).
 
 ---
 
@@ -160,12 +159,11 @@ python3 run_pvmap_pipeline.py --dataset=your_dataset --skip-schema-selection
 If you prefer to manually copy schema files:
 
 **Step 1:** Determine your dataset's category from the table below
-**Step 2:** Copy the corresponding `.txt` and `.mcf` files to your dataset directory
+**Step 2:** Copy the corresponding `.txt` file to your dataset directory
 
 ```bash
 # Example: Copy Economy schema files
 cp schema_example_files/Economy/*.txt input/your_dataset/
-cp schema_example_files/Economy/*.mcf input/your_dataset/
 ```
 
 ### Available Schema Categories
@@ -192,34 +190,7 @@ Examples:
 
 ---
 
-## 4. StatVar Definition Files (`scripts_*_statvars.mcf`)
-
-StatVar (Statistical Variable) definitions for the data category.
-
-### Purpose
-
-These files provide:
-- Variable definitions and metadata
-- Property relationships
-- Value constraints and types
-
-### Automatic Selection
-
-These files are **automatically copied** along with schema example files during Phase 1.5: Schema Selection. You don't need to manually copy them when using automatic schema selection.
-
-### File Naming Convention
-
-```
-scripts_statvar_llm_config_vertical_dc_topic_{Category}_statvars.mcf
-```
-
-Examples:
-- `scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf`
-- `scripts_statvar_llm_config_vertical_dc_topic_Health_statvars.mcf`
-
----
-
-## 5. Sampled Data Files (Auto-Generated)
+## 4. Sampled Data Files (Auto-Generated)
 
 The pipeline can automatically generate sampled data files.
 
@@ -265,8 +236,7 @@ input/bis_bis_central_bank_policy_rate/
 │   ├── WS_CBPOL_csv_flat_input_sampled_data.csv # ✅ Auto-generated (31 rows)
 │   └── combined_sampled_data.csv                 # ✅ Auto-generated (31 rows)
 ├── central_bank_policy_rate_metadata.csv
-├── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
-└── scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf
+└── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
 ```
 
 **Force Re-Sampling:**
@@ -305,13 +275,12 @@ input/bis_bis_central_bank_policy_rate/
 │   ├── WS_CBPOL_csv_flat_input_sampled_data.csv # ✅ Pre-existing (31 rows)
 │   └── combined_sampled_data.csv                 # ✅ Regenerated (31 rows)
 ├── central_bank_policy_rate_metadata.csv
-├── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
-└── scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf
+└── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
 ```
 
 ---
 
-## 6. Complete Directory Structure Example
+## 5. Complete Directory Structure Example
 
 Here's a complete example of a properly structured dataset:
 
@@ -322,8 +291,7 @@ input/bis_bis_central_bank_policy_rate/
 ├── test_data/
 │   └── WS_CBPOL_csv_flat_input.csv              # REQUIRED: Input data
 ├── central_bank_policy_rate_metadata.csv         # REQUIRED: Metadata
-├── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt  # REQUIRED: Schema examples
-└── scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf  # REQUIRED: StatVar defs
+└── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt  # REQUIRED: Schema examples
 ```
 
 ### After Pipeline Runs (Auto-Generated Files)
@@ -335,8 +303,7 @@ input/bis_bis_central_bank_policy_rate/
 │   ├── WS_CBPOL_csv_flat_input_sampled_data.csv # ✅ Auto-generated sample
 │   └── combined_sampled_data.csv                 # ✅ Auto-generated combined
 ├── central_bank_policy_rate_metadata.csv
-├── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
-└── scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf
+└── scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt
 
 output/bis_bis_central_bank_policy_rate/
 ├── generated_pvmap.csv           # ✅ Main output: Property-Value mapping
@@ -394,7 +361,6 @@ Before running the pipeline, verify your input structure:
 ls input/your_dataset/test_data/*_input.csv
 ls input/your_dataset/*_metadata.csv
 ls input/your_dataset/scripts_*_schema_examples_*.txt
-ls input/your_dataset/scripts_*_statvars.mcf
 
 # Check metadata format
 head -10 input/your_dataset/*_metadata.csv
@@ -447,7 +413,6 @@ python3 tools/schema_selector.py --input_dir=input/your_dataset/
 ```bash
 # Example: Economy category
 cp schema_example_files/Economy/scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt input/your_dataset/
-cp schema_example_files/Economy/scripts_statvar_llm_config_vertical_dc_topic_Economy_statvars.mcf input/your_dataset/
 ```
 
 ### Issue: Sampled Data Has Wrong Columns

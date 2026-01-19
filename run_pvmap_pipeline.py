@@ -427,11 +427,20 @@ def select_schema_for_dataset(
     logger.info(f"Phase 2.5: Selecting schema for {dataset.name}...")
 
     # Check if schema files already exist
-    if not force:
-        has_schema = schema_selector.check_schema_files_exist(dataset.path)
-        if has_schema:
+    has_schema, existing_files = schema_selector.check_schema_files_exist(dataset.path)
+    if has_schema:
+        if not force:
             logger.info(f"  ✓ Schema files already exist (use --force-schema-selection to re-select)")
             return True
+        else:
+            # Clean up existing schema files before re-selection
+            logger.info(f"  Removing {len(existing_files)} existing schema file(s) for re-selection...")
+            for old_file in existing_files:
+                try:
+                    old_file.unlink()
+                    logger.debug(f"    Removed: {old_file.name}")
+                except Exception as e:
+                    logger.warning(f"    Could not remove {old_file.name}: {e}")
 
     # Validate schema base directory
     if not schema_base_dir.exists():
@@ -440,7 +449,10 @@ def select_schema_for_dataset(
 
     # Validate input directory and get metadata files
     try:
-        metadata_files = schema_selector.validate_input_directory(dataset.path)
+        success, error_msg, metadata_files = schema_selector.validate_input_directory(dataset.path)
+        if not success:
+            logger.error(f"  ✗ Directory validation failed: {error_msg}")
+            return False
     except ValueError as e:
         logger.error(f"  ✗ Directory validation failed: {e}")
         return False
@@ -462,7 +474,7 @@ def select_schema_for_dataset(
     # Generate data preview
     try:
         logger.info("  Generating data preview from sampled data...")
-        data_preview = schema_selector.generate_data_preview(dataset.path)
+        data_preview = schema_selector.generate_data_preview(dataset.path, max_rows=15)
     except Exception as e:
         logger.error(f"  ✗ Failed to generate data preview: {e}")
         if combined_metadata_path and combined_metadata_path.exists():
@@ -470,9 +482,9 @@ def select_schema_for_dataset(
         return False
 
     # Get category information
-    category_info = schema_selector.get_category_info(schema_base_dir)
+    category_info = schema_selector.get_category_info()
     if not category_info:
-        logger.error(f"  ✗ No schema categories found in {schema_base_dir}")
+        logger.error(f"  ✗ No schema categories found")
         if combined_metadata_path and combined_metadata_path.exists():
             combined_metadata_path.unlink()
         return False
@@ -486,25 +498,36 @@ def select_schema_for_dataset(
             combined_metadata_path.unlink()
         return False
 
+    # Read metadata content
+    try:
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata_content = f.read()
+    except Exception as e:
+        logger.error(f"  ✗ Failed to read metadata file: {e}")
+        if combined_metadata_path and combined_metadata_path.exists():
+            combined_metadata_path.unlink()
+        return False
+
     # Build Claude prompt
     prompt = schema_selector.build_claude_prompt(
+        metadata_content,
+        data_preview,
         category_info,
-        schema_previews,
-        metadata_file,
-        data_preview
+        schema_previews
     )
 
     # Invoke Claude CLI
     try:
         logger.info("  Invoking Claude CLI to select schema category...")
-        selected_category = schema_selector.invoke_claude_cli(prompt, logger)
+        success, result = schema_selector.invoke_claude_cli(prompt)
 
-        if not selected_category:
-            logger.error("  ✗ Failed to select schema category")
+        if not success:
+            logger.error(f"  ✗ Failed to select schema category: {result}")
             if combined_metadata_path and combined_metadata_path.exists():
                 combined_metadata_path.unlink()
             return False
 
+        selected_category = result
         logger.info(f"  ✓ Selected schema category: {selected_category}")
     except Exception as e:
         logger.error(f"  ✗ Claude CLI invocation failed: {e}")
@@ -514,11 +537,18 @@ def select_schema_for_dataset(
 
     # Copy schema files
     try:
-        copied_files = schema_selector.copy_schema_files(
-            schema_base_dir,
-            selected_category,
-            dataset.path
+        success, copied_files = schema_selector.copy_schema_files(
+            selected_category,    # arg 1: category
+            schema_base_dir,      # arg 2: schema_base_dir
+            dataset.path,         # arg 3: input_dir
+            dry_run=False         # arg 4: dry_run
         )
+
+        if not success:
+            logger.error(f"  ✗ Failed to copy schema files for category: {selected_category}")
+            if combined_metadata_path and combined_metadata_path.exists():
+                combined_metadata_path.unlink()
+            return False
 
         if copied_files:
             logger.info(f"  ✓ Successfully copied {len(copied_files)} schema file(s):")
@@ -1315,6 +1345,18 @@ def main():
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger, log_file = setup_logging(timestamp)
+
+    # Validate contradictory flag combinations
+    if args.skip_schema_selection and args.force_schema_selection:
+        logger.warning(
+            "--skip-schema-selection and --force-schema-selection are contradictory. "
+            "--skip-schema-selection takes precedence."
+        )
+    if args.skip_sampling and args.force_resample:
+        logger.warning(
+            "--skip-sampling and --force-resample are contradictory. "
+            "--skip-sampling takes precedence."
+        )
 
     # Convert ground truth paths
     ground_truth_pvmap_path = Path(args.ground_truth_pvmap) if args.ground_truth_pvmap else None

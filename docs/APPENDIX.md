@@ -627,8 +627,7 @@ Controlled via metadata CSV:
 **Files Copied:**
 ```
 input/{dataset_name}/
-├── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
-└── scripts_statvar_llm_config_vertical_dc_topic_{Category}_statvars.mcf
+└── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
 ```
 
 **Logging:**
@@ -636,9 +635,8 @@ input/{dataset_name}/
 INFO: Phase 1.5: Selecting schema for india_nfhs...
 INFO: Invoking Claude CLI to select schema category...
 INFO: Selected schema category: Health
-INFO: Successfully copied 2 schema file(s):
+INFO: Successfully copied schema file:
 INFO:   - scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt
-INFO:   - scripts_statvar_llm_config_vertical_dc_topic_Health_statvars.mcf
 ```
 
 ### Configuration
@@ -849,8 +847,7 @@ input/{dataset_name}/
 │   ├── *_input_sampled_data.csv       # Auto-generated (Phase 1)
 │   └── combined_sampled_data.csv      # Auto-generated (Phase 1)
 ├── *_metadata.csv                      # Required
-├── scripts_*_schema_examples_*.txt    # Required or Auto-generated (Phase 1.5)
-└── scripts_*_statvars.mcf             # Required or Auto-generated (Phase 1.5)
+└── scripts_*_schema_examples_*.txt    # Required or Auto-generated (Phase 1.5)
 ```
 
 ### Output Directory

@@ -103,8 +103,7 @@ final input dir will look like
 │   │   │   ├── *_input.csv                          
 │   │   │   ├── *_input_sampled_data.csv             
 │   │   ├── *_metadata.csv          # Metadata configuration file(s)
-│   │   ├── scripts_*_schema_examples_*.txt  # Schema examples for category 
-│   │   └── scripts_*_statvars.mcf  # StatVar definitions for category (copied from schema folder)
+│   │   └── scripts_*_schema_examples_*.txt  # Schema examples for category
 
 to identify the schema file
 you should give prompt to claude code in cli mode and it will do the above steps for you

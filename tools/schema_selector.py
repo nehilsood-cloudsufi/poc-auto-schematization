@@ -170,10 +170,6 @@ def check_schema_files_exist(input_dir: Path) -> Tuple[bool, List[Path]]:
     txt_files = list(input_dir.glob("scripts_statvar_llm_config_schema_examples_*.txt"))
     existing_files.extend(txt_files)
 
-    # Check for MCF statvars
-    mcf_files = list(input_dir.glob("scripts_statvar_llm_config_vertical_*.mcf"))
-    existing_files.extend(mcf_files)
-
     return len(existing_files) > 0, existing_files
 
 
@@ -482,27 +478,21 @@ def copy_schema_files(category: str, schema_base_dir: Path,
     """
     copied_files = []
 
-    # Determine source file paths
+    # Determine source file path for schema examples
     if category == 'School':
-        # School only has MCF file
-        txt_file = None
-        mcf_file = schema_base_dir / category / "scripts_statvar_llm_config_vertical_School_statvars.mcf"
-    else:
-        txt_file = (schema_base_dir / category /
-                   f"scripts_statvar_llm_config_schema_examples_dc_topic_{category}.txt")
-        mcf_file = (schema_base_dir / category /
-                   f"scripts_statvar_llm_config_vertical_dc_topic_{category}_statvars.mcf")
-
-    # Validate source files exist
-    files_to_copy = []
-    if txt_file:
-        if not txt_file.exists():
-            return False, []
-        files_to_copy.append(txt_file)
-
-    if not mcf_file.exists():
+        # School category is empty (no schema example files)
+        logging.warning(f"School category has no schema example files")
         return False, []
-    files_to_copy.append(mcf_file)
+
+    txt_file = (schema_base_dir / category /
+               f"scripts_statvar_llm_config_schema_examples_dc_topic_{category}.txt")
+
+    # Validate source file exists
+    if not txt_file.exists():
+        logging.error(f"Schema example file not found: {txt_file}")
+        return False, []
+
+    files_to_copy = [txt_file]
 
     # If dry run, just log what would be copied
     if dry_run:
