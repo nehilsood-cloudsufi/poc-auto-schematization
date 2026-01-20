@@ -480,17 +480,17 @@ def copy_schema_files(category: str, schema_base_dir: Path,
 
     # Determine source file path for schema examples
     if category == 'School':
-        # School category is empty (no schema example files)
-        logging.warning(f"School category has no schema example files")
-        return False, []
+        # School category has no schema example files - return success with empty list
+        logging.info(f"No example schema files found for category: {category}")
+        return True, []  # Return success but empty list
 
     txt_file = (schema_base_dir / category /
                f"scripts_statvar_llm_config_schema_examples_dc_topic_{category}.txt")
 
     # Validate source file exists
     if not txt_file.exists():
-        logging.error(f"Schema example file not found: {txt_file}")
-        return False, []
+        logging.info(f"No example schema files found for category: {category}")
+        return True, []  # Return success but empty list
 
     files_to_copy = [txt_file]
 

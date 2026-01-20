@@ -42,6 +42,7 @@ import csv
 import glob
 import logging
 import random
+import re
 import subprocess
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -157,8 +158,17 @@ def discover_datasets(input_dir: Path) -> List[DatasetInfo]:
         if schema_mcf_files:
             dataset.schema_mcf = schema_mcf_files[0]
 
-        # Find metadata files
-        dataset.metadata_files = list(dataset_path.glob("*_metadata.csv"))
+        # Find metadata files - use multiple patterns for flexibility
+        metadata_files = []
+        # Pattern 1: Standard naming (*_metadata.csv) - most common
+        metadata_files.extend(dataset_path.glob("*_metadata.csv"))
+        # Pattern 2: Alternate naming (*metadata.csv without underscore)
+        metadata_files.extend([f for f in dataset_path.glob("*metadata.csv")
+                               if f not in metadata_files and not f.name.startswith("combined_")])
+        # Pattern 3: Simple metadata.csv
+        if (dataset_path / "metadata.csv").exists() and (dataset_path / "metadata.csv") not in metadata_files:
+            metadata_files.append(dataset_path / "metadata.csv")
+        dataset.metadata_files = list(set(metadata_files))  # Remove duplicates
 
         # Find test data files
         if dataset.test_data_path.exists():
@@ -295,34 +305,49 @@ def prepare_dataset(
             logger.error(f"Failed to select schema for {dataset.name}")
             return False
 
-    # Combine sampled data files
+    # Combine sampled data files (only if multiple files exist)
     if dataset.sampled_data_files:
-        combined_path = dataset.test_data_path / "combined_sampled_data.csv"
-        if combine_csv_files(dataset.sampled_data_files, combined_path, logger):
-            dataset.combined_sampled_data = combined_path
+        if len(dataset.sampled_data_files) == 1:
+            # Use single file directly without creating combined file
+            dataset.combined_sampled_data = dataset.sampled_data_files[0]
+            logger.debug(f"Using single sampled data file directly: {dataset.sampled_data_files[0].name}")
         else:
-            logger.error(f"Failed to combine sampled data for {dataset.name}")
-            return False
+            combined_path = dataset.test_data_path / "combined_sampled_data.csv"
+            if combine_csv_files(dataset.sampled_data_files, combined_path, logger):
+                dataset.combined_sampled_data = combined_path
+            else:
+                logger.error(f"Failed to combine sampled data for {dataset.name}")
+                return False
     else:
         logger.warning(f"No sampled data files found for {dataset.name}")
         return False
 
-    # Combine input data files
+    # Combine input data files (only if multiple files exist)
     if dataset.input_data_files:
-        combined_path = dataset.test_data_path / "combined_input.csv"
-        if combine_csv_files(dataset.input_data_files, combined_path, logger):
-            dataset.combined_input_data = combined_path
+        if len(dataset.input_data_files) == 1:
+            # Use single file directly without creating combined file
+            dataset.combined_input_data = dataset.input_data_files[0]
+            logger.debug(f"Using single input file directly: {dataset.input_data_files[0].name}")
+        else:
+            combined_path = dataset.test_data_path / "combined_input.csv"
+            if combine_csv_files(dataset.input_data_files, combined_path, logger):
+                dataset.combined_input_data = combined_path
     else:
         logger.warning(f"No input data files found for {dataset.name}")
 
-    # Merge metadata files
+    # Merge metadata files (only if multiple files exist)
     if dataset.metadata_files:
-        combined_path = dataset.path / f"{dataset.name}_combined_metadata.csv"
-        if merge_metadata_files(dataset.metadata_files, combined_path, logger):
-            dataset.combined_metadata = combined_path
+        if len(dataset.metadata_files) == 1:
+            # Use single file directly without creating combined file
+            dataset.combined_metadata = dataset.metadata_files[0]
+            logger.debug(f"Using single metadata file directly: {dataset.metadata_files[0].name}")
         else:
-            logger.error(f"Failed to merge metadata for {dataset.name}")
-            return False
+            combined_path = dataset.path / f"{dataset.name}_combined_metadata.csv"
+            if merge_metadata_files(dataset.metadata_files, combined_path, logger):
+                dataset.combined_metadata = combined_path
+            else:
+                logger.error(f"Failed to merge metadata for {dataset.name}")
+                return False
     else:
         logger.warning(f"No metadata files found for {dataset.name}")
         return False
@@ -555,7 +580,8 @@ def select_schema_for_dataset(
             for file in copied_files:
                 logger.info(f"    - {file.name}")
         else:
-            logger.warning(f"  ⚠ No schema files were copied for category: {selected_category}")
+            logger.info(f"  ℹ No example schema files found for category: {selected_category}")
+            logger.info(f"    Pipeline will continue without schema examples")
     except Exception as e:
         logger.error(f"  ✗ Failed to copy schema files: {e}")
         if combined_metadata_path and combined_metadata_path.exists():
@@ -590,8 +616,8 @@ def populate_prompt(dataset: DatasetInfo, logger: logging.Logger) -> Optional[st
             schema_content = read_file_content(dataset.schema_examples)
             logger.debug(f"Schema examples: {len(schema_content)} chars")
         else:
-            schema_content = "No schema examples available."
-            logger.warning("No schema examples found")
+            schema_content = "No example schema files found for this category. Generate the PVMAP based on the data structure and metadata provided."
+            logger.info("No schema examples found - will proceed without examples")
 
         # Read sampled data
         if dataset.combined_sampled_data:
@@ -806,6 +832,88 @@ def extract_log_samples(log_output: str, tail_lines: int = 50, sample_count: int
     return '\n'.join(result_parts)
 
 
+def extract_input_columns(dataset: DatasetInfo) -> List[str]:
+    """Extract column headers from input data file."""
+    input_file = dataset.combined_input_data or (
+        dataset.input_data_files[0] if dataset.input_data_files else None
+    )
+    if not input_file or not input_file.exists():
+        return []
+    try:
+        with open(input_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            headers = next(reader, [])
+            return headers
+    except Exception:
+        return []
+
+
+def extract_pvmap_keys(pvmap_path: Path) -> List[str]:
+    """Extract keys from generated PVMAP file."""
+    if not pvmap_path or not pvmap_path.exists():
+        return []
+    try:
+        with open(pvmap_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Skip header
+            return [row[0] for row in reader if row]
+    except Exception:
+        return []
+
+
+def extract_error_counters(processor_output: str) -> Dict[str, int]:
+    """Extract error counters from processor log output."""
+    counters = {}
+    patterns = {
+        'warning-svobs-missing-place': r'warning-svobs-missing-place\s*=\s*(\d+)',
+        'error-process-format': r'error-process-format\s*=\s*(\d+)',
+        'warning-missing-property-key': r'warning-missing-property-key\s*=\s*(\d+)',
+        'error-unresolved-place': r'error-unresolved-place\s*=\s*(\d+)',
+        'output-svobs-csv-rows': r'output-svobs-csv-rows\s*=\s*(\d+)',
+        'dropped-svobs-unresolved-place': r'dropped-svobs-unresolved-place\s*=\s*(\d+)',
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, processor_output)
+        if match:
+            counters[key] = int(match.group(1))
+    return counters
+
+
+def diagnose_validation_failure(counters: Dict[str, int], processor_output: str) -> str:
+    """Generate specific diagnosis based on error counters."""
+    diagnosis = []
+
+    missing_place = counters.get('warning-svobs-missing-place', 0)
+    dropped_place = counters.get('dropped-svobs-unresolved-place', 0)
+    if missing_place > 0 or dropped_place > 0:
+        diagnosis.append(
+            "⚠️ PLACE RESOLUTION FAILURE: observationAbout is missing or not resolving.\n"
+            "   - Check that you have mapped a place column (State, Country, FIPS, etc.)\n"
+            "   - Use correct format: geoId/{Number:02d} for state FIPS, country/{Data} for ISO codes\n"
+            "   - Explicit place mappings work better than templates for place names\n"
+            "   - CRITICAL: Every observation MUST have an observationAbout property"
+        )
+
+    if counters.get('error-process-format', 0) > 0:
+        diagnosis.append(
+            "⚠️ FORMAT STRING FAILURE: Template variables are not resolving.\n"
+            "   - Check that {VariableName} references an actual captured variable\n"
+            "   - Variables must be defined BEFORE they are used (order matters)\n"
+            "   - Common mistake: Using {StateFips} when the variable was captured as {Data}\n"
+            "   - Use {Number} or {Data} for direct cell values, not custom variable names"
+        )
+
+    if counters.get('warning-missing-property-key', 0) > 100:
+        diagnosis.append(
+            "⚠️ COLUMN MAPPING FAILURE: Many PVMAP keys don't match input data.\n"
+            "   - Keys must EXACTLY match column headers (case-sensitive, including spaces)\n"
+            "   - Check for extra spaces, different capitalization, or special characters\n"
+            "   - Use COLUMN:VALUE syntax for cell values (e.g., 'Gender:Male')"
+        )
+
+    return "\n\n".join(diagnosis) if diagnosis else "No specific diagnosis available."
+
+
 def get_validation_command(dataset: DatasetInfo) -> str:
     """Generate the stat_var_processor validation command."""
     input_file = dataset.combined_input_data or dataset.input_data_files[0] if dataset.input_data_files else "INPUT_FILE_NOT_FOUND"
@@ -895,12 +1003,37 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
                     processor_output = result.stderr or result.stdout or ""
                     # Extract meaningful log samples: last 50 lines + 10 random samples of 5 lines each
                     sampled_logs = extract_log_samples(processor_output, tail_lines=50, sample_count=10, sample_size=5)
+
+                    # Extract detailed debugging info for enhanced feedback
+                    counters = extract_error_counters(processor_output)
+                    diagnosis = diagnose_validation_failure(counters, processor_output)
+                    input_columns = extract_input_columns(dataset)
+                    pvmap_keys = extract_pvmap_keys(dataset.pvmap_path)
+
+                    # Find potentially unmatched PVMAP keys
+                    unmatched_keys = []
+                    for key in pvmap_keys:
+                        base_key = key.split(':')[0] if ':' in key else key
+                        if base_key not in input_columns and key not in input_columns:
+                            unmatched_keys.append(key)
+
                     error_msg = (
-                        f"Validation produced empty output (no data rows). "
-                        f"The PVMAP may have incorrect column mappings or key names that don't match the input data.\n\n"
-                        f"Processor logs:\n{sampled_logs}"
+                        f"Validation produced empty output (no data rows).\n\n"
+                        f"## DIAGNOSIS\n\n{diagnosis}\n\n"
+                        f"## INPUT DATA COLUMNS (exact headers - use these for PVMAP keys):\n"
+                        f"{input_columns}\n\n"
+                        f"## PVMAP KEYS THAT MAY NOT MATCH INPUT COLUMNS:\n"
+                        f"{unmatched_keys[:20]}\n\n"
+                        f"## KEY COUNTERS FROM PROCESSOR:\n"
+                        f"- Missing place: {counters.get('warning-svobs-missing-place', 'N/A')}\n"
+                        f"- Dropped (unresolved place): {counters.get('dropped-svobs-unresolved-place', 'N/A')}\n"
+                        f"- Format errors: {counters.get('error-process-format', 'N/A')}\n"
+                        f"- Missing property keys: {counters.get('warning-missing-property-key', 'N/A')}\n"
+                        f"- Output rows: {counters.get('output-svobs-csv-rows', 'N/A')}\n\n"
+                        f"## PROCESSOR LOGS (sample):\n{sampled_logs}"
                     )
-                    logger.error(f"Validation FAILED: {error_msg}")
+                    logger.error(f"Validation FAILED: Empty output")
+                    logger.debug(f"Diagnosis: {diagnosis}")
                     return False, error_msg
                 logger.info(f"Validation PASSED ({len(data_lines) - 1} data rows)")
             else:
@@ -912,7 +1045,23 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
             raw_error = result.stderr or result.stdout or "Unknown validation error"
             # Extract meaningful log samples for better debugging
             sampled_logs = extract_log_samples(raw_error, tail_lines=50, sample_count=10, sample_size=5)
-            error_msg = f"Validation FAILED (exit code {result.returncode}).\n\nProcessor logs:\n{sampled_logs}"
+
+            # Extract counters and diagnosis even for non-zero exit codes
+            counters = extract_error_counters(raw_error)
+            diagnosis = diagnose_validation_failure(counters, raw_error)
+            input_columns = extract_input_columns(dataset)
+
+            error_msg = (
+                f"Validation FAILED (exit code {result.returncode}).\n\n"
+                f"## DIAGNOSIS\n\n{diagnosis}\n\n"
+                f"## INPUT DATA COLUMNS (exact headers - use these for PVMAP keys):\n"
+                f"{input_columns}\n\n"
+                f"## KEY COUNTERS FROM PROCESSOR:\n"
+                f"- Missing place: {counters.get('warning-svobs-missing-place', 'N/A')}\n"
+                f"- Format errors: {counters.get('error-process-format', 'N/A')}\n"
+                f"- Missing property keys: {counters.get('warning-missing-property-key', 'N/A')}\n\n"
+                f"## PROCESSOR LOGS (sample):\n{sampled_logs}"
+            )
             logger.error(f"Validation FAILED (exit code {result.returncode})")
             logger.error(f"Error: {raw_error[:200]}...")
             return False, error_msg

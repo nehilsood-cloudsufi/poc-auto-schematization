@@ -277,6 +277,11 @@ def compare_pvmaps_diff(auto_pvmap_path, gt_pvmap_path, output_dir):
     # Get counter results
     counter_dict = counters.get_counters()
 
+    # Save JSON results
+    results_file = os.path.join(output_dir, "diff_results.json")
+    with open(results_file, 'w') as f:
+        json.dump(counter_dict, f, indent=2, default=str)
+
     return counter_dict, diff_str
 
 
@@ -373,11 +378,8 @@ def main(_):
     # Step 5: Report
     print_diff_report(counters, dataset_name)
 
-    # Save results
-    results_file = os.path.join(output_dir, "diff_results.json")
-    with open(results_file, 'w') as f:
-        json.dump(counters, f, indent=2, default=str)
-    print(f"\nResults saved to: {results_file}")
+    # Results are saved by compare_pvmaps_diff()
+    print(f"\nResults saved to: {os.path.join(output_dir, 'diff_results.json')}")
     print(f"Diff output saved to: {os.path.join(output_dir, 'diff.txt')}")
 
 
