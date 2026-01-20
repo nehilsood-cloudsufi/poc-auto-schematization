@@ -277,6 +277,11 @@ def compare_pvmaps_diff(auto_pvmap_path, gt_pvmap_path, output_dir):
     # Get counter results
     counter_dict = counters.get_counters()
 
+    # Save diff_results.json with raw counters (needed for metrics aggregation)
+    results_file = os.path.join(output_dir, "diff_results.json")
+    with open(results_file, 'w') as f:
+        json.dump(counter_dict, f, indent=2, default=str)
+
     return counter_dict, diff_str
 
 

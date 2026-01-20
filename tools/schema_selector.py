@@ -3,7 +3,7 @@
 Schema Selector Tool
 
 Automatically selects the most appropriate schema category for a dataset using
-Claude Code CLI, then copies the corresponding schema files to the input directory.
+Gemini API, then copies the corresponding schema files to the input directory.
 
 Usage:
     python tools/schema_selector.py --input_dir=input/dataset_name/
@@ -13,13 +13,16 @@ Usage:
 
 import csv
 import io
-import os
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+# Add project root to path for util imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from util.gemini_client import GeminiClient
 
 from absl import app
 from absl import flags
@@ -397,70 +400,33 @@ def parse_category_response(response: str, valid_categories: List[str]) -> Optio
     return None
 
 
-def invoke_claude_cli(prompt: str, timeout: int = 180) -> Tuple[bool, str]:
-    """Invoke Claude Code CLI to select the schema category.
+def invoke_gemini(prompt: str, timeout: int = 180, model_name: Optional[str] = None) -> Tuple[bool, str]:
+    """Invoke Gemini API to select the schema category.
 
     Args:
-        prompt: The complete prompt to send to Claude
-        timeout: Timeout in seconds (default 180 = 3 minutes)
+        prompt: The complete prompt to send to Gemini
+        timeout: Timeout in seconds (kept for API compatibility)
+        model_name: Optional Gemini model name to use
 
     Returns:
         Tuple of (success, category_or_error_message)
     """
     try:
-        # Write prompt to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
-                                        suffix='.txt', delete=False) as tmp_file:
-            tmp_file.write(prompt)
-            tmp_file_path = tmp_file.name
+        logging.debug("Invoking Gemini API for schema selection...")
 
-        try:
-            # Construct command
-            cmd = ['claude', '--dangerously-skip-permissions', '--print',
-                   '--model', 'sonnet', '-p', '-']
+        client = GeminiClient(model_name=model_name)
+        response = client.generate_content(prompt, temperature=0.0)
 
-            logging.debug(f"Running Claude Code CLI with prompt from: {tmp_file_path}")
+        # Parse response
+        category = parse_category_response(response, SCHEMA_CATEGORIES)
 
-            # Execute command
-            with open(tmp_file_path, 'r', encoding='utf-8') as prompt_f:
-                result = subprocess.run(
-                    cmd,
-                    stdin=prompt_f,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=str(BASE_DIR)
-                )
+        if category is None:
+            return False, f"Could not parse valid category from response:\n{response}"
 
-            # Check return code
-            if result.returncode != 0:
-                error_msg = f"Claude CLI returned non-zero exit code {result.returncode}"
-                if result.stderr:
-                    error_msg += f"\nStderr: {result.stderr}"
-                return False, error_msg
+        return True, category
 
-            # Parse response
-            response = result.stdout
-            category = parse_category_response(response, SCHEMA_CATEGORIES)
-
-            if category is None:
-                return False, f"Could not parse valid category from response:\n{response}"
-
-            return True, category
-
-        finally:
-            # Clean up temp file
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
-
-    except subprocess.TimeoutExpired:
-        return False, f"Claude CLI timed out after {timeout} seconds"
-    except FileNotFoundError:
-        return False, "Claude CLI not found. Is 'claude' command available in PATH?"
     except Exception as e:
-        return False, f"Error invoking Claude CLI: {str(e)}"
+        return False, f"Error invoking Gemini API: {str(e)}"
 
 
 def copy_schema_files(category: str, schema_base_dir: Path,
@@ -481,16 +447,16 @@ def copy_schema_files(category: str, schema_base_dir: Path,
     # Determine source file path for schema examples
     if category == 'School':
         # School category is empty (no schema example files)
-        logging.warning(f"School category has no schema example files")
-        return False, []
+        logging.warning(f"School category has no schema example files - continuing without schema examples")
+        return True, []  # Return success with empty list to allow pipeline to continue
 
     txt_file = (schema_base_dir / category /
                f"scripts_statvar_llm_config_schema_examples_dc_topic_{category}.txt")
 
     # Validate source file exists
     if not txt_file.exists():
-        logging.error(f"Schema example file not found: {txt_file}")
-        return False, []
+        logging.warning(f"Schema example file not found: {txt_file} - continuing without schema examples")
+        return True, []  # Return success with empty list to allow pipeline to continue
 
     files_to_copy = [txt_file]
 
@@ -604,12 +570,12 @@ def main(argv):
     prompt = build_claude_prompt(metadata_content, data_preview,
                                  category_info, schema_previews)
 
-    # Step 9: Invoke Claude CLI
-    logging.info("Invoking Claude Code CLI to select schema category...")
-    success, result = invoke_claude_cli(prompt)
+    # Step 9: Invoke Gemini API
+    logging.info("Invoking Gemini API to select schema category...")
+    success, result = invoke_gemini(prompt)
 
     if not success:
-        logging.error(f"Claude CLI invocation failed: {result}")
+        logging.error(f"Gemini API invocation failed: {result}")
         logging.error("You may need to manually select the schema category")
         # Clean up combined metadata file if it was created
         if combined_metadata_path and combined_metadata_path.exists():

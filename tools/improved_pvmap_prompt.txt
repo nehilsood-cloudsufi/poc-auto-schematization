@@ -31,6 +31,7 @@ The processor converts each data cell into a StatVarObservation by collecting PV
 ### If Pre-Formatted → Use Passthrough Mapping:
 
 ```csv
+key,property,value
 observationAbout,observationAbout,{Data}
 observationDate,observationDate,{Data}
 variableMeasured,variableMeasured,{Data}

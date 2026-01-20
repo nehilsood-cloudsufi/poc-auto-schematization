@@ -6,7 +6,7 @@ This script automates the PVMAP generation workflow:
 1. Discovers datasets in input/ folder
 2. Combines/merges multiple input files if needed
 3. Populates prompt template with dataset files
-4. Calls Claude Code CLI to generate PVMAP
+4. Calls Gemini API to generate PVMAP
 5. Provides human-in-the-loop validation with retry logic
 
 Usage:
@@ -51,6 +51,9 @@ from tools.data_sampler import sample_csv_file as data_sample_csv_file
 
 # Import schema selector for Phase 2.5 integration
 from tools import schema_selector
+
+# Import Gemini client for LLM calls
+from util.gemini_client import GeminiClient
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 TOOLS_DIR = BASE_DIR / "tools"
@@ -273,7 +276,8 @@ def prepare_dataset(
     force_resample: bool = False,
     skip_schema_selection: bool = False,
     force_schema_selection: bool = False,
-    schema_base_dir: Path = None
+    schema_base_dir: Path = None,
+    model_name: Optional[str] = None
 ) -> bool:
     """Prepare dataset by combining/merging files as needed (integrates Phase 2 sampling and Phase 2.5 schema selection)."""
     logger.info(f"Preparing dataset: {dataset.name}")
@@ -291,7 +295,7 @@ def prepare_dataset(
     if not skip_schema_selection:
         if schema_base_dir is None:
             schema_base_dir = SCHEMA_BASE_DIR
-        if not select_schema_for_dataset(dataset, logger, schema_base_dir, force_schema_selection):
+        if not select_schema_for_dataset(dataset, logger, schema_base_dir, force_schema_selection, model_name):
             logger.error(f"Failed to select schema for {dataset.name}")
             return False
 
@@ -410,7 +414,8 @@ def select_schema_for_dataset(
     dataset: DatasetInfo,
     logger: logging.Logger,
     schema_base_dir: Path,
-    force: bool = False
+    force: bool = False,
+    model_name: Optional[str] = None
 ) -> bool:
     """
     Select and copy appropriate schema files for a dataset.
@@ -420,6 +425,7 @@ def select_schema_for_dataset(
         logger: Logger instance for tracking progress
         schema_base_dir: Path to schema_example_files directory
         force: If True, re-select schema even if files exist
+        model_name: Optional Gemini model name to use
 
     Returns:
         bool: True if successful or skipped, False if error
@@ -508,7 +514,7 @@ def select_schema_for_dataset(
             combined_metadata_path.unlink()
         return False
 
-    # Build Claude prompt
+    # Build prompt for schema selection
     prompt = schema_selector.build_claude_prompt(
         metadata_content,
         data_preview,
@@ -516,10 +522,10 @@ def select_schema_for_dataset(
         schema_previews
     )
 
-    # Invoke Claude CLI
+    # Invoke Gemini API
     try:
-        logger.info("  Invoking Claude CLI to select schema category...")
-        success, result = schema_selector.invoke_claude_cli(prompt)
+        logger.info("  Invoking Gemini API to select schema category...")
+        success, result = schema_selector.invoke_gemini(prompt, model_name=model_name)
 
         if not success:
             logger.error(f"  ✗ Failed to select schema category: {result}")
@@ -530,7 +536,7 @@ def select_schema_for_dataset(
         selected_category = result
         logger.info(f"  ✓ Selected schema category: {selected_category}")
     except Exception as e:
-        logger.error(f"  ✗ Claude CLI invocation failed: {e}")
+        logger.error(f"  ✗ Gemini API invocation failed: {e}")
         if combined_metadata_path and combined_metadata_path.exists():
             combined_metadata_path.unlink()
         return False
@@ -590,8 +596,8 @@ def populate_prompt(dataset: DatasetInfo, logger: logging.Logger) -> Optional[st
             schema_content = read_file_content(dataset.schema_examples)
             logger.debug(f"Schema examples: {len(schema_content)} chars")
         else:
-            schema_content = "No schema examples available."
-            logger.warning("No schema examples found")
+            schema_content = "No schema example files found for this dataset category. Please generate the PVMAP based on the data structure and metadata provided below, using your knowledge of Data Commons schema conventions."
+            logger.warning("No schema examples found - LLM will generate PVMAP without schema examples")
 
         # Read sampled data
         if dataset.combined_sampled_data:
@@ -627,15 +633,24 @@ def generate_pvmap(
     prompt: str,
     logger: logging.Logger,
     error_feedback: Optional[str] = None,
-    attempt: int = 0
+    attempt: int = 0,
+    model_name: Optional[str] = None
 ) -> Tuple[bool, str]:
     """
-    Call Claude Code CLI to generate PVMAP.
+    Call Gemini API to generate PVMAP.
+
+    Args:
+        dataset: DatasetInfo object
+        prompt: The populated prompt to send to Gemini
+        logger: Logger instance
+        error_feedback: Optional error feedback from previous attempt
+        attempt: Current attempt number
+        model_name: Optional Gemini model name to use
 
     Returns:
         Tuple of (success, output_content)
     """
-    logger.info("Calling Claude Code CLI to generate PVMAP")
+    logger.info("Calling Gemini API to generate PVMAP")
 
     # Add error feedback to prompt if retrying
     if error_feedback:
@@ -649,48 +664,32 @@ def generate_pvmap(
         )
         logger.info("Added error feedback to prompt")
 
-    # Write prompt to temp file (prompts can be very large)
+    # Write prompt to file for debugging (prompts can be very large)
     prompt_file = dataset.output_dir / "populated_prompt.txt"
     with open(prompt_file, 'w', encoding='utf-8') as f:
         f.write(prompt)
 
     try:
-        # Call Claude Code CLI using stdin piping for large prompts
-        # The --print flag makes Claude output directly without interactive mode
-        # Using stdin pipe avoids shell argument length limits with large prompts
-        logger.debug(f"Running Claude Code with prompt from: {prompt_file}")
+        logger.debug(f"Invoking Gemini API with prompt saved to: {prompt_file}")
 
-        with open(prompt_file, 'r', encoding='utf-8') as prompt_f:
-            result = subprocess.run(
-                ['claude', '--dangerously-skip-permissions', '--print', '--model', 'sonnet', '-p', '-'],
-                stdin=prompt_f,
-                capture_output=True,
-                text=True,
-                timeout=900,  # 15 minute timeout for larger datasets
-                cwd=str(BASE_DIR)
-            )
+        client = GeminiClient(model_name=model_name)
+        output = client.generate_content(prompt, temperature=0.0)
 
-        output = result.stdout
+        logger.info(f"Gemini API completed, output: {len(output)} chars")
 
-        if result.returncode != 0:
-            logger.error(f"Claude Code returned error: {result.stderr}")
-            return False, result.stderr
-
-        logger.info(f"Claude Code completed, output: {len(output)} chars")
-
-        # Save full Claude output for this attempt (includes reasoning)
+        # Save full Gemini output for this attempt (includes reasoning)
         response_dir = dataset.output_dir / "generated_response"
         response_dir.mkdir(parents=True, exist_ok=True)
         attempt_file = response_dir / f"attempt_{attempt}.md"
         with open(attempt_file, 'w', encoding='utf-8') as f:
-            f.write(f"# {dataset.name} - Claude Response (Attempt {attempt})\n\n")
+            f.write(f"# {dataset.name} - Gemini Response (Attempt {attempt})\n\n")
             f.write(f"Generated: {datetime.now().isoformat()}\n\n")
             if error_feedback:
                 f.write("## Error Feedback Provided\n\n")
                 f.write(f"```\n{error_feedback[:2000]}\n```\n\n")
-            f.write("## Claude's Full Response\n\n")
+            f.write("## Gemini's Full Response\n\n")
             f.write(output)
-        logger.info(f"Claude response saved to: {attempt_file}")
+        logger.info(f"Gemini response saved to: {attempt_file}")
 
         # Also update the main notes file with latest attempt
         with open(dataset.notes_path, 'w', encoding='utf-8') as f:
@@ -712,20 +711,44 @@ def generate_pvmap(
             logger.error("Could not extract PVMAP CSV from output")
             return False, "Could not extract PVMAP CSV from output"
 
-    except subprocess.TimeoutExpired:
-        logger.error("Claude Code timed out after 15 minutes")
-        return False, "Timeout"
     except Exception as e:
-        logger.error(f"Error running Claude Code: {e}")
+        logger.error(f"Error running Gemini API: {e}")
         return False, str(e)
 
 
 def extract_pvmap_csv(output: str, logger: logging.Logger) -> Optional[str]:
-    """Extract the PVMAP CSV from Claude's output."""
-    # Look for CSV content starting with "key"
+    """Extract the PVMAP CSV from Gemini's output.
+
+    Handles:
+    - CSV with or without code block markers
+    - Comment lines starting with # (valid in PVMAP)
+    - Empty lines within CSV
+    - Various header formats (key, key,property,value, etc.)
+    - Passthrough format for pre-formatted Data Commons data
+    """
+    import re
+
+    # First try: look for CSV in code blocks (most reliable)
+    # Match CSV blocks starting with 'key' header OR passthrough format (observationAbout)
+    code_block_pattern = r'```(?:csv)?\s*\n((?:key|observationAbout)[^\n]*\n.*?)```'
+    matches = re.findall(code_block_pattern, output, re.DOTALL)
+
+    if matches:
+        # Take the longest match (most complete CSV)
+        csv_content = max(matches, key=len).strip()
+        # Normalize passthrough format by adding key header if missing
+        if csv_content.startswith('observationAbout,observationAbout'):
+            csv_content = 'key,property,value\n' + csv_content
+        # Count non-empty, non-comment lines for logging
+        data_lines = [l for l in csv_content.split('\n') if l.strip() and not l.strip().startswith('#')]
+        logger.debug(f"Found CSV in code block with {len(data_lines)} data rows")
+        return csv_content
+
+    # Second try: look for CSV without code block markers
     lines = output.split('\n')
     csv_lines = []
     in_csv = False
+    consecutive_empty = 0
 
     for line in lines:
         stripped = line.strip()
@@ -734,29 +757,50 @@ def extract_pvmap_csv(output: str, logger: logging.Logger) -> Optional[str]:
         if stripped.startswith('key,') or stripped == 'key':
             in_csv = True
             csv_lines = [stripped]
+            consecutive_empty = 0
+            continue
+
+        # Also recognize passthrough format (pre-formatted data)
+        if stripped.startswith('observationAbout,observationAbout'):
+            in_csv = True
+            # Prepend standard header for consistency
+            csv_lines = ['key,property,value', stripped]
+            consecutive_empty = 0
             continue
 
         if in_csv:
-            # End of CSV (empty line or markdown)
-            if not stripped or stripped.startswith('#') or stripped.startswith('```'):
-                if csv_lines:
-                    break
-            else:
+            # Comment lines are valid in PVMAP - include them
+            if stripped.startswith('#'):
                 csv_lines.append(stripped)
+                consecutive_empty = 0
+                continue
+
+            # End of CSV: code block marker or multiple consecutive empty lines
+            if stripped.startswith('```'):
+                break
+
+            # Track empty lines - 2+ consecutive empty lines likely means end of CSV
+            if not stripped:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break
+                # Include single empty lines (might be intentional spacing)
+                csv_lines.append('')
+                continue
+
+            # Regular data line
+            consecutive_empty = 0
+            csv_lines.append(stripped)
 
     if csv_lines:
+        # Remove trailing empty lines
+        while csv_lines and not csv_lines[-1]:
+            csv_lines.pop()
+
         csv_content = '\n'.join(csv_lines)
-        logger.debug(f"Extracted CSV with {len(csv_lines)} rows")
+        data_lines = [l for l in csv_lines if l and not l.startswith('#')]
+        logger.debug(f"Extracted CSV with {len(data_lines)} data rows")
         return csv_content
-
-    # Fallback: look for CSV in code blocks
-    import re
-    code_block_pattern = r'```(?:csv)?\n(key[,\n].*?)```'
-    matches = re.findall(code_block_pattern, output, re.DOTALL)
-
-    if matches:
-        logger.debug("Found CSV in code block")
-        return matches[0].strip()
 
     logger.warning("Could not find PVMAP CSV in output")
     return None
@@ -1123,13 +1167,20 @@ def evaluate_generated_pvmap(
             str(eval_dir)
         )
 
+        # Save diff_results.json with raw counters (needed for metrics aggregation)
+        diff_results_file = eval_dir / "diff_results.json"
+        with open(diff_results_file, 'w') as f:
+            json.dump(counters, f, indent=2, default=str)
+        logger.debug(f"Saved diff_results.json to {diff_results_file}")
+
         # Calculate and log metrics
         nodes_gt = counters.get('nodes-ground-truth', 0)
         nodes_matched = counters.get('nodes-matched', 0)
         pvs_matched = counters.get('PVs-matched', 0)
         pvs_total = pvs_matched + counters.get('pvs-modified', 0) + counters.get('pvs-deleted', 0)
 
-        node_accuracy = (nodes_matched / nodes_gt * 100) if nodes_gt > 0 else 0
+        # Cap node_accuracy at 100% (nodes_matched can exceed nodes_gt due to diff algorithm)
+        node_accuracy = (min(nodes_matched, nodes_gt) / nodes_gt * 100) if nodes_gt > 0 else 0
         pv_accuracy = (pvs_matched / pvs_total * 100) if pvs_total > 0 else 0
 
         logger.info(f"Evaluation complete: Node Acc={node_accuracy:.1f}%, PV Acc={pv_accuracy:.1f}%")
@@ -1165,9 +1216,26 @@ def process_dataset(
     skip_evaluation: bool = False,
     ground_truth_repo: Optional[Path] = None,
     ground_truth_pvmap: Optional[Path] = None,
-    ground_truth_dir: Optional[Path] = None
+    ground_truth_dir: Optional[Path] = None,
+    model_name: Optional[str] = None
 ) -> Tuple[bool, Optional[Dict]]:
     """Process a single dataset through the full pipeline (integrates Phase 2, 2.5 & 5).
+
+    Args:
+        dataset: DatasetInfo object
+        logger: Main logger instance
+        dataset_logger: Per-dataset logger instance
+        dry_run: If True, only show what would be processed
+        skip_sampling: Skip sampling phase
+        force_resample: Force re-sampling
+        skip_schema_selection: Skip schema selection phase
+        force_schema_selection: Force re-selection of schema files
+        schema_base_dir: Path to schema files directory
+        skip_evaluation: Skip evaluation phase
+        ground_truth_repo: Path to ground truth repo
+        ground_truth_pvmap: Path to explicit ground truth PVMAP file
+        ground_truth_dir: Path to directory with ground truth PVMAPs
+        model_name: Optional Gemini model name to use
 
     Returns:
         Tuple of (success, eval_metrics_dict or None)
@@ -1200,7 +1268,8 @@ def process_dataset(
         force_resample,
         skip_schema_selection,
         force_schema_selection,
-        schema_base_dir or SCHEMA_BASE_DIR
+        schema_base_dir or SCHEMA_BASE_DIR,
+        model_name
     ):
         logger.error(f"Failed to prepare dataset: {dataset.name}")
         return False, None
@@ -1217,7 +1286,7 @@ def process_dataset(
         if attempt > 0:
             logger.info(f"Retry attempt {attempt}/{MAX_RETRIES}")
 
-        success, output = generate_pvmap(dataset, prompt, dataset_logger, error_feedback, attempt)
+        success, output = generate_pvmap(dataset, prompt, dataset_logger, error_feedback, attempt, model_name)
 
         if not success:
             logger.error(f"PVMAP generation failed: {output}")
@@ -1333,6 +1402,12 @@ def main():
         type=str,
         default='output',
         help='Output directory for generated PVMAPs (default: output/)'
+    )
+    parser.add_argument(
+        '--model', '-m',
+        type=str,
+        default='gemini-3-pro-preview',
+        help='Gemini model to use (default: gemini-3-pro-preview)'
     )
 
     args = parser.parse_args()
@@ -1483,7 +1558,8 @@ def main():
                 skip_evaluation=args.skip_evaluation,
                 ground_truth_repo=current_ground_truth_repo,
                 ground_truth_pvmap=current_ground_truth_pvmap,
-                ground_truth_dir=current_ground_truth_dir
+                ground_truth_dir=current_ground_truth_dir,
+                model_name=args.model
             )
 
             results['processed'] += 1
