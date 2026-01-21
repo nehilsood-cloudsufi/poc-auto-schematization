@@ -57,6 +57,25 @@ variableMeasured,variableMeasured,{Data}
 value,value,{Number}
 ```
 
+### CRITICAL: When NOT to Use Passthrough
+
+Even if columns are named `variableMeasured`, `observationAbout`, etc., do NOT use passthrough if:
+
+1. **variableMeasured contains descriptive text, not DCIDs**:
+   - ❌ Passthrough wrong: `variableMeasured` has values like "Food baskets delivered", "Gypsy families receiving baskets"
+   - ✅ Passthrough correct: `variableMeasured` has values like `dcid:Count_FoodBasket_Delivered`, `dcid:Count_Person_Female`
+
+2. **Data requires semantic decomposition**:
+   - Multiple measurement types need different StatVar properties
+   - Categorical dimensions need constraint properties (foodBasketStatus, benefitType, etc.)
+
+3. **Data has domain-specific properties not captured by passthrough**:
+   - Food basket data needs: `foodBasketStatus`, `measurementDenominator`
+   - Benefit programs need: `benefitProgram`, `benefitType`
+   - Employment data needs: `gender`, `age` constraints
+
+**Rule**: Passthrough is ONLY for data where `variableMeasured` already contains valid `dcid:` prefixed DCIDs that fully describe the StatVar.
+
 ---
 
 ## Required Properties
@@ -214,6 +233,102 @@ Series ID:CEU0000000001,populationType,BLSWorker,measuredProperty,count,naics,NA
 Jan 2015,observationDate,2015-01,value,{Number},observationPeriod,P1M,observationAbout,country/USA,populationType,BLSWorker,measuredProperty,count,statType,measuredValue
 ```
 
+## Pattern F: Wide Data with Multi-Dimensional Column Names
+
+When columns encode multiple dimensions in their names (common in government/education datasets), each column needs a complete property mapping.
+
+**Recognition Signals:**
+- Column names contain abbreviations/codes (M/F for gender, AME/ASI/BLA for race)
+- Many similar columns with varying codes (50+ columns with pattern)
+- Column name encodes 3+ dimensions
+
+**Example (Education harassment/bullying data):**
+```csv
+# Column naming pattern: {Gender}_{Race}_{Version}_{Action}_{Type}_{Bias}
+# M_AME_5_DISC_HAR_DIS = Male + AmericanIndian + v5 + Disciplined + Harassment + Disability
+
+COMBOKEY,#Format,observationAbout=nces/{Data:0>12},populationType,Student,measuredProperty,count
+Year,observationDate,{Number}
+
+# Each value column maps ALL its encoded dimensions:
+M_AME_5_DISC_HAR_DIS,crimeType,HarassmentOrBullying,disciplinaryAction,SuspendedOrExpelled,gender,Male,biasMotivation,Disability,offenderRace,AmericanIndianOrAlaskaNativeAlone,value,{Number}
+M_ASI_5_DISC_HAR_DIS,crimeType,HarassmentOrBullying,disciplinaryAction,SuspendedOrExpelled,gender,Male,biasMotivation,Disability,offenderRace,AsianOrPacificIslander,value,{Number}
+M_BLA_5_DISC_HAR_DIS,crimeType,HarassmentOrBullying,disciplinaryAction,SuspendedOrExpelled,gender,Male,biasMotivation,Disability,offenderRace,Black,value,{Number}
+F_AME_5_DISC_HAR_SEX,crimeType,HarassmentOrBullying,disciplinaryAction,SuspendedOrExpelled,gender,Female,biasMotivation,Gender,offenderRace,AmericanIndianOrAlaskaNativeAlone,value,{Number}
+# ... continue for ALL columns (may be 100+ mappings)
+```
+
+**CRITICAL**: You MUST create a separate mapping row for EACH value column. Do NOT try to use a single regex or generic mapping. Even if there are 300+ columns, map each one explicitly.
+
+## Pattern G: Composite Date Construction (Year + Month)
+
+When dates are split across columns or rows (Year and Month separately), use intermediate variables to construct the full date.
+
+**Recognition Signals:**
+- Columns named "Jan", "Feb", etc. or "Jan 2020", "Feb 2020"
+- Separate Year row or column
+- Monthly/quarterly time series data
+
+**Example (BLS CPI data):**
+```csv
+key,prop,val,p1,v1,p2,v2
+# First, map month names to numeric values and define date template
+Jan.,Month,01,observationDate,{Year}-{Month}
+Feb.,Month,02,observationDate,{Year}-{Month}
+Mar.,Month,03,observationDate,{Year}-{Month}
+Apr.,Month,04,observationDate,{Year}-{Month}
+May.,Month,05,observationDate,{Year}-{Month}
+Jun.,Month,06,observationDate,{Year}-{Month}
+Jul.,Month,07,observationDate,{Year}-{Month}
+Aug.,Month,08,observationDate,{Year}-{Month}
+Sep.,Month,09,observationDate,{Year}-{Month}
+Oct.,Month,10,observationDate,{Year}-{Month}
+Nov.,Month,11,observationDate,{Year}-{Month}
+Dec.,Month,12,observationDate,{Year}-{Month}
+
+# Then map year values
+2020,Year,2020
+2021,Year,2021
+2022,Year,2022
+2023,Year,2023
+2024,Year,2024
+
+# Header row defines the base observation properties
+Expenditure category,observationAbout,country/USA,measuredProperty,consumerPriceIndex,populationType,ConsumerGoodsAndServices
+```
+
+## Pattern H: Category Enumeration for Economic/Classification Data
+
+When data has expenditure categories, economic classifications, or other enumerated types, each category value needs its own explicit mapping.
+
+**Recognition Signals:**
+- Column with many distinct category values (Energy, Food, Medical care, etc.)
+- Categories represent classification hierarchies (CPI categories, industry codes)
+- Values need mapping to specific DC property enums
+
+**Example (CPI category data):**
+```csv
+key,prop,val,p1,v1,p2,v2,p3,v3
+# Base observation setup
+Expenditure category,observationAbout,country/USA,measuredProperty,consumerPriceIndex,populationType,ConsumerGoodsAndServices,consumer,UrbanWageEarnerAndClericalWorker,measurementMethod,BLSUnchained,unit,IndexPointBasePeriod1982_1984Equals100
+
+# Measurement types (seasonally adjusted vs not)
+Unadjusted indexes,measurementQualifier,BLSSeasonallyUnadjusted,value,{Number},observationPeriod,P1M
+Seasonally adjusted indexes,measurementQualifier,BLSSeasonallyAdjusted,value,{Number},observationPeriod,P1M
+
+# Category mappings - one per category value
+Energy,consumerGoodsCategory,Energy
+Energy services,consumerGoodsCategory,EnergyServices
+Food,consumerGoodsCategory,Food
+Food at home,consumerGoodsCategory,FoodAtHome
+Medical care,consumerGoodsCategory,MedicalCare
+Medical care commodities,consumerGoodsCategory,MedicalCareCommodities
+Physicians' services,consumerGoodsCategory,PhysiciansServices
+# ... continue for ALL category values (may be 50+)
+```
+
+**CRITICAL**: Each category value needs its own explicit mapping. Do NOT try to use `{Data}` for categories - they must be mapped to specific DC vocabulary enums.
+
 ---
 
 # SPECIAL SYNTAX
@@ -281,6 +396,166 @@ statefips,StateFips,{Data}
 countyfips,#Format,"observationAbout=geoId/{StateFips}{Number:03d}"
 ```
 
+## Complete US State Mapping Example
+
+For datasets with US state names, you MUST map each state explicitly to its FIPS code. State names CANNOT be dynamically resolved.
+
+```csv
+key,p1,v1,p2,v2,p3,v3,p4,v4
+# Header row with core StatVar properties
+State or jurisdiction,observationDate,{Number},populationType,Person,measuredProperty,minimumWage,unit,USDollarPerHour
+
+# Each state maps to its geoId FIPS code
+Alabama,observationAbout,geoId/01,value,{Number}
+Alaska,observationAbout,geoId/02,value,{Number}
+Arizona,observationAbout,geoId/04,value,{Number}
+Arkansas,observationAbout,geoId/05,value,{Number}
+California,observationAbout,geoId/06,value,{Number}
+Colorado,observationAbout,geoId/08,value,{Number}
+Connecticut,observationAbout,geoId/09,value,{Number}
+Delaware,observationAbout,geoId/10,value,{Number}
+District of Columbia,observationAbout,geoId/11,value,{Number}
+Florida,observationAbout,geoId/12,value,{Number}
+Georgia,observationAbout,geoId/13,value,{Number}
+Hawaii,observationAbout,geoId/15,value,{Number}
+Idaho,observationAbout,geoId/16,value,{Number}
+Illinois,observationAbout,geoId/17,value,{Number}
+Indiana,observationAbout,geoId/18,value,{Number}
+Iowa,observationAbout,geoId/19,value,{Number}
+Kansas,observationAbout,geoId/20,value,{Number}
+Kentucky,observationAbout,geoId/21,value,{Number}
+Louisiana,observationAbout,geoId/22,value,{Number}
+Maine,observationAbout,geoId/23,value,{Number}
+Maryland,observationAbout,geoId/24,value,{Number}
+Massachusetts,observationAbout,geoId/25,value,{Number}
+Michigan,observationAbout,geoId/26,value,{Number}
+Minnesota,observationAbout,geoId/27,value,{Number}
+Mississippi,observationAbout,geoId/28,value,{Number}
+Missouri,observationAbout,geoId/29,value,{Number}
+Montana,observationAbout,geoId/30,value,{Number}
+Nebraska,observationAbout,geoId/31,value,{Number}
+Nevada,observationAbout,geoId/32,value,{Number}
+New Hampshire,observationAbout,geoId/33,value,{Number}
+New Jersey,observationAbout,geoId/34,value,{Number}
+New Mexico,observationAbout,geoId/35,value,{Number}
+New York,observationAbout,geoId/36,value,{Number}
+North Carolina,observationAbout,geoId/37,value,{Number}
+North Dakota,observationAbout,geoId/38,value,{Number}
+Ohio,observationAbout,geoId/39,value,{Number}
+Oklahoma,observationAbout,geoId/40,value,{Number}
+Oregon,observationAbout,geoId/41,value,{Number}
+Pennsylvania,observationAbout,geoId/42,value,{Number}
+Rhode Island,observationAbout,geoId/44,value,{Number}
+South Carolina,observationAbout,geoId/45,value,{Number}
+South Dakota,observationAbout,geoId/46,value,{Number}
+Tennessee,observationAbout,geoId/47,value,{Number}
+Texas,observationAbout,geoId/48,value,{Number}
+Utah,observationAbout,geoId/49,value,{Number}
+Vermont,observationAbout,geoId/50,value,{Number}
+Virginia,observationAbout,geoId/51,value,{Number}
+Washington,observationAbout,geoId/53,value,{Number}
+West Virginia,observationAbout,geoId/54,value,{Number}
+Wisconsin,observationAbout,geoId/55,value,{Number}
+Wyoming,observationAbout,geoId/56,value,{Number}
+
+# US Territories
+Guam,observationAbout,geoId/66,value,{Number}
+Puerto Rico,observationAbout,geoId/72,value,{Number}
+U.S. Virgin Islands,observationAbout,geoId/78,value,{Number}
+
+# Federal level (for national data)
+Federal (FLSA),observationAbout,country/USA,value,{Number}
+```
+
+**DO NOT** use `observationAbout,geoId/{Data}` for state names - state names cannot be dynamically resolved to FIPS codes.
+
+---
+
+# STATVAR PROPERTY VOCABULARY GUIDE
+
+## Common Vocabulary Mistakes
+
+| Wrong | Correct | Notes |
+|-------|---------|-------|
+| `measuredProperty: wages` | `measuredProperty: minimumWage` | Use specific property name |
+| `populationType: Worker` | `populationType: Person` | Person is the standard population type |
+| `populationType: Person` | `populationType: BirthEvent` | For birth counts, use event type not person |
+| `measuredProperty: count` | (often implicit) | Don't add if already implied by statType |
+| `wageType: MinimumWage` | (use measuredProperty) | Don't invent new properties, use measuredProperty directly |
+| `exchangeRateType: X` | `measuredProperty: exchangeRate` | Use standard measured properties |
+
+## Population Type Selection Guide
+
+Choose the correct `populationType` based on what is being counted:
+
+| Data Type | populationType | Example |
+|-----------|---------------|---------|
+| Human population counts | `Person` | Census data, demographics |
+| Birth statistics | `BirthEvent` | Birth rates, births per year |
+| Death statistics | `DeathEvent` | Mortality data |
+| Family/housing data | `Household` | Housing surveys |
+| Education data | `Student` | School enrollment, test scores |
+| Employment (prefer) | `Person` + employment constraints | Unemployment rates |
+| Currency/exchange | `Currency` | Exchange rate data |
+| Price indices | `ConsumerGoodsAndServices` | CPI data |
+| Crime statistics | `CriminalActivities` or specific type | Crime reports |
+| Medical data | `MedicalConditionIncident` | Health surveys |
+
+## When in Doubt About Property Names
+
+1. **Check the schema examples provided** - they use correct vocabulary
+2. **Use the most specific property available** - `minimumWage` not `wages`
+3. **Prefer existing DC vocabulary over inventing new properties**
+4. **Don't add redundant properties** - if statType implies count, don't add measuredProperty:count
+
+---
+
+# FIXED VALUES VS PLACEHOLDERS
+
+## When to Use Fixed DCIDs (NOT placeholders)
+
+Some data should map to fixed values, not `{Data}` placeholders:
+
+### 1. Single-Country Datasets
+If ALL data is about one country, use fixed DCID:
+```csv
+# ❌ Wrong - treats country as variable
+country_col,observationAbout,{Data}
+
+# ✅ Correct - fixed value for single-country data
+country_col,observationAbout,country/BRA
+```
+
+### 2. Known Program/Type Identifiers
+When the program or type is constant across the dataset:
+```csv
+# For Brazil Rural Development Program
+program_col,benefitProgram,Brazil_RuralDevelopmentProgram,benefitType,FinancialBenefit
+```
+
+### 3. Fixed Observation Periods
+When all data has the same time granularity:
+```csv
+# If all data is annual
+Year,observationDate,{Data},observationPeriod,P1Y
+
+# If all data is monthly
+Month,observationDate,{Data},observationPeriod,P1M
+```
+
+### 4. Fixed Base Properties
+When certain properties are constant for the entire dataset:
+```csv
+# CPI data always about USA, always same methodology
+Expenditure category,observationAbout,country/USA,measurementMethod,BLSUnchained
+```
+
+## Recognition Signals for Fixed Values
+- Column has identical values in all rows
+- Dataset metadata indicates single country/region
+- Program name or type is constant across dataset
+- Data source documentation specifies fixed context
+
 ---
 
 # CRITICAL RULES
@@ -319,6 +594,7 @@ Non-numeric placeholders (`#`, `*`, `N/A`, `Unreliable`) are auto-skipped.
 
 # COMMON MISTAKES
 
+## Structure & Format Mistakes
 1. Missing StatVar properties on value columns
 2. Partial key matches (`AR` won't match `AR: Argentina`)
 3. Wide data without complete properties per column
@@ -327,8 +603,23 @@ Non-numeric placeholders (`#`, `*`, `N/A`, `Unreliable`) are auto-skipped.
 6. Ignoring column then referencing it (`#ignore` + `{Year}`)
 7. Missing observationAbout entirely (causes complete validation failure with 0 rows)
 8. Mapping date/time columns instead of place columns to key observations
+
+## Vocabulary & Property Mistakes
 9. Using similar but incorrect property names (benefitProgram vs beneficiaryProgram)
 10. Inventing new property names not in Data Commons vocabulary
+11. **Wrong populationType**: Using `Worker` instead of `Person`, or `Person` instead of `BirthEvent`
+12. **Wrong measuredProperty**: Using generic `wages` instead of specific `minimumWage`
+13. **Adding redundant properties**: Adding `measuredProperty: count` when statType already implies it
+14. **Inventing constraint properties**: Creating `wageType: MinimumWage` instead of using measuredProperty directly
+
+## Passthrough & Detection Mistakes
+15. **Using passthrough when data needs decomposition**: Just because columns are named variableMeasured/observationAbout doesn't mean passthrough is correct
+16. **Passthrough with non-DCID variableMeasured**: Passthrough only works when variableMeasured contains `dcid:` prefixed DCIDs
+17. **Missing categorical dimension mappings**: Data with 50+ categories needs explicit mappings for each
+
+## Fixed Value Mistakes
+18. **Treating constants as placeholders**: Using `{Data}` for single-country data instead of fixed `country/BRA`
+19. **Missing fixed observation periods**: Not including `observationPeriod: P1Y` for annual data
 
 ---
 
