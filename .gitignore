@@ -224,3 +224,6 @@ test_output/*
 input_new/*
 tmp/
 output_test/*
+input_benchmark/*
+output_benchmark/*
+

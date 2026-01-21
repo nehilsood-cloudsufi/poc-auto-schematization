@@ -40,6 +40,7 @@ if pythonpath:
 import argparse
 import csv
 import glob
+import json
 import logging
 import random
 import subprocess
@@ -160,8 +161,11 @@ def discover_datasets(input_dir: Path) -> List[DatasetInfo]:
         if schema_mcf_files:
             dataset.schema_mcf = schema_mcf_files[0]
 
-        # Find metadata files
-        dataset.metadata_files = list(dataset_path.glob("*_metadata.csv"))
+        # Find metadata files (exclude combined_metadata to avoid copying to itself)
+        dataset.metadata_files = [
+            f for f in dataset_path.glob("*metadata*.csv")
+            if "_combined_metadata.csv" not in f.name
+        ]
 
         # Find test data files
         if dataset.test_data_path.exists():
@@ -987,6 +991,56 @@ def is_pvmap_filename(filename: str) -> bool:
     )
 
 
+def find_all_ground_truth_pvmaps(
+    dataset_name: str,
+    source_repo: Optional[Path] = None,
+    explicit_pvmap: Optional[Path] = None,
+    search_dir: Optional[Path] = None
+) -> List[Path]:
+    """Find ALL ground truth PVMAP files for a dataset.
+
+    Some datasets have multiple ground truth pvmaps (e.g., brazil_sidra_ibge has
+    population_pvmap.csv, mass_income_pvmap.csv, etc.). This function returns all
+    of them so the caller can compare against each and pick the best result.
+
+    Args:
+        dataset_name: Name of dataset (e.g., 'bis_bis_central_bank_policy_rate')
+        source_repo: Path to ground_truth repo (e.g., datacommonsorg-data/ground_truth)
+        explicit_pvmap: Path to explicit PVMAP file (highest precedence, returns single item)
+        search_dir: Path to directory to search for PVMAP
+
+    Returns:
+        List of Paths to ground truth PVMAP files (may be empty)
+    """
+    pvmaps = []
+
+    # If explicit file provided, just return that
+    if explicit_pvmap and explicit_pvmap.exists():
+        return [explicit_pvmap]
+
+    # Search in search_dir if provided
+    if search_dir and search_dir.exists():
+        # Look for subdirectory matching dataset name
+        for subdir in search_dir.iterdir():
+            if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
+                for file in subdir.iterdir():
+                    if file.is_file() and is_pvmap_filename(file.name):
+                        pvmaps.append(file)
+        if pvmaps:
+            return pvmaps
+
+    # Search in source_repo (ground_truth directory)
+    if source_repo and source_repo.exists():
+        # Look for subdirectory matching dataset name
+        for subdir in source_repo.iterdir():
+            if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
+                for file in subdir.iterdir():
+                    if file.is_file() and is_pvmap_filename(file.name):
+                        pvmaps.append(file)
+
+    return pvmaps
+
+
 def find_ground_truth_pvmap(
     dataset_name: str,
     source_repo: Optional[Path] = None,
@@ -1106,6 +1160,10 @@ def evaluate_generated_pvmap(
 ) -> Tuple[bool, Optional[Dict]]:
     """Evaluate generated PVMAP against ground truth (Phase 5 integration).
 
+    Compares against ALL ground truth PVMAPs found and keeps the best result
+    (highest node accuracy). This handles datasets with multiple ground truth
+    files (e.g., brazil_sidra_ibge has population_pvmap.csv, mass_income_pvmap.csv, etc.)
+
     Args:
         dataset: DatasetInfo object
         logger: Logger instance
@@ -1126,15 +1184,15 @@ def evaluate_generated_pvmap(
         return True, None
 
     try:
-        # Find ground truth with new precedence logic
-        gt_pvmap_path = find_ground_truth_pvmap(
+        # Find ALL ground truth pvmaps
+        gt_pvmaps = find_all_ground_truth_pvmaps(
             dataset.name,
             source_repo=source_repo,
             explicit_pvmap=explicit_pvmap,
             search_dir=search_dir
         )
 
-        if not gt_pvmap_path:
+        if not gt_pvmaps:
             # Enhanced logging to show which method was attempted
             if explicit_pvmap:
                 logger.info(f"Explicit PVMAP not found: {explicit_pvmap}")
@@ -1145,8 +1203,9 @@ def evaluate_generated_pvmap(
             logger.info("Skipping evaluation")
             return True, None
 
-        logger.info(f"Found ground truth: {gt_pvmap_path.name}")
-        logger.info(f"  Source: {gt_pvmap_path.parent}")
+        logger.info(f"Found {len(gt_pvmaps)} ground truth PVMAP(s)")
+        for pvmap in gt_pvmaps:
+            logger.debug(f"  - {pvmap.name}")
 
         # Lazy import evaluation function
         try:
@@ -1159,30 +1218,61 @@ def evaluate_generated_pvmap(
         eval_dir = dataset.output_dir / "eval_results"
         eval_dir.mkdir(parents=True, exist_ok=True)
 
-        # Run comparison
-        logger.info(f"Evaluating PVMAP against ground truth...")
-        counters, diff_str = compare_pvmaps_diff(
-            str(dataset.pvmap_path),
-            str(gt_pvmap_path),
-            str(eval_dir)
-        )
+        # Compare against all ground truth pvmaps and keep the best result
+        best_accuracy = -1
+        best_counters = None
+        best_diff_str = None
+        best_pvmap = None
 
-        # Save diff_results.json with raw counters (needed for metrics aggregation)
+        for gt_pvmap in gt_pvmaps:
+            logger.debug(f"Comparing against {gt_pvmap.name}...")
+            counters, diff_str = compare_pvmaps_diff(
+                str(dataset.pvmap_path),
+                str(gt_pvmap),
+                str(eval_dir)
+            )
+
+            nodes_gt = counters.get('nodes-ground-truth', 0)
+            nodes_matched = counters.get('nodes-matched', 0)
+            accuracy = nodes_matched / nodes_gt if nodes_gt > 0 else 0
+
+            logger.debug(f"  {gt_pvmap.name}: {nodes_matched}/{nodes_gt} nodes matched ({accuracy*100:.1f}%)")
+
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_counters = counters.copy()
+                best_diff_str = diff_str
+                best_pvmap = gt_pvmap
+
+        # Add best ground truth pvmap to results
+        best_counters['best_ground_truth_pvmap'] = str(best_pvmap)
+        best_counters['ground_truth_pvmaps_tested'] = len(gt_pvmaps)
+
+        # Save best result to diff_results.json
         diff_results_file = eval_dir / "diff_results.json"
         with open(diff_results_file, 'w') as f:
-            json.dump(counters, f, indent=2, default=str)
+            json.dump(best_counters, f, indent=2, default=str)
         logger.debug(f"Saved diff_results.json to {diff_results_file}")
 
+        # Save diff.txt with best result
+        diff_file = eval_dir / "diff.txt"
+        with open(diff_file, 'w') as f:
+            f.write(f"Best match: {best_pvmap.name}\n")
+            f.write(f"Tested {len(gt_pvmaps)} ground truth PVMAP(s)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(best_diff_str)
+
         # Calculate and log metrics
-        nodes_gt = counters.get('nodes-ground-truth', 0)
-        nodes_matched = counters.get('nodes-matched', 0)
-        pvs_matched = counters.get('PVs-matched', 0)
-        pvs_total = pvs_matched + counters.get('pvs-modified', 0) + counters.get('pvs-deleted', 0)
+        nodes_gt = best_counters.get('nodes-ground-truth', 0)
+        nodes_matched = best_counters.get('nodes-matched', 0)
+        pvs_matched = best_counters.get('PVs-matched', 0)
+        pvs_total = pvs_matched + best_counters.get('pvs-modified', 0) + best_counters.get('pvs-deleted', 0)
 
         # Cap node_accuracy at 100% (nodes_matched can exceed nodes_gt due to diff algorithm)
         node_accuracy = (min(nodes_matched, nodes_gt) / nodes_gt * 100) if nodes_gt > 0 else 0
         pv_accuracy = (pvs_matched / pvs_total * 100) if pvs_total > 0 else 0
 
+        logger.info(f"Best match: {best_pvmap.name}")
         logger.info(f"Evaluation complete: Node Acc={node_accuracy:.1f}%, PV Acc={pv_accuracy:.1f}%")
 
         # Return metrics for aggregate reporting
@@ -1192,7 +1282,8 @@ def evaluate_generated_pvmap(
             'nodes_matched': nodes_matched,
             'nodes_ground_truth': nodes_gt,
             'pvs_matched': pvs_matched,
-            'pvs_total': pvs_total
+            'pvs_total': pvs_total,
+            'best_ground_truth_pvmap': str(best_pvmap.name)
         }
 
     except FileNotFoundError as e:
