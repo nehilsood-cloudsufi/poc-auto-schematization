@@ -148,3 +148,53 @@ manager recommend solution:
 We can fit all scenarios to PV map. It just becomes non trivial to do that. 
 Ask DE team for sample PV  maps that has these scenarios.
 Extract the findings and modify claude cli prompt
+
+
+---------------------
+Create a full fledge plan with all the checklist items google_adk_python/plan.md with planning agent
+---------------
+# Structured Planning
+
+## Planning Phases
+
+### Phase 1: Exploration
+- Read relevant files and understand architecture
+- Ask clarifying questions
+- Identify dependencies and constraints
+
+### Phase 2: Design
+- Break down into atomic tasks
+- Order by dependencies (what must come first)
+- Estimate complexity for each
+
+### Phase 3: Checklist Generation
+Create a checklist with:
+- [ ] Task name | Files affected | Dependencies | Complexity
+
+## Output Format
+Save plan to `.claude/plans/[feature-name].md` with:
+1. Overview
+2. Architecture decisions
+3. Implementation checklist (ordered)
+4. Testing requirements
+5. Rollback strategy
+
+-----------
+I want to implement the run_pvmap_pipeline.py using google adk python and using .claude/skills/google-adk/skill.yaml skill
+bring the indepth understanding of run_pvmap_pipeline.py and prepare a full fledge plan for it
+
+refer /Users/nehilsood/.claude/plans/enchanted-discovering-ritchie.md for run_pvmap_pipeline.py understanding
+
+copy the input folders from input_benchmark folder to src/ properly
+just take 
+input/{dataset_name}/
+├── test_data/
+│   └── *_input.csv              # Your source data (REQUIRED)
+├── *_metadata.csv                # Configuration file (REQUIRED)
+
+skip combined files and other files
+
+properly arrange input and output for src/ folder so that I can run all these datasets
+create a proper output folder where all the logs and outputs will be saved
+
+if it ran successfully, run it for all the datasets in @src/input folder properly, prepare a plan first to run all properly  

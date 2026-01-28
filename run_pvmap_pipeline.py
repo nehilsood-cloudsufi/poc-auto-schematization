@@ -58,7 +58,7 @@ from util.gemini_client import GeminiClient
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 TOOLS_DIR = BASE_DIR / "tools"
-LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR = OUTPUT_DIR / "logs"  # Changed to output/logs for centralized logging
 SCHEMA_BASE_DIR = BASE_DIR / "schema_example_files"
 PROMPT_TEMPLATE = TOOLS_DIR / "improved_pvmap_prompt.txt"
 
@@ -323,7 +323,7 @@ def prepare_dataset(
     else:
         logger.warning(f"No input data files found for {dataset.name}")
 
-    # Merge metadata files
+    # Merge metadata files (optional)
     if dataset.metadata_files:
         combined_path = dataset.path / f"{dataset.name}_combined_metadata.csv"
         if merge_metadata_files(dataset.metadata_files, combined_path, logger):
@@ -332,8 +332,8 @@ def prepare_dataset(
             logger.error(f"Failed to merge metadata for {dataset.name}")
             return False
     else:
-        logger.warning(f"No metadata files found for {dataset.name}")
-        return False
+        logger.warning(f"No metadata files found for {dataset.name} - proceeding without metadata")
+        dataset.combined_metadata = None
 
     logger.info(f"Dataset {dataset.name} prepared successfully")
     return True
@@ -467,16 +467,20 @@ def select_schema_for_dataset(
         logger.error(f"  ✗ Directory validation failed: {e}")
         return False
 
-    # Merge metadata files if multiple
+    # Merge metadata files if multiple (or use None if no metadata)
     combined_metadata_path = None
+    metadata_file = None
     try:
         if len(metadata_files) > 1:
             logger.info(f"  Found {len(metadata_files)} metadata files, merging...")
             combined_metadata_path = dataset.path / "combined_metadata_temp.csv"
             schema_selector.merge_metadata_files(metadata_files, combined_metadata_path)
             metadata_file = combined_metadata_path
-        else:
+        elif len(metadata_files) == 1:
             metadata_file = metadata_files[0]
+        else:
+            logger.warning("  No metadata files found - will use data structure only")
+            metadata_file = None
     except Exception as e:
         logger.error(f"  ✗ Failed to merge metadata files: {e}")
         return False
@@ -508,10 +512,14 @@ def select_schema_for_dataset(
             combined_metadata_path.unlink()
         return False
 
-    # Read metadata content
+    # Read metadata content (if available)
     try:
-        with open(metadata_file, 'r', encoding='utf-8') as f:
-            metadata_content = f.read()
+        if metadata_file:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata_content = f.read()
+        else:
+            metadata_content = "No metadata file available. Please infer dataset properties from the data preview."
+            logger.warning("  No metadata file - using data preview only for schema selection")
     except Exception as e:
         logger.error(f"  ✗ Failed to read metadata file: {e}")
         if combined_metadata_path and combined_metadata_path.exists():
@@ -519,7 +527,7 @@ def select_schema_for_dataset(
         return False
 
     # Build prompt for schema selection
-    prompt = schema_selector.build_claude_prompt(
+    prompt = schema_selector.build_prompt(
         metadata_content,
         data_preview,
         category_info,
@@ -611,13 +619,16 @@ def populate_prompt(dataset: DatasetInfo, logger: logging.Logger) -> Optional[st
             logger.error("No sampled data available")
             return None
 
-        # Read metadata
+        # Read metadata (use placeholder if not available)
         if dataset.combined_metadata:
             metadata_content = read_file_content(dataset.combined_metadata)
             logger.debug(f"Metadata: {len(metadata_content)} chars")
+        elif dataset.metadata_files:
+            metadata_content = read_file_content(dataset.metadata_files[0])
+            logger.debug(f"Metadata: {len(metadata_content)} chars")
         else:
-            logger.error("No metadata available")
-            return None
+            metadata_content = "No metadata file provided. Please infer the dataset properties from the data structure and column names."
+            logger.warning("No metadata available - using placeholder text")
 
         # Replace placeholders
         prompt = template.replace("{{SCHEMA_EXAMPLES}}", schema_content)
@@ -677,20 +688,105 @@ def generate_pvmap(
         logger.debug(f"Invoking Gemini API with prompt saved to: {prompt_file}")
 
         client = GeminiClient(model_name=model_name)
-        output = client.generate_content(prompt, temperature=0.0)
+        result = client.generate_content_with_metadata(prompt, temperature=0.0)
+
+        output = result.get('text')
+        if output is None:
+            logger.error("Gemini API returned None")
+            return False, "Gemini API returned no content"
 
         logger.info(f"Gemini API completed, output: {len(output)} chars")
+        logger.info(f"Duration: {result['duration_ms']}ms, "
+                   f"Tokens: {result.get('total_tokens', 'N/A')}")
 
         # Save full Gemini output for this attempt (includes reasoning)
         response_dir = dataset.output_dir / "generated_response"
         response_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save thinking/reasoning content if present
+        thinking_content = result.get('thinking_content', [])
+        if thinking_content:
+            thinking_file = response_dir / f"attempt_{attempt}_thinking.txt"
+            with open(thinking_file, 'w', encoding='utf-8') as f:
+                f.write(f"# Thinking/Reasoning Log - Attempt {attempt}\n")
+                f.write(f"# Dataset: {dataset.name}\n")
+                f.write(f"# Generated: {result['start_time']}\n")
+                f.write(f"# Thinking Tokens: {result.get('thoughts_tokens', 'N/A')}\n")
+                f.write("# " + "="*70 + "\n\n")
+
+                for idx, thinking_part in enumerate(thinking_content, 1):
+                    f.write(f"## Thinking Part {idx}\n\n")
+                    f.write(thinking_part)
+                    f.write("\n\n" + "-"*70 + "\n\n")
+
+            logger.info(f"Thinking content saved to: {thinking_file} ({len(thinking_content)} parts)")
+
+        # Save structured metadata to JSON
+        import json
+        metadata = {
+            'attempt': attempt,
+            'dataset': dataset.name,
+            'timestamp': result['start_time'],
+            'model': result['model'],
+            'temperature': result['temperature'],
+            'max_tokens': result['max_tokens'],
+            'start_time': result['start_time'],
+            'end_time': result['end_time'],
+            'duration_ms': result['duration_ms'],
+            'prompt_tokens': result.get('prompt_tokens'),
+            'response_tokens': result.get('response_tokens'),
+            'total_tokens': result.get('total_tokens'),
+            'thoughts_tokens': result.get('thoughts_tokens'),
+            'thinking_parts_count': len(thinking_content),
+            'prompt_path': 'populated_prompt.txt',
+            'response_length': len(output) if output else 0,
+        }
+
+        metadata_file = response_dir / f"attempt_{attempt}.json"
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+        logger.info(f"Metadata saved to: {metadata_file}")
+
+        # Append to JSONL log
+        jsonl_file = dataset.output_dir / "llm_calls.jsonl"
+        with open(jsonl_file, 'a', encoding='utf-8') as f:
+            json.dump(metadata, f)
+            f.write('\n')
+
+        # Save markdown with enhanced metadata header
         attempt_file = response_dir / f"attempt_{attempt}.md"
         with open(attempt_file, 'w', encoding='utf-8') as f:
             f.write(f"# {dataset.name} - Gemini Response (Attempt {attempt})\n\n")
-            f.write(f"Generated: {datetime.now().isoformat()}\n\n")
+
+            # Request Metadata
+            f.write("## Request Metadata\n")
+            f.write(f"- **Generated:** {result['start_time']}\n")
+            f.write(f"- **Model:** {result['model']}\n")
+            f.write(f"- **Temperature:** {result['temperature']}\n")
+            f.write(f"- **Max Tokens:** {result['max_tokens']}\n\n")
+
+            # Response Metadata
+            f.write("## Response Metadata\n")
+            duration_sec = result['duration_ms'] / 1000
+            f.write(f"- **Duration:** {duration_sec:.1f} seconds\n")
+            if result.get('prompt_tokens'):
+                f.write(f"- **Prompt Tokens:** {result['prompt_tokens']:,}\n")
+            if result.get('response_tokens'):
+                f.write(f"- **Response Tokens:** {result['response_tokens']:,}\n")
+            if result.get('total_tokens'):
+                f.write(f"- **Total Tokens:** {result['total_tokens']:,}\n")
+            if result.get('thoughts_tokens'):
+                f.write(f"- **Thinking Tokens:** {result['thoughts_tokens']:,}\n")
+            if thinking_content:
+                f.write(f"- **Thinking Parts:** {len(thinking_content)} (saved to attempt_{attempt}_thinking.txt)\n")
+            f.write("\n")
+
             if error_feedback:
                 f.write("## Error Feedback Provided\n\n")
-                f.write(f"```\n{error_feedback[:2000]}\n```\n\n")
+                f.write("```\n")
+                f.write(error_feedback[:2000])
+                f.write("\n```\n\n")
+
             f.write("## Gemini's Full Response\n\n")
             f.write(output)
         logger.info(f"Gemini response saved to: {attempt_file}")
@@ -857,14 +953,15 @@ def extract_log_samples(log_output: str, tail_lines: int = 50, sample_count: int
 def get_validation_command(dataset: DatasetInfo) -> str:
     """Generate the stat_var_processor validation command."""
     input_file = dataset.combined_input_data or dataset.input_data_files[0] if dataset.input_data_files else "INPUT_FILE_NOT_FOUND"
-    metadata_file = dataset.combined_metadata or dataset.metadata_files[0] if dataset.metadata_files else "METADATA_NOT_FOUND"
+    metadata_file = dataset.combined_metadata or dataset.metadata_files[0] if dataset.metadata_files else None
 
+    config_line = f'    --config_file="{metadata_file}" \\\n' if metadata_file else ''
     cmd = (
         f'PYTHONPATH="$PYTHONPATH:$(pwd):$(pwd)/tools:$(pwd)/util" '
         f'python3 tools/stat_var_processor.py \\\n'
         f'    --input_data="{input_file}" \\\n'
         f'    --pv_map="{dataset.pvmap_path}" \\\n'
-        f'    --config_file="{metadata_file}" \\\n'
+        f'{config_line}'
         f'    --generate_statvar_name=True \\\n'
         f'    --output_path="{dataset.output_dir}/processed"'
     )
@@ -893,8 +990,8 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
         dataset.metadata_files[0] if dataset.metadata_files else None
     )
 
-    if not input_file or not metadata_file:
-        error_msg = "Missing input_data or metadata file for validation"
+    if not input_file:
+        error_msg = "Missing input_data file for validation"
         logger.error(error_msg)
         return False, error_msg
 
@@ -907,10 +1004,15 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
         str(TOOLS_DIR / 'stat_var_processor.py'),
         f'--input_data={input_file}',
         f'--pv_map={dataset.pvmap_path}',
-        f'--config_file={metadata_file}',
         '--generate_statvar_name=True',
         f'--output_path={dataset.output_dir}/processed'
     ]
+
+    # Add config file only if metadata exists
+    if metadata_file:
+        cmd.insert(4, f'--config_file={metadata_file}')
+    else:
+        logger.warning("Running validation without metadata config file")
 
     logger.debug(f"Validation command: {' '.join(cmd)}")
 
@@ -1392,6 +1494,15 @@ def process_dataset(
         valid, error = run_validation(dataset, dataset_logger)
 
         if valid:
+            # Rename processed_stat_vars.mcf to processed.mcf for consistency
+            stat_vars_mcf = dataset.output_dir / "processed_stat_vars.mcf"
+            target_mcf = dataset.output_dir / "processed.mcf"
+
+            if stat_vars_mcf.exists() and not target_mcf.exists():
+                stat_vars_mcf.rename(target_mcf)
+                logger.info(f"Renamed {stat_vars_mcf.name} to {target_mcf.name}")
+                dataset_logger.info(f"Renamed {stat_vars_mcf.name} to {target_mcf.name}")
+
             # [PHASE 5 INTEGRATION] Evaluate against ground truth
             eval_success, eval_metrics = evaluate_generated_pvmap(
                 dataset,
@@ -1504,9 +1615,10 @@ def main():
     args = parser.parse_args()
 
     # Override INPUT_DIR and OUTPUT_DIR from command-line arguments
-    global INPUT_DIR, OUTPUT_DIR
+    global INPUT_DIR, OUTPUT_DIR, LOGS_DIR
     INPUT_DIR = BASE_DIR / args.input_dir
     OUTPUT_DIR = BASE_DIR / args.output_dir
+    LOGS_DIR = OUTPUT_DIR / "logs"  # Recalculate based on overridden OUTPUT_DIR
 
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

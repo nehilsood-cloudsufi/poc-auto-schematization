@@ -1,0 +1,32 @@
+# Google Cloud Run deployment configuration for ADK agents
+# Reference: google_adk_python/llms.txt - Deploy to Cloud Run
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: adk-agent-service
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '10'
+        autoscaling.knative.dev/minScale: '0'
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/PROJECT_ID/adk-agent:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gemini-api-key
+              key: api-key
+        resources:
+          limits:
+            cpu: '2'
+            memory: 2Gi

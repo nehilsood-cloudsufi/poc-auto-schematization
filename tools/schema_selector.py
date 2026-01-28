@@ -38,7 +38,7 @@ flags.DEFINE_boolean('force', False,
 flags.DEFINE_boolean('dry_run', False,
                      'Show what would be done without actually copying files.')
 flags.DEFINE_integer('preview_rows', 15,
-                     'Number of data rows to include in preview for Claude.')
+                     'Number of data rows to include in preview for Model.')
 
 flags.mark_flag_as_required('input_dir')
 
@@ -134,9 +134,9 @@ def validate_input_directory(input_dir: Path) -> Tuple[bool, Optional[str], List
         metadata_files = [f for f in input_dir.glob("*metadata*.csv")]
 
     if len(metadata_files) == 0:
-        return False, f"No metadata file found in {input_dir}", []
+        logging.warning(f"No metadata file found in {input_dir} - proceeding without metadata")
 
-    # Return all metadata files found (no longer error on multiple)
+    # Return all metadata files found (no longer error on multiple, empty list is OK)
 
     # Log if multiple metadata files found
     if len(metadata_files) > 1:
@@ -194,7 +194,7 @@ def get_category_info() -> Dict[str, str]:
 
 
 def generate_data_preview(input_dir: Path, max_rows: int) -> str:
-    """Generate a preview of the dataset for Claude.
+    """Generate a preview of the dataset for Model.
 
     Args:
         input_dir: Path to the input directory
@@ -295,10 +295,10 @@ def generate_schema_previews(schema_base_dir: Path, preview_lines: int = 8) -> D
     return previews
 
 
-def build_claude_prompt(metadata_content: str, data_preview: str,
-                       category_info: Dict[str, str],
-                       schema_previews: Dict[str, str]) -> str:
-    """Build the complete prompt for Claude.
+def build_prompt(metadata_content: str, data_preview: str,
+                 category_info: Dict[str, str],
+                 schema_previews: Dict[str, str]) -> str:
+    """Build the complete prompt for schema selection.
 
     Args:
         metadata_content: Content of the metadata.csv file
@@ -353,10 +353,10 @@ Selected Category: """
 
 
 def parse_category_response(response: str, valid_categories: List[str]) -> Optional[str]:
-    """Parse Claude's response to extract the category name.
+    """Parse Model's response to extract the category name.
 
     Args:
-        response: Raw response from Claude
+        response: Raw response from Model
         valid_categories: List of valid category names
 
     Returns:
@@ -566,9 +566,9 @@ def main(argv):
     logging.debug("Generating schema previews...")
     schema_previews = generate_schema_previews(schema_base_dir)
 
-    # Step 8: Build Claude prompt
-    prompt = build_claude_prompt(metadata_content, data_preview,
-                                 category_info, schema_previews)
+    # Step 8: Build prompt
+    prompt = build_prompt(metadata_content, data_preview,
+                          category_info, schema_previews)
 
     # Step 9: Invoke Gemini API
     logging.info("Invoking Gemini API to select schema category...")

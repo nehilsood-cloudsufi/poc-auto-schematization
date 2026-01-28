@@ -226,4 +226,5 @@ tmp/
 output_test/*
 input_benchmark/*
 output_benchmark/*
-
+src/input/*
+src/output/*

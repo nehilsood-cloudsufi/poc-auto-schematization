@@ -94,6 +94,105 @@ class GeminiClient:
 
         return response.text
 
+    def generate_content_with_metadata(
+        self,
+        prompt: str,
+        temperature: float = 0,
+        max_output_tokens: Optional[int] = None,
+    ) -> dict:
+        """Generate content and return full metadata.
+
+        Args:
+            prompt: The input prompt to send to the model.
+            temperature: Controls randomness (0.0-1.0). Lower = more deterministic.
+            max_output_tokens: Maximum number of tokens in the response.
+
+        Returns:
+            dict with keys:
+             - text: Generated text
+             - model: Model name
+             - temperature: Temperature used
+             - max_tokens: Max tokens setting
+             - start_time: ISO timestamp
+             - end_time: ISO timestamp
+             - duration_ms: Duration in milliseconds
+             - prompt_tokens: Prompt token count (if available)
+             - response_tokens: Response token count (if available)
+             - total_tokens: Total token count (if available)
+        """
+        from datetime import datetime
+        import time
+
+        start_time = datetime.now()
+        start_ms = time.time() * 1000
+
+        config_params = {"temperature": temperature}
+        if max_output_tokens:
+            config_params["max_output_tokens"] = max_output_tokens
+
+        # Enable thinking output
+        config_params["thinking_config"] = types.ThinkingConfig(
+            include_thoughts=True
+        )
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_params),
+        )
+
+        end_time = datetime.now()
+        end_ms = time.time() * 1000
+        duration_ms = int(end_ms - start_ms)
+
+        # Extract token usage if available
+        prompt_tokens = None
+        response_tokens = None
+        total_tokens = None
+        thoughts_tokens = None
+
+        if hasattr(response, 'usage_metadata'):
+            usage = response.usage_metadata
+            prompt_tokens = getattr(usage, 'prompt_token_count', None)
+            response_tokens = getattr(usage, 'candidates_token_count', None)
+            total_tokens = getattr(usage, 'total_token_count', None)
+            thoughts_tokens = getattr(usage, 'thoughts_token_count', None)
+
+        # Extract thinking/reasoning content from response parts
+        thinking_content = []
+        output_content = []
+
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'content') and candidate.content:
+                if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        # Check if this is a thinking part
+                        is_thought = getattr(part, 'thought', False)
+                        part_text = getattr(part, 'text', None)
+
+                        if part_text:
+                            if is_thought:
+                                thinking_content.append(part_text)
+                            else:
+                                output_content.append(part_text)
+
+        return {
+            'text': response.text if response.text else None,
+            'model': self.model_name,
+            'temperature': temperature,
+            'max_tokens': max_output_tokens,
+            'start_time': start_time.isoformat(),
+            'end_time': end_time.isoformat(),
+            'duration_ms': duration_ms,
+            'prompt_tokens': prompt_tokens,
+            'response_tokens': response_tokens,
+            'total_tokens': total_tokens,
+            'thoughts_tokens': thoughts_tokens,
+            'thinking_content': thinking_content,  # List of thinking/reasoning parts
+            'output_content': output_content,      # List of output parts
+        }
+
     def process_output(
         self,
         content: str,
