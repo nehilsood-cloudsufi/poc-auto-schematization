@@ -107,11 +107,11 @@ class PVMAPGenerationAgent(BaseAgent):
             )
             return
 
-        # Get template path (default to tools/improved_pvmap_prompt.txt)
-        tools_dir = PROJECT_ROOT / "tools"
+        # Get template path (default to src/resources/prompts/improved_pvmap_prompt.txt)
+        default_template = PROJECT_ROOT / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
         template_path = Path(ctx.session.state.get(
             "prompt_template_path",
-            str(tools_dir / "improved_pvmap_prompt.txt")
+            str(default_template)
         ))
 
         if not template_path.exists():

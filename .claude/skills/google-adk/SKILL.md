@@ -1,7 +1,6 @@
 ---
 name: google-adk
 description: Expert assistant for Google Agent Development Kit (ADK) - Python only
-version: 1.0.0
 allowed-tools: [Read, Write, Bash, Glob, Grep]
 ---
 

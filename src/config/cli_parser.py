@@ -69,8 +69,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--schema-base-dir',
         type=str,
-        default=str(BASE_DIR / "schema_example_files"),
-        help='Path to schema files directory (default: schema_example_files/)'
+        default=str(BASE_DIR / "src" / "resources" / "schema_examples"),
+        help='Path to schema files directory (default: src/resources/schema_examples/)'
     )
 
     # Evaluation phase options

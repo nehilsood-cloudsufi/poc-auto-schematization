@@ -48,19 +48,19 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 # Import data sampler for Phase 2 integration
-from tools.data_sampler import sample_csv_file as data_sample_csv_file
+from src.pipeline.sampling.data_sampler import sample_csv_file as data_sample_csv_file
 
 # Import schema selector for Phase 2.5 integration
-from tools import schema_selector
+from src.pipeline.schema_selection import schema_selector
 
 # Import Gemini client for LLM calls
-from util.gemini_client import GeminiClient
+from src.data_commons.api.gemini_client import GeminiClient
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
-TOOLS_DIR = BASE_DIR / "tools"
+SRC_DIR = BASE_DIR / "src"
 LOGS_DIR = OUTPUT_DIR / "logs"  # Changed to output/logs for centralized logging
-SCHEMA_BASE_DIR = BASE_DIR / "schema_example_files"
-PROMPT_TEMPLATE = TOOLS_DIR / "improved_pvmap_prompt.txt"
+SCHEMA_BASE_DIR = SRC_DIR / "resources" / "schema_examples"
+PROMPT_TEMPLATE = SRC_DIR / "resources" / "prompts" / "improved_pvmap_prompt.txt"
 
 MAX_RETRIES = 2
 
@@ -427,7 +427,7 @@ def select_schema_for_dataset(
     Args:
         dataset: DatasetInfo object with dataset details
         logger: Logger instance for tracking progress
-        schema_base_dir: Path to schema_example_files directory
+        schema_base_dir: Path to schema examples directory (src/resources/schema_examples)
         force: If True, re-select schema even if files exist
         model_name: Optional Gemini model name to use
 
@@ -441,6 +441,12 @@ def select_schema_for_dataset(
     if has_schema:
         if not force:
             logger.info(f"  ✓ Schema files already exist (use --force-schema-selection to re-select)")
+            # Update dataset.schema_examples with existing .txt file
+            for existing_file in existing_files:
+                if existing_file.suffix == '.txt' and 'schema_examples' in existing_file.name:
+                    dataset.schema_examples = existing_file
+                    logger.debug(f"  Using existing schema: {existing_file}")
+                    break
             return True
         else:
             # Clean up existing schema files before re-selection
@@ -572,6 +578,10 @@ def select_schema_for_dataset(
             logger.info(f"  ✓ Successfully copied {len(copied_files)} schema file(s):")
             for file in copied_files:
                 logger.info(f"    - {file.name}")
+                # Update dataset.schema_examples with the newly copied .txt file
+                if file.suffix == '.txt' and 'schema_examples' in file.name:
+                    dataset.schema_examples = file
+                    logger.debug(f"  Updated dataset.schema_examples to: {file}")
         else:
             logger.warning(f"  ⚠ No schema files were copied for category: {selected_category}")
     except Exception as e:
@@ -976,8 +986,7 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
     env = os.environ.copy()
     pythonpath_parts = [
         str(BASE_DIR),
-        str(TOOLS_DIR),
-        str(BASE_DIR / "util"),
+        str(SRC_DIR),
         env.get('PYTHONPATH', '')
     ]
     env['PYTHONPATH'] = ':'.join(filter(None, pythonpath_parts))
@@ -1001,7 +1010,7 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
 
     cmd = [
         python_cmd,
-        str(TOOLS_DIR / 'stat_var_processor.py'),
+        str(SRC_DIR / 'pipeline' / 'validation' / 'stat_var_processor.py'),
         f'--input_data={input_file}',
         f'--pv_map={dataset.pvmap_path}',
         '--generate_statvar_name=True',
@@ -1569,8 +1578,8 @@ def main():
     parser.add_argument(
         '--schema-base-dir',
         type=str,
-        default=str(BASE_DIR / "schema_example_files"),
-        help='Path to schema files directory (default: schema_example_files/)'
+        default=str(BASE_DIR / "src" / "resources" / "schema_examples"),
+        help='Path to schema files directory (default: src/resources/schema_examples/)'
     )
     parser.add_argument(
         '--skip-evaluation',

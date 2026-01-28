@@ -198,3 +198,10 @@ properly arrange input and output for src/ folder so that I can run all these da
 create a proper output folder where all the logs and outputs will be saved
 
 if it ran successfully, run it for all the datasets in @src/input folder properly, prepare a plan first to run all properly  
+
+
+-----------
+currently all the code is centric around src/ folder but there are few more python scripts which are relevant and
+important and are in util and tools folder
+help me accomodate those scripts in src/ folder properly 
+help me prepare a proper plan for refactoring them
