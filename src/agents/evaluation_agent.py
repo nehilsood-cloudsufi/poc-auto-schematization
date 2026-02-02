@@ -7,6 +7,7 @@ Follows Pattern 1: Simple BaseAgent (no LLM needed).
 This agent uses Google ADK BaseAgent pattern for proper async execution.
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator
@@ -38,7 +39,9 @@ class EvaluationAgent(BaseAgent):
         - output_dir: Path - Directory for evaluation outputs
 
     ADK State Outputs:
-        - eval_metrics: Dict - Evaluation metrics (precision, recall, etc.)
+        - eval_metrics: Dict - Evaluation metrics with keys:
+            node_accuracy, pv_accuracy, nodes_matched, nodes_ground_truth,
+            pvs_matched, best_ground_truth_pvmap
         - best_ground_truth_pvmap: Path - Best matching ground truth file
         - ground_truth_pvmaps: List[Path] - All found ground truth files
         - evaluation_passed: bool - Whether evaluation succeeded
@@ -137,39 +140,73 @@ class EvaluationAgent(BaseAgent):
         ctx.session.state["ground_truth_pvmaps"] = ground_truth_pvmaps
 
         # 4. Compare against all ground truths and select best
-        best_metrics = None
+        # Use node accuracy for best match selection (matches procedural pipeline)
+        best_accuracy = -1.0
+        best_pv_accuracy = 0.0
         best_gt_pvmap = None
-        best_f1 = -1.0
+        best_diff_text = ""
+        best_counters = {}
 
         for gt_pvmap in ground_truth_pvmaps:
             comparison = compare_pvmaps(
-                auto_pvmap_path=Path(pvmap_path),
+                auto_pvmap_path=str(pvmap_path),
                 gt_pvmap_path=gt_pvmap,
-                output_dir=Path(output_dir) if output_dir else current_dataset.path
+                output_dir=str(Path(output_dir) if output_dir else current_dataset.path)
             )
 
             if comparison["success"]:
-                metrics = comparison["metrics"]
-                f1_score = metrics.get("f1_score", 0.0)
+                # compare_pvmaps returns: success, error, counters, diff_text, accuracy, pv_accuracy
+                node_accuracy = comparison.get("accuracy", 0.0)
 
-                if f1_score > best_f1:
-                    best_f1 = f1_score
-                    best_metrics = metrics
+                if node_accuracy > best_accuracy:
+                    best_accuracy = node_accuracy
+                    best_pv_accuracy = comparison.get("pv_accuracy", 0.0)
                     best_gt_pvmap = gt_pvmap
+                    best_diff_text = comparison.get("diff_text", "")
+                    best_counters = comparison.get("counters", {})
 
-        # 5. Write results to state
-        if best_metrics:
-            ctx.session.state["eval_metrics"] = best_metrics
+        # 5. Write results to state and save diff files
+        if best_gt_pvmap is not None:
+            # Store proper metrics in state (matches procedural pipeline)
+            ctx.session.state["eval_metrics"] = {
+                'node_accuracy': best_accuracy,
+                'pv_accuracy': best_pv_accuracy,
+                'nodes_matched': best_counters.get('nodes-matched', 0),
+                'nodes_ground_truth': best_counters.get('nodes-ground-truth', 0),
+                'pvs_matched': best_counters.get('PVs-matched', 0),
+                'best_ground_truth_pvmap': str(Path(best_gt_pvmap).name)
+            }
             ctx.session.state["best_ground_truth_pvmap"] = str(best_gt_pvmap)
             ctx.session.state["evaluation_passed"] = True
             ctx.session.state["error"] = None
 
+            # Save diff files to eval_results directory
+            eval_results_dir = Path(output_dir if output_dir else current_dataset.output_dir) / "eval_results"
+            eval_results_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save diff.txt (match procedural pipeline format)
+            diff_txt_path = eval_results_dir / "diff.txt"
+            with open(diff_txt_path, 'w', encoding='utf-8') as f:
+                f.write(f"Best match: {Path(best_gt_pvmap).name}\n")
+                f.write(f"Tested {len(ground_truth_pvmaps)} ground truth PVMAP(s)\n")
+                f.write("=" * 60 + "\n\n")
+                f.write(best_diff_text if best_diff_text else "(No diff text available)")
+
+            # Save diff_results.json (match procedural pipeline structure)
+            # Save counters directly with extra fields (not wrapped in nested structure)
+            diff_results_path = eval_results_dir / "diff_results.json"
+            best_counters['best_ground_truth_pvmap'] = str(best_gt_pvmap)
+            best_counters['ground_truth_pvmaps_tested'] = len(ground_truth_pvmaps)
+            with open(diff_results_path, 'w', encoding='utf-8') as f:
+                json.dump(best_counters, f, indent=2, default=str)
+
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Evaluation complete: F1={best_metrics.get('f1_score', 0.0):.3f}, "
-                                   f"Precision={best_metrics.get('precision', 0.0):.3f}, "
-                                   f"Recall={best_metrics.get('recall', 0.0):.3f}")
+                    types.Part(text=f"Evaluation complete: Node Acc={best_accuracy:.1f}%, "
+                                   f"PV Acc={best_pv_accuracy:.1f}%. "
+                                   f"Best match: {Path(best_gt_pvmap).name}. "
+                                   f"Results saved to {eval_results_dir}")
                 ])
             )
         else:

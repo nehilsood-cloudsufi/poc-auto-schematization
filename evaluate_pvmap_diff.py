@@ -18,6 +18,9 @@ import json
 # Add paths for imports
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.dirname(_SCRIPT_DIR)
+# Use new src-based paths (primary)
+sys.path.insert(0, os.path.join(_SCRIPT_DIR, 'src'))
+# Legacy paths (fallback for tools that haven't been migrated)
 sys.path.append(os.path.join(_DATA_DIR, 'tools', 'statvar_importer'))
 sys.path.append(os.path.join(_DATA_DIR, 'tools', 'statvar_importer', 'schema'))
 sys.path.append(os.path.join(_DATA_DIR, 'util'))
@@ -192,8 +195,12 @@ def run_auto_schematization(input_keys, sample_data_path, output_path, output_di
     # Convert Excel to CSV if needed (LLM expects CSV)
     sample_data_csv = convert_to_csv_if_needed(sample_data_path, output_dir)
 
-    from config_map import ConfigMap
-    from counters import Counters
+    try:
+        from src.infrastructure.config.config_map import ConfigMap
+        from src.infrastructure.metrics.counters import Counters
+    except ImportError:
+        from config_map import ConfigMap
+        from counters import Counters
     import llm_pvmap_generator
 
     input_pvmap = {key: {} for key in input_keys}
@@ -218,7 +225,10 @@ def run_auto_schematization(input_keys, sample_data_path, output_path, output_di
 
 def load_pvmap_for_diff(pvmap_path, drop_ignored_props=True):
     """Load pv_map CSV into dict format for diff comparison."""
-    from property_value_mapper import load_pv_map
+    try:
+        from src.processing.mapping.property_value_mapper import load_pv_map
+    except ImportError:
+        from property_value_mapper import load_pv_map
 
     pvmap = load_pv_map(pvmap_path)
     output_pvmap = {}
@@ -247,8 +257,12 @@ def load_pvmap_for_diff(pvmap_path, drop_ignored_props=True):
 
 def compare_pvmaps_diff(auto_pvmap_path, gt_pvmap_path, output_dir):
     """Compare pv_maps using diff-based method from mcf_diff."""
-    from counters import Counters
-    from mcf_diff import diff_mcf_nodes
+    try:
+        from src.infrastructure.metrics.counters import Counters
+        from src.data_commons.mcf.mcf_diff import diff_mcf_nodes
+    except ImportError:
+        from counters import Counters
+        from mcf_diff import diff_mcf_nodes
 
     counters = Counters()
 

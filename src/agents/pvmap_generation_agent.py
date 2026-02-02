@@ -6,7 +6,7 @@ Uses Pattern 3: Custom BaseAgent with Orchestration.
 
 This agent handles the complete PVMAP generation workflow including:
 - Prompt building with error feedback
-- LLM generation via LlmAgent
+- LLM generation via GeminiClient
 - CSV extraction from LLM output
 - Inline validation with subprocess
 - Retry loop with accumulated error feedback
@@ -21,20 +21,26 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from google.adk.agents import BaseAgent, LlmAgent
+from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.genai import types
-from google.genai import Client
 
 from src.agents.pvmap_generation.helpers import (
     build_prompt_with_feedback,
     extract_csv,
-    read_file_content
+    read_file_content,
+    save_populated_prompt,
+    save_attempt_response,
+    append_llm_call_log,
+    update_generation_notes,
+    convert_pvmap_output_to_csv,
+    validate_pvmap_structure,
+    parse_structured_json_response
 )
+from src.agents.pvmap_generation.schemas import PVMAP_OUTPUT_SCHEMA
 from src.tools.validation_tool import run_validation
 from src.state.dataset_info import DatasetInfo
-import os
 
 
 class PVMAPGenerationAgent(BaseAgent):
@@ -43,7 +49,7 @@ class PVMAPGenerationAgent(BaseAgent):
 
     This is a custom BaseAgent that orchestrates:
     1. Building prompts with schema/data/metadata
-    2. Calling LlmAgent to generate PVMAP
+    2. Calling GeminiClient to generate PVMAP
     3. Extracting CSV from LLM response
     4. Inline validation via subprocess
     5. Retry loop with error feedback
@@ -65,7 +71,8 @@ class PVMAPGenerationAgent(BaseAgent):
         self,
         name: str = "PVMAPGenerationAgent",
         max_retries: int = 2,
-        model: str = "gemini-3-pro-preview"
+        model: str = "gemini-3-pro-preview",
+        use_structured_output: bool = False
     ):
         """
         Initialize PVMAP Generation Agent.
@@ -74,17 +81,13 @@ class PVMAPGenerationAgent(BaseAgent):
             name: Agent name
             max_retries: Maximum number of retry attempts (default: 2, for 3 total attempts)
             model: Gemini model to use for generation
+            use_structured_output: If True, request JSON structured output from LLM
+                                  and convert to CSV deterministically
         """
         super().__init__(name=name)
         self._max_retries = max_retries
-
-        # LlmAgent for PVMAP generation
-        self._generator = LlmAgent(
-            name=f"{name}_Generator",
-            model=model,
-            instruction="You are a PVMAP generator. Generate a CSV mapping based on the provided schema, data, and metadata.",
-            output_key="pvmap_raw_output"
-        )
+        self._model = model  # Store model name for GeminiClient
+        self._use_structured_output = use_structured_output
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -163,8 +166,56 @@ class PVMAPGenerationAgent(BaseAgent):
                         error_feedback=error_feedback
                     )
 
+                    # Add structured output instructions if enabled
+                    if self._use_structured_output:
+                        structured_output_instructions = """
+
+---
+
+# OUTPUT FORMAT (STRUCTURED JSON)
+
+Return your response as a JSON object with this exact structure:
+
+```json
+{
+  "format_detected": "raw",  // or "pre-formatted" if data has variableMeasured/observationAbout columns
+  "pvmap_rows": [
+    {
+      "key": "Year",
+      "mappings": [
+        {"property": "observationDate", "value": "{Data}"}
+      ]
+    },
+    {
+      "key": "Value",
+      "mappings": [
+        {"property": "value", "value": "{Number}"},
+        {"property": "populationType", "value": "dcid:Person"},
+        {"property": "measuredProperty", "value": "dcid:count"},
+        {"property": "statType", "value": "dcid:measuredValue"}
+      ]
+    }
+  ],
+  "validation_notes": "Mapped Year to observationDate, Value to StatVar properties...",
+  "confidence": "high"  // or "medium" or "low"
+}
+```
+
+**IMPORTANT**:
+- Each key should match input data EXACTLY (case-sensitive)
+- Each mapping has exactly two fields: "property" and "value"
+- Use dcid: prefix for Data Commons identifiers
+- Use {Data} for string pass-through, {Number} for numeric values
+"""
+                        prompt = prompt + structured_output_instructions
+
                     # Store prompt in state
                     ctx.session.state["pvmap_generation_prompt"] = prompt
+                    ctx.session.state["use_structured_output"] = self._use_structured_output
+
+                    # Save populated prompt to file (only on first attempt)
+                    if attempt == 0:
+                        save_populated_prompt(current_dataset.output_dir, prompt)
 
                 except Exception as e:
                     ctx.session.state["generation_success"] = False
@@ -186,29 +237,34 @@ class PVMAPGenerationAgent(BaseAgent):
                 )
 
                 try:
-                    # Call Gemini API directly using async
+                    # Call Gemini API using GeminiClient (handles API key loading from .env)
                     import asyncio
                     from functools import partial
                     import traceback as tb
 
                     try:
-                        client = Client(api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
-                        model_name = ctx.session.state.get("model", "gemini-3-pro-preview")
+                        from src.data_commons.api.gemini_client import GeminiClient
 
-                        # Run sync API call in executor
+                        model_name = ctx.session.state.get("model", self._model)
+                        gemini_client = GeminiClient(model_name=model_name)
+
+                        # Run sync API call in executor - use generate_content_with_metadata for full response
                         loop = asyncio.get_event_loop()
-                        response = await loop.run_in_executor(
+                        llm_result = await loop.run_in_executor(
                             None,
                             partial(
-                                client.models.generate_content,
-                                model=model_name,
-                                contents=prompt
+                                gemini_client.generate_content_with_metadata,
+                                prompt=prompt,
+                                temperature=0
                             )
                         )
-                        raw_output = response.text if hasattr(response, 'text') else str(response)
+
+                        # Extract text from result
+                        raw_output = llm_result.get('text', '')
 
                         # Store in state
                         ctx.session.state["pvmap_raw_output"] = raw_output
+                        ctx.session.state["pvmap_llm_result"] = llm_result
 
                         if not raw_output:
                             raise ValueError("LLM did not produce output")
@@ -236,7 +292,56 @@ class PVMAPGenerationAgent(BaseAgent):
                     ])
                 )
 
-                pvmap_csv = extract_csv(raw_output)
+                pvmap_csv = None
+                structure_warnings = []
+
+                # Try structured JSON extraction first if enabled
+                if self._use_structured_output:
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text="Attempting structured JSON extraction...")
+                        ])
+                    )
+
+                    structured_output = parse_structured_json_response(raw_output)
+                    if structured_output:
+                        # Validate structure
+                        structure_warnings = validate_pvmap_structure(structured_output)
+                        if structure_warnings:
+                            yield Event(
+                                author=self.name,
+                                content=types.Content(parts=[
+                                    types.Part(text=f"Structure warnings: {'; '.join(structure_warnings[:3])}")
+                                ])
+                            )
+
+                        # Store structured output metadata
+                        ctx.session.state["pvmap_format_detected"] = structured_output.format_detected
+                        ctx.session.state["pvmap_confidence"] = structured_output.confidence
+                        ctx.session.state["pvmap_validation_notes"] = structured_output.validation_notes
+                        ctx.session.state["pvmap_structure_warnings"] = structure_warnings
+
+                        # Convert to CSV deterministically
+                        pvmap_csv = convert_pvmap_output_to_csv(structured_output)
+
+                        yield Event(
+                            author=self.name,
+                            content=types.Content(parts=[
+                                types.Part(text=f"Structured output converted to CSV (format: {structured_output.format_detected}, confidence: {structured_output.confidence})")
+                            ])
+                        )
+                    else:
+                        yield Event(
+                            author=self.name,
+                            content=types.Content(parts=[
+                                types.Part(text="Structured JSON extraction failed, falling back to regex extraction...")
+                            ])
+                        )
+
+                # Fall back to regex-based CSV extraction
+                if not pvmap_csv:
+                    pvmap_csv = extract_csv(raw_output)
 
                 if not pvmap_csv:
                     ctx.session.state["generation_success"] = False
@@ -249,9 +354,9 @@ class PVMAPGenerationAgent(BaseAgent):
                     )
                     return
 
-
                 # Store CSV in state
                 ctx.session.state["pvmap_content"] = pvmap_csv
+                ctx.session.state["pvmap_structure_warnings"] = structure_warnings
 
                 # Write PVMAP to file
                 pvmap_path = current_dataset.output_dir / "generated_pvmap.csv"
@@ -289,12 +394,42 @@ class PVMAPGenerationAgent(BaseAgent):
 
                 ctx.session.state["validation_results"] = validation_result
 
+                # Save attempt response files (md, json, thinking.txt)
+                save_attempt_response(
+                    output_dir=current_dataset.output_dir,
+                    attempt=attempt,
+                    llm_result=llm_result,
+                    error_feedback=error_feedback,
+                    pvmap_csv=pvmap_csv,
+                    validation_result=validation_result
+                )
+
+                # Append to llm_calls.jsonl
+                append_llm_call_log(
+                    output_dir=current_dataset.output_dir,
+                    attempt=attempt,
+                    llm_result=llm_result,
+                    prompt_length=len(prompt),
+                    validation_success=validation_result.get("success")
+                )
+
                 # 5. Check validation success
                 if validation_result["success"]:
                     # SUCCESS!
                     ctx.session.state["generation_success"] = True
                     ctx.session.state["error"] = None
                     ctx.session.state["retry_count"] = attempt
+
+                    # Update generation notes with success status
+                    update_generation_notes(
+                        output_dir=current_dataset.output_dir,
+                        dataset_name=current_dataset.name,
+                        attempt=attempt,
+                        llm_result=llm_result,
+                        pvmap_csv=pvmap_csv,
+                        validation_result=validation_result,
+                        final_status=f"✅ **Success** on attempt {attempt + 1}"
+                    )
 
                     yield Event(
                         author=self.name,
@@ -308,10 +443,22 @@ class PVMAPGenerationAgent(BaseAgent):
                 error_logs = validation_result.get("error", "Validation failed with no error details")
 
                 # Sample error logs if too long (limit to ~300 lines)
-                from src.tools.logging_tools import extract_log_samples
+                # Use validation_tool.extract_log_samples which returns str (not dict)
+                from src.tools.validation_tool import extract_log_samples
                 sampled_errors = extract_log_samples(error_logs)
 
                 ctx.session.state["error_feedback"] = sampled_errors
+
+                # Update generation notes with failure
+                update_generation_notes(
+                    output_dir=current_dataset.output_dir,
+                    dataset_name=current_dataset.name,
+                    attempt=attempt,
+                    llm_result=llm_result,
+                    pvmap_csv=pvmap_csv,
+                    validation_result=validation_result,
+                    final_status=None if attempt < self._max_retries else f"❌ **Failed** after {self._max_retries + 1} attempts"
+                )
 
                 yield Event(
                     author=self.name,

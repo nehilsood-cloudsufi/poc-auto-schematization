@@ -74,7 +74,7 @@ pip install -r requirements.txt
 python -c "import pandas, datacommons; print('✅ Setup successful!')"
 
 # Run the test suite (optional)
-pytest tools/
+pytest tests/
 ```
 
 ---
@@ -103,17 +103,17 @@ claude --version
 
 ## Set Up Python Path (CRITICAL)
 
-The pipeline requires access to tool and utility modules. You **must** set the Python path:
+The pipeline requires access to source modules. You **must** set the Python path:
 
 ```bash
 # Export PYTHONPATH (required for every session)
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Verify you're in the project directory first
 pwd  # Should show: /path/to/poc-auto-schematization
 
 # Or add this to your shell profile for persistence
-echo 'export PYTHONPATH="$PWD:$PWD/tools:$PWD/util"' >> ~/.zshrc
+echo 'export PYTHONPATH="$PWD:$PWD/src"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -123,7 +123,7 @@ source ~/.zshrc
 
 ```bash
 # Check that PYTHONPATH is set correctly
-echo $PYTHONPATH  # Should include project, tools, and util directories
+echo $PYTHONPATH  # Should include project root and src/ directory
 ```
 
 ---
@@ -134,17 +134,27 @@ Your repository should have this structure:
 
 ```
 poc-auto-schematization/
-├── input/                    # 39 datasets with input data & metadata
-├── output/                   # Generated PVMAPs (created automatically)
-├── schema_example_files/     # 7 schema categories for auto-selection
-├── test_input/               # Test datasets (optional)
-├── test_output/              # Test output (optional)
-├── tools/                    # Processing tools
-├── util/                     # Utility modules
-├── logs/                     # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py     # Main pipeline script
-├── requirements.txt          # Python dependencies
-└── README.md                 # Main documentation
+├── src/                          # Source code (new structure)
+│   ├── agents/                   # Google ADK agents
+│   ├── config/                   # CLI configuration
+│   ├── state/                    # State management
+│   ├── infrastructure/           # Core utilities (io, config, metrics, logging)
+│   ├── data_commons/             # Data Commons modules (api, mcf, schema, place, codes)
+│   ├── pipeline/                 # Pipeline operations (sampling, validation, evaluation)
+│   ├── processing/               # Data processing (mapping, filtering, transformation)
+│   ├── tools/                    # ADK tool wrappers
+│   └── resources/                # Static resources (prompts, schema_examples)
+├── tests/                        # Test suite
+├── input/                        # 39 datasets with input data & metadata
+├── output/                       # Generated PVMAPs (created automatically)
+├── test_input/                   # Test datasets (optional)
+├── test_output/                  # Test output (optional)
+├── tools/                        # Legacy processing tools (compatibility layer)
+├── util/                         # Legacy utility modules (compatibility layer)
+├── logs/                         # Pipeline logs (created automatically)
+├── run_pvmap_pipeline.py         # Main pipeline script
+├── requirements.txt              # Python dependencies
+└── README.md                     # Main documentation
 ```
 
 ---
@@ -154,8 +164,8 @@ poc-auto-schematization/
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | Claude API authentication | `sk-ant-api03-...` |
-| `PYTHONPATH` | Module import resolution | `$(pwd):$(pwd)/tools:$(pwd)/util` |
-| `GROUND_TRUTH_REPO` | Default ground truth directory (optional) | `/path/to/datacommonsorg-data/ground_truth` |
+| `PYTHONPATH` | Module import resolution | `$(pwd):$(pwd)/src` |
+| `GROUND_TRUTH_REPO` | Default ground truth directory (optional) | `ground_truth/` (bundled) |
 | `DC_API_KEY` | Data Commons API (optional) | `your_dc_api_key` |
 | `MAPS_API_KEY` | Google Maps API (optional) | `your_maps_api_key` |
 
@@ -171,7 +181,7 @@ Before running the pipeline, verify:
 - [ ] Claude Code CLI installed (`claude --version`)
 - [ ] ANTHROPIC_API_KEY set (`echo $ANTHROPIC_API_KEY | head -c 10`)
 - [ ] PYTHONPATH configured (`echo $PYTHONPATH`)
-- [ ] Repository structure correct (`ls input/ output/ schema_example_files/ tools/ util/`)
+- [ ] Repository structure correct (`ls input/ output/ src/ tests/`)
 
 ---
 
@@ -191,7 +201,7 @@ Once setup is complete:
 
 ```bash
 # Solution: Set PYTHONPATH
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
 ### Issue: Claude Code CLI not found

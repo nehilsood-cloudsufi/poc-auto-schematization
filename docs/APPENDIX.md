@@ -26,7 +26,7 @@ ModuleNotFoundError: No module named 'file_util'
 **Solution:**
 ```bash
 # Set PYTHONPATH before running the pipeline
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Verify you're in the project directory
 pwd  # Should show: /path/to/poc-auto-schematization
@@ -39,7 +39,7 @@ python3 run_pvmap_pipeline.py
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
 cd /path/to/poc-auto-schematization
-echo 'export PYTHONPATH="$PWD:$PWD/tools:$PWD/util"' >> ~/.zshrc
+echo 'export PYTHONPATH="$PWD:$PWD/src"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -152,10 +152,10 @@ cat output/your_dataset/generated_pvmap.csv
 
 4. **Manually edit PVMAP** and re-run validation:
    ```bash
-   python3 -m tools.statvar_importer.stat_var_processor \
-       --input_csv=input/your_dataset/test_data/combined_sampled_data.csv \
-       --pvmap_csv=output/your_dataset/generated_pvmap.csv \
-       --metadata_csv=input/your_dataset/*_metadata.csv
+   python3 tools/stat_var_processor.py \
+       --input_data=input/your_dataset/test_data/combined_sampled_data.csv \
+       --pv_map=output/your_dataset/generated_pvmap.csv \
+       --config_file=input/your_dataset/*_metadata.csv
    ```
 
 ---
@@ -207,8 +207,8 @@ Ground truth PVMAP not found, skipping evaluation
 # Check logs to see which method is being used
 grep "ground truth" logs/pipeline_*.log
 
-# Tier 3: Auto-discovery (default)
-ls /Users/nehilsood/work/datacommonsorg-data/ground_truth/statvar_imports/your_dataset/*_pvmap.csv
+# Tier 3: Bundled ground truth (default)
+ls ground_truth//your_dataset/*_pvmap.csv
 
 # Tier 2: Directory search
 ls /path/to/ground_truth/*your_dataset*pvmap*.csv
@@ -230,18 +230,17 @@ python3 run_pvmap_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_reference.csv
 ```
 
-**Option 3: Use ground truth directory (multiple datasets)**
+**Option 3: Use bundled ground truth (default)**
 ```bash
-# Best for organized ground truth files
-python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+# Uses bundled ground truth in ground_truth//
+python3 run_pvmap_pipeline.py
 ```
 
-**Option 4: Custom repository location (auto-discovery)**
+**Option 4: Custom ground truth location**
 ```bash
-# For standard datacommonsorg-data structure
+# For custom ground truth structure
 python3 run_pvmap_pipeline.py \
-    --ground-truth-repo=/path/to/datacommonsorg-data/statvar_imports
+    --ground-truth-repo=/path/to/custom/ground_truth
 ```
 
 **Troubleshooting Precedence Issues:**
@@ -421,7 +420,7 @@ ERROR: Schema base directory not found: schema_example_files/
 
 1. **Check schema directory exists:**
    ```bash
-   ls schema_example_files/
+   ls src/resources/schema_examples/
    # Should show: Demographics, Economy, Education, Employment, Energy, Health, School
    ```
 
@@ -438,14 +437,14 @@ ERROR: Schema base directory not found: schema_example_files/
 
 4. **Run schema selector standalone with verbose output:**
    ```bash
-   python3 tools/schema_selector.py --input_dir=input/your_dataset/ --dry_run
+   python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --dry_run
    ```
 
 5. **Skip schema selection and manually copy files:**
    ```bash
    # Copy schema files for your category (e.g., Health)
-   cp schema_example_files/Health/*.txt input/your_dataset/
-   cp schema_example_files/Health/*.mcf input/your_dataset/
+   cp src/resources/schema_examples/Health/*.txt input/your_dataset/
+   cp src/resources/schema_examples/Health/*.mcf input/your_dataset/
 
    # Run pipeline with schema selection skipped
    python3 run_pvmap_pipeline.py --dataset=your_dataset --skip-schema-selection
@@ -533,7 +532,7 @@ Phase 4: Evaluation (Optional)
    - WITHOUT `--force-resample`: Reuse existing file
    - WITH `--force-resample`: Regenerate sample
 3. **If sampled file does NOT exist:**
-   - Automatically calls `tools/data_sampler.py`
+   - Automatically calls `src/pipeline/sampling/data_sampler.py`
    - Generates `{input_filename_without_extension}_sampled_data.csv`
    - Creates `combined_sampled_data.csv` for pipeline
 
@@ -579,7 +578,7 @@ Controlled via metadata CSV:
 
 **Goal:** Automatically select the most appropriate schema category for each dataset
 
-**Script:** `tools/schema_selector.py` (integrated into pipeline via `run_pvmap_pipeline.py`)
+**Script:** `src/pipeline/schema_selection/schema_selector.py` (integrated into pipeline via `run_pvmap_pipeline.py`)
 
 ### How It Works
 
@@ -645,7 +644,7 @@ INFO:   - scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt
 |-----------|---------|-------------|
 | `--skip-schema-selection` | False | Skip Phase 1.5 (use existing schema files) |
 | `--force-schema-selection` | False | Force re-selection even if files exist |
-| `--schema-base-dir` | `schema_example_files/` | Directory containing schema categories |
+| `--schema-base-dir` | `src/resources/schema_examples/` | Directory containing schema categories |
 
 ### Standalone Usage
 
@@ -653,16 +652,16 @@ The schema selector can be run independently:
 
 ```bash
 # Automatic selection and copy
-python3 tools/schema_selector.py --input_dir=input/your_dataset/
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/
 
 # Dry run (preview without copying)
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --dry_run
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --dry_run
 
 # Force re-selection
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --force
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --force
 
 # Custom schema directory
-python3 tools/schema_selector.py \
+python3 src/pipeline/schema_selection/schema_selector.py \
     --input_dir=input/your_dataset/ \
     --schema_base_dir=/path/to/schemas
 ```
@@ -718,11 +717,11 @@ claude code \
 ### How It Works
 
 1. **Run stat_var_processor:**
-   ```python
-   stat_var_processor.py \
-       --input_csv=combined_sampled_data.csv \
-       --pvmap_csv=generated_pvmap.csv \
-       --metadata_csv=metadata.csv
+   ```bash
+   python3 tools/stat_var_processor.py \
+       --input_data=combined_sampled_data.csv \
+       --pv_map=generated_pvmap.csv \
+       --config_file=metadata.csv
    ```
 
 2. **Check validation result:**
@@ -767,9 +766,9 @@ Please regenerate the PVMAP with correct column names.
 
 ### Ground Truth Search
 
-1. **Search in ground-truth repo:**
+1. **Search in bundled ground-truth:**
    ```
-   ../datacommonsorg-data/statvar_imports/{dataset}/*_pvmap.csv
+   ground_truth//{dataset}/*_pvmap.csv
    ```
 
 2. **If found:** Load both PVMAPs and compare

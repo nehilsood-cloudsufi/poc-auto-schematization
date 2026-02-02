@@ -22,13 +22,13 @@ source .venv/bin/activate        # uv
 source venv/bin/activate         # pip
 
 # Set required environment variables
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Optional: Set Anthropic API key (if not using Claude Code subscription)
 export ANTHROPIC_API_KEY="your-api-key-here"
 
-# Optional: Configure ground truth repository path
-export GROUND_TRUTH_REPO=/path/to/datacommonsorg-data/ground_truth
+# Optional: Configure ground truth repository path (defaults to ground_truth/)
+export GROUND_TRUTH_REPO=/path/to/ground_truth
 ```
 
 ### Running the Pipeline
@@ -63,20 +63,20 @@ python3 run_pvmap_pipeline.py --dry-run
 pytest
 
 # Run specific test file
-pytest tools/data_sampler_test.py
+pytest src/pipeline/sampling/data_sampler_test.py
 
 # Run with verbose output
 pytest -v
 
 # Run tests with coverage
-pytest --cov=tools --cov=util
+pytest --cov=src
 ```
 
 ### Validation & Debugging
 
 ```bash
 # Manually validate a PVMAP
-PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py \
+PYTHONPATH="$(pwd):$(pwd)/src" python3 tools/stat_var_processor.py \
   --input_data="input/dataset_name/test_data/input_data.csv" \
   --pv_map="output/dataset_name/generated_pvmap.csv" \
   --config_file="input/dataset_name/metadata.csv" \
@@ -114,6 +114,69 @@ python3 tools/data_sampler.py \
 
 ## Architecture
 
+### Directory Structure
+
+The codebase follows a domain-based organization under `src/`:
+
+```
+src/
+├── agents/                          # Google ADK agents
+├── config/                          # CLI parsing
+├── state/                           # State management
+│
+├── infrastructure/                  # Core platform services
+│   ├── io/                         # File I/O (file_util, gcs_file, download_util)
+│   ├── logging/                    # Logging (log_util, logging_config)
+│   ├── config/                     # Configuration (config_map, config_flags)
+│   ├── metrics/                    # Metrics (counters, timer)
+│   └── utils/                      # Utilities (aggregation_util)
+│
+├── data_commons/                    # Data Commons modules
+│   ├── api/                        # DC API (gemini_client, dc_api_wrapper)
+│   ├── mcf/                        # MCF utilities (mcf_dict_util, mcf_file_util, mcf_diff)
+│   ├── schema/                     # Schema generation (schema_generator, schema_resolver, etc.)
+│   ├── statvar/                    # StatVar utilities (statvar_dcid_generator)
+│   ├── place/                      # Place resolution (place_resolver, place_name_matcher)
+│   ├── geo/                        # Geographic coding (alpha2_to_dcid, county_to_dcid)
+│   └── codes/                      # Industry/occupation codes (naics_codes, soc_codes_names)
+│
+├── pipeline/                        # Pipeline-specific tools
+│   ├── sampling/                   # Data sampling (data_sampler, column_analyzer)
+│   ├── schema_selection/           # Schema selection (schema_selector)
+│   ├── validation/                 # Validation (stat_var_processor, validation_tool)
+│   ├── evaluation/                 # Evaluation tools
+│   │   └── scripts/               # CLI scripts (evaluate_pvmap_diff, generate_*_metrics)
+│   └── logging/                    # Logging tools
+│
+├── processing/                      # Data processing
+│   ├── mapping/                    # Property-value mapping (property_value_mapper)
+│   ├── filtering/                  # Data filtering (filter_data_outliers)
+│   ├── transformation/             # Data transformation (json_to_csv)
+│   ├── evaluation/                 # Eval functions
+│   └── matching/                   # Matching utilities
+│
+├── compatibility/                   # Backward compatibility layer
+│   ├── util_compat.py              # Re-exports from old util/
+│   └── tools_compat.py             # Re-exports from old tools/
+│
+└── resources/                       # Static resources
+    ├── schema_examples/            # Schema example files by category
+    │   ├── Demographics/
+    │   ├── Economy/
+    │   ├── Education/
+    │   ├── Employment/
+    │   ├── Energy/
+    │   └── Health/
+    ├── prompts/                    # Prompt templates
+    │   └── improved_pvmap_prompt.txt
+    └── test_data/                  # Shared test fixtures
+
+ground_truth/                        # Ground truth PVMAPs for evaluation (81 datasets)
+└── {dataset_name}/                  # One directory per dataset
+```
+
+**Note:** The legacy `util/` and `tools/` directories are preserved for backward compatibility during the transition period.
+
 ### Pipeline Workflow
 
 The pipeline consists of 5 phases executed sequentially:
@@ -123,7 +186,7 @@ Phase 1: Discovery → Phase 2: Sampling → Phase 2.5: Schema Selection
   → Phase 3: PVMAP Generation → Phase 4: Validation → Phase 5: Evaluation
 ```
 
-**Main Entry Point:** `run_pvmap_pipeline.py` (1,698 lines)
+**Main Entry Point:** `run_pvmap_pipeline.py` (stays at project root)
 
 #### Phase 1: Discovery
 - Scans `input/` directory for datasets
@@ -131,7 +194,7 @@ Phase 1: Discovery → Phase 2: Sampling → Phase 2.5: Schema Selection
 - Returns `DatasetInfo` objects with file paths
 
 #### Phase 2: Smart Sampling
-- Calls `tools/data_sampler.py` to generate representative samples (max 100 rows)
+- Calls `src/pipeline/sampling/data_sampler.py` to generate representative samples (max 100 rows)
 - Ensures unique value coverage across categorical columns
 - Samples numeric ranges across quartiles
 - Detects and limits aggregation rows
@@ -141,6 +204,7 @@ Phase 1: Discovery → Phase 2: Sampling → Phase 2.5: Schema Selection
 - AI-powered schema category selection from 7 predefined categories
 - Uses Gemini API to analyze dataset and select best category
 - Copies appropriate schema example files (.txt and .mcf) to dataset directory
+- Schema examples located in `src/resources/schema_examples/`
 - Skips if schema files already exist (unless `--force-schema-selection`)
 
 **Schema Categories:**
@@ -153,7 +217,7 @@ Phase 1: Discovery → Phase 2: Sampling → Phase 2.5: Schema Selection
 - School: School metrics, performance, facilities
 
 #### Phase 3: PVMAP Generation
-- Populates `tools/improved_pvmap_prompt.txt` template with dataset-specific content
+- Populates `src/resources/prompts/improved_pvmap_prompt.txt` template with dataset-specific content
 - Replaces placeholders: `{{SCHEMA_EXAMPLES}}`, `{{SAMPLED_DATA}}`, `{{METADATA_CONFIG}}`
 - Calls Gemini API to generate PVMAP
 - Extracts CSV from response (handles multiple formats)
@@ -223,7 +287,7 @@ result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 ```
 
 **Critical requirements:**
-- PYTHONPATH must include: BASE_DIR, tools/, util/
+- PYTHONPATH must include: BASE_DIR, src/
 - Timeout: 5 minutes (300 seconds)
 - Must validate both returncode==0 AND output file has data rows
 - Captures both stdout and stderr for error feedback
@@ -246,7 +310,7 @@ Error logs can be 10KB+, so they're sampled before feedback:
 5. Then import application code
 
 This ensures:
-- API keys loaded from `.env`
+- API keys loaded from `.env` (takes priority over environment variables)
 - Tool imports resolve correctly
 - Relative paths work properly
 
@@ -269,7 +333,7 @@ This ensures:
 | `evaluate_generated_pvmap()` | Compare vs ground truth, calculate metrics |
 | `run_dataset()` | Main retry loop with inline validation |
 
-#### Data Sampler (`tools/data_sampler.py`)
+#### Data Sampler (`src/pipeline/sampling/data_sampler.py`)
 
 **Purpose:** Generate representative data samples from large CSV files
 
@@ -283,7 +347,7 @@ This ensures:
 
 **Public API:**
 ```python
-from tools.data_sampler import sample_csv_file
+from src.pipeline.sampling.data_sampler import sample_csv_file
 
 sample_csv_file(
     input_path="input/dataset/test_data/input_data.csv",
@@ -300,7 +364,7 @@ sample_csv_file(
 - `generate_data_preview()`: Creates CSV preview for Gemini (max 15 rows)
 - `build_prompt()`: Constructs selection prompt
 - `invoke_gemini()`: Calls Gemini API, parses response
-- `copy_schema_files()`: Copies selected .txt and .mcf files
+- `copy_schema_files()`: Copies selected .txt and .mcf files from `src/resources/schema_examples/`
 - `parse_category_response()`: Extracts category (fuzzy matching)
 
 **Public API:**
@@ -309,7 +373,7 @@ from tools import schema_selector
 
 category = schema_selector.select_schema_for_directory(
     input_dir="input/dataset_name",
-    schema_base_dir="schema_example_files",
+    schema_base_dir="src/resources/schema_examples",
     gemini_client=client
 )
 ```
@@ -332,14 +396,22 @@ category = schema_selector.select_schema_for_directory(
 
 **On failure:** Returns error logs sampled for retry feedback
 
-#### Gemini Client (`util/gemini_client.py`)
+#### Gemini Client (`src/data_commons/api/gemini_client.py`)
 
 **Purpose:** Wrapper around google-genai library
 
 **Key features:**
-- Loads API key from `.env`
+- Loads API key from `.env` file (takes priority over environment variables)
 - Single public method: `generate_content(prompt, temperature, max_tokens) -> str`
 - Used by: generate_pvmap(), schema_selector, evaluation
+
+**Public API:**
+```python
+from src.data_commons.api.gemini_client import GeminiClient
+
+client = GeminiClient(model_name="gemini-2.5-flash")
+response = client.generate_content(prompt, temperature=0)
+```
 
 ### File Structure Patterns
 
@@ -401,9 +473,9 @@ Population,populationType,Person,measuredProperty,count,value,{Number}
 - `{Number}` = numeric value from data
 - Special syntax: `COLUMN:VALUE` for column-specific mappings
 
-### Google ADK Migration (In Progress)
+### Google ADK Migration
 
-**Status:** Planning phase - 709-line plan with 196 checklist items
+**Status:** Migration 70% complete (Weeks 1-7 done)
 
 **Target architecture:**
 ```
@@ -416,9 +488,20 @@ PipelineCoordinator (LlmAgent)
 ```
 
 **Key files:**
-- `google_adk_python/plan.md` - Comprehensive migration plan
-- `src/` - New ADK agent framework (in progress)
-- `.claude/skills/google-adk/` - ADK skill definitions
+- `.claude/plans/vectorized-cuddling-scone.md` - Comprehensive migration plan
+- `src/agents/` - ADK agents (5/5 implemented)
+- `src/state/` - State management (DatasetInfo, DatasetRegistry)
+- `src/run_pipeline.py` - ADK pipeline runner
+
+**Migration Progress:**
+- ✅ Week 1: Resources moved to `src/resources/`
+- ✅ Week 2: Infrastructure layer (`src/infrastructure/`)
+- ✅ Week 3: Data Commons API (`src/data_commons/api/`, `mcf/`, `statvar/`, `codes/`)
+- ✅ Week 4: Schema & Place (`src/data_commons/schema/`, `place/`)
+- ✅ Week 5: Pipeline layer (`src/pipeline/sampling/`, `validation/`)
+- ✅ Week 6: Processing modules (`src/processing/`)
+- ✅ Week 7: Evaluation scripts moved to `src/pipeline/evaluation/scripts/`
+- ⏳ Week 8-10: Test suite reorganization, documentation, cleanup
 
 **Critical requirement:** Preserve exact retry loop logic from lines 1374-1415 of run_pvmap_pipeline.py
 
@@ -456,6 +539,10 @@ PipelineCoordinator (LlmAgent)
    - Schema examples: `scripts_statvar_llm_config_schema_examples_dc_topic_*.txt`
    - Schema MCF: `scripts_*_vertical_*.mcf`
 
+6. **API key loading priority:**
+   - `.env` file takes priority over environment variables
+   - Ensures fresh keys from `.env` are used even if stale keys are in shell environment
+
 ### Common Pitfalls to Avoid
 
 1. **Don't run validation on sampled data** - Must use FULL original data
@@ -479,7 +566,7 @@ The pipeline supports multiple CSV formats from LLM responses:
 
 ### Pre-Formatted Data Commons Data
 
-**Critical:** The prompt template (`tools/improved_pvmap_prompt.txt`) includes explicit instructions for detecting pre-formatted Data Commons data.
+**Critical:** The prompt template (`src/resources/prompts/improved_pvmap_prompt.txt`) includes explicit instructions for detecting pre-formatted Data Commons data.
 
 **Detection criteria:**
 - Has `variableMeasured` column with DCID values
@@ -527,7 +614,7 @@ cat output/{dataset_name}/generation_notes.md
 ls output/{dataset_name}/generated_response/
 
 # 5. Manually validate PVMAP
-PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py \
+PYTHONPATH="$(pwd):$(pwd)/src" python3 tools/stat_var_processor.py \
   --input_data="input/{dataset}/test_data/*_input.csv" \
   --pv_map="output/{dataset}/generated_pvmap.csv" \
   --config_file="input/{dataset}/*_metadata.csv" \
@@ -542,8 +629,9 @@ PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py
 | Variable | Purpose | Required |
 |----------|---------|----------|
 | `PYTHONPATH` | Path resolution for imports | Yes |
+| `GEMINI_API_KEY` | Gemini API key (loaded from .env first) | Yes |
 | `ANTHROPIC_API_KEY` | Anthropic API key for LLM calls | If not using Claude Code subscription |
-| `GROUND_TRUTH_REPO` | Path to ground truth repository | No (defaults to ../datacommonsorg-data/ground_truth) |
+| `GROUND_TRUTH_REPO` | Path to ground truth repository | No (defaults to ground_truth/) |
 
 ### Command-Line Flags
 
@@ -561,7 +649,7 @@ PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py
 **Directory overrides:**
 - `--input-dir` - Override input directory (default: input/)
 - `--output-dir` - Override output directory (default: output/)
-- `--schema-base-dir` - Override schema directory (default: schema_example_files/)
+- `--schema-base-dir` - Override schema directory (default: src/resources/schema_examples/)
 
 **Ground truth:**
 - `--ground-truth-pvmap` - Explicit single PVMAP file
@@ -574,6 +662,22 @@ PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util" python3 tools/stat_var_processor.py
 **Other:**
 - `--dry-run` - Preview without execution
 - `--verbose` - Enable verbose logging
+
+## Key Import Path Changes
+
+After the refactoring migration, use these new import paths:
+
+| Old Import | New Import |
+|------------|------------|
+| `from util.gemini_client import GeminiClient` | `from src.data_commons.api.gemini_client import GeminiClient` |
+| `from util.file_util import ...` | `from src.infrastructure.io.file_util import ...` |
+| `from util.config_map import ConfigMap` | `from src.infrastructure.config.config_map import ConfigMap` |
+| `from util.counters import Counters` | `from src.infrastructure.metrics.counters import Counters` |
+| `from tools.data_sampler import sample_csv_file` | `from src.pipeline.sampling.data_sampler import sample_csv_file` |
+| `from tools import schema_selector` | `from src.pipeline.schema_selection import schema_selector` |
+| `from tools.property_value_mapper import ...` | `from src.processing.mapping.property_value_mapper import ...` |
+
+**Note:** Legacy imports via `util/` and `tools/` still work during the transition period via the compatibility layer.
 
 ## Project Context
 

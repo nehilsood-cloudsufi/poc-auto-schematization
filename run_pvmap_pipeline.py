@@ -1589,8 +1589,8 @@ def main():
     parser.add_argument(
         '--ground-truth-repo',
         type=str,
-        default=os.environ.get('GROUND_TRUTH_REPO', str(BASE_DIR.parent / "datacommonsorg-data" / "ground_truth")),
-        help='Path to datacommonsorg-data repo for ground truth PVMAPs (default: $GROUND_TRUTH_REPO or ../datacommonsorg-data/ground_truth)'
+        default=os.environ.get('GROUND_TRUTH_REPO', str(BASE_DIR / "ground_truth")),
+        help='Path to ground truth PVMAPs (default: $GROUND_TRUTH_REPO or ground_truth/)'
     )
     parser.add_argument(
         '--ground-truth-pvmap',

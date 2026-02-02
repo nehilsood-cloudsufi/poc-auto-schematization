@@ -228,3 +228,7 @@ input_benchmark/*
 output_benchmark/*
 src/input/*
 src/output/*
+output_adk_test
+output_adk_verify
+ground_truth/*
+output_adk_improved

@@ -13,6 +13,15 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Add paths needed by evaluate_pvmap_diff
+# Note: Only add src and tools paths, not individual module paths to avoid flag conflicts
+_src_path = str(PROJECT_ROOT / "src")
+_tools_path = str(PROJECT_ROOT / "tools")
+
+for _path in [_src_path, _tools_path]:
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
 # Import evaluation function
 from evaluate_pvmap_diff import compare_pvmaps_diff as _compare_pvmaps_diff
 

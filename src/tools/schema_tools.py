@@ -12,12 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-# Add tools directory to path
-tools_dir = PROJECT_ROOT / "tools"
-if str(tools_dir) not in sys.path:
-    sys.path.insert(0, str(tools_dir))
 
-from schema_selector import (
+from src.pipeline.schema_selection.schema_selector import (
     get_category_info as _get_category_info,
     generate_data_preview as _generate_data_preview,
     build_prompt as _build_prompt,

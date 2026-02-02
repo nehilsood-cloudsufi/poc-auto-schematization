@@ -75,7 +75,7 @@ source venv/bin/activate         # pip
 # Set environment variables
 # NOTE: ANTHROPIC_API_KEY is only required if you don't have an active Claude Code subscription
 export ANTHROPIC_API_KEY="your-api-key-here"  # Skip this if you have Claude Code subscription
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
 ### Run Your First Pipeline
@@ -139,22 +139,31 @@ The main validation tool that:
 
 ```
 poc-auto-schematization/
-├── input/                    # 39 datasets with input data & metadata
-├── output/                   # Generated PVMAPs (created automatically)
-├── test_input/               # Test datasets (optional)
-├── test_output/              # Test output (optional)
-├── tools/                    # Processing tools
-│   ├── statvar_importer/     # Main processing tools
-│   ├── agentic_import/       # LLM-based import tools
-│   └── data_sampler.py       # Auto-sampling tool
-├── util/                     # Utility modules
-├── logs/                     # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py     # Main pipeline script
-├── SETUP.md                  # Installation guide
-├── INPUT_GUIDE.md            # Input structure guide
-├── USAGE.md                  # Usage guide
-├── APPENDIX.md               # Troubleshooting & architecture
-└── README.md                 # This file
+├── src/                          # Source code (new structure)
+│   ├── agents/                   # Google ADK agents
+│   ├── config/                   # CLI configuration
+│   ├── state/                    # State management
+│   ├── infrastructure/           # Core utilities (io, config, metrics, logging)
+│   ├── data_commons/             # Data Commons modules (api, mcf, schema, place, codes)
+│   ├── pipeline/                 # Pipeline operations (sampling, validation, evaluation)
+│   ├── processing/               # Data processing (mapping, filtering, transformation)
+│   ├── tools/                    # ADK tool wrappers
+│   └── resources/                # Static resources (prompts, schema_examples)
+├── tests/                        # Test suite
+├── input/                        # 39 datasets with input data & metadata
+├── output/                       # Generated PVMAPs (created automatically)
+├── test_input/                   # Test datasets (optional)
+├── test_output/                  # Test output (optional)
+├── tools/                        # Legacy processing tools (compatibility layer)
+├── util/                         # Legacy utility modules (compatibility layer)
+├── logs/                         # Pipeline logs (created automatically)
+├── run_pvmap_pipeline.py         # Main pipeline script
+├── docs/                         # Documentation
+│   ├── SETUP.md                  # Installation guide
+│   ├── INPUT_GUIDE.md            # Input structure guide
+│   ├── USAGE.md                  # Usage guide
+│   └── APPENDIX.md               # Troubleshooting & architecture
+└── README.md                     # This file
 ```
 
 ---
@@ -254,13 +263,13 @@ The schema selector can also be run independently:
 
 ```bash
 # Run schema selector independently
-python3 tools/schema_selector.py --input_dir=input/dataset_name/
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/
 
 # Dry run to see what would be selected
-python3 tools/schema_selector.py --input_dir=input/dataset_name/ --dry_run
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/ --dry_run
 
 # Force re-selection
-python3 tools/schema_selector.py --input_dir=input/dataset_name/ --force
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/ --force
 ```
 
 ### Output
@@ -296,7 +305,7 @@ The evaluation system uses a **three-tier precedence** for finding ground truth 
 |--------|-------------|----------|
 | `--ground-truth-pvmap` | Path to a single ground truth PVMAP file | Testing one specific dataset with a known reference file |
 | `--ground-truth-dir` | Path to directory containing multiple ground truth files | You have organized ground truth files by dataset name |
-| `--ground-truth-repo` | Path to datacommonsorg-data repository | Using standard Data Commons repository structure (default) |
+| `--ground-truth-repo` | Path to ground truth repository | Using bundled ground truth (default: ground_truth/) |
 | `--skip-evaluation` | Skip evaluation phase entirely | You don't have ground truth files or don't need metrics |
 
 ### Default Configuration
@@ -305,15 +314,15 @@ The default ground truth repository path can be configured in three ways (in ord
 
 1. **Command-line argument**: `--ground-truth-repo=/path/to/ground_truth`
 2. **Environment variable**: `export GROUND_TRUTH_REPO=/path/to/ground_truth`
-3. **Fallback default**: `../datacommonsorg-data/ground_truth`
+3. **Fallback default**: `ground_truth/` (bundled with repository)
 
 **Example: Set via environment variable**
 ```bash
-# Set for current session
-export GROUND_TRUTH_REPO=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+# Set for current session (optional - uses bundled ground truth by default)
+export GROUND_TRUTH_REPO=/path/to/custom/ground_truth
 
 # Or add to your shell profile for persistence
-echo 'export GROUND_TRUTH_REPO=/Users/nehilsood/work/datacommonsorg-data/ground_truth' >> ~/.zshrc
+echo 'export GROUND_TRUTH_REPO=/path/to/custom/ground_truth' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -326,11 +335,11 @@ python3 run_pvmap_pipeline.py --dataset=bis \
 
 # Search directory for ground truth files (matches by dataset name)
 python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+    --ground-truth-dir=ground_truth/
 
-# Use custom repository structure (auto-discovery)
+# Use custom ground truth repository
 python3 run_pvmap_pipeline.py \
-    --ground-truth-repo=/path/to/datacommonsorg-data
+    --ground-truth-repo=/path/to/custom/ground_truth
 
 # Skip evaluation entirely
 python3 run_pvmap_pipeline.py --skip-evaluation
@@ -445,10 +454,10 @@ python3 run_pvmap_pipeline.py --skip-evaluation
 python3 run_pvmap_pipeline.py --dataset=bis --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Use ground truth directory (searches by dataset name)
-python3 run_pvmap_pipeline.py --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+python3 run_pvmap_pipeline.py --ground-truth-dir=ground_truth/
 
 # Use custom ground truth repository
-python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/datacommonsorg-data
+python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
 
 # Resume from specific dataset
 python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
@@ -516,7 +525,7 @@ output/{dataset_name}/
 
 ```bash
 # Solution: Set PYTHONPATH
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
 ### Issue: Claude Code CLI not found
@@ -557,7 +566,7 @@ python3 run_pvmap_pipeline.py --dataset=your_dataset_name
    ```bash
    python --version              # Should be 3.12+
    claude --version              # Should show version
-   echo $PYTHONPATH              # Should include project, tools, util
+   echo $PYTHONPATH              # Should include project root and src/
    echo $ANTHROPIC_API_KEY | head -c 10  # Should show key
    ```
 

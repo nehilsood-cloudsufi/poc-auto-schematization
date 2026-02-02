@@ -12,12 +12,8 @@ from typing import Dict, Any, Optional
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-# Add tools directory to path
-tools_dir = PROJECT_ROOT / "tools"
-if str(tools_dir) not in sys.path:
-    sys.path.insert(0, str(tools_dir))
 
-from data_sampler import sample_csv_file
+from src.pipeline.sampling.data_sampler import sample_csv_file
 
 
 def sample_data(

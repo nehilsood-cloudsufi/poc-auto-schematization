@@ -3,19 +3,28 @@
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
-# Load .env file
+# Load API key from .env file first (highest priority), then environment variable
 project_root = Path(__file__).parent
-load_dotenv(project_root / ".env")
+env_path = project_root / ".env"
 
-# Get API key
-api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+api_key = None
+
+# First try .env file (highest priority)
+if env_path.exists():
+    env_vars = dotenv_values(env_path)
+    api_key = env_vars.get("GEMINI_API_KEY") or env_vars.get("GOOGLE_API_KEY")
+
+# Fall back to environment variable only if .env doesn't have key
 if not api_key:
-    print("ERROR: No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+if not api_key:
+    print("ERROR: No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY in .env file")
     exit(1)
 
-print(f"API Key found: {api_key[:10]}...")
+print(f"API Key found (from .env): {api_key[:10]}...")
 
 # Test with google-genai library
 from google import genai

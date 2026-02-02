@@ -12,7 +12,8 @@ from typing import Dict, Any, Optional, Tuple
 
 # Base directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
-TOOLS_DIR = PROJECT_ROOT / "tools"
+SRC_DIR = PROJECT_ROOT / "src"
+VALIDATION_DIR = SRC_DIR / "pipeline" / "validation"
 
 
 def extract_log_samples(
@@ -93,8 +94,7 @@ def build_validation_command(
     env = os.environ.copy()
     pythonpath_parts = [
         str(PROJECT_ROOT),
-        str(TOOLS_DIR),
-        str(PROJECT_ROOT / "util"),
+        str(SRC_DIR),
         env.get('PYTHONPATH', '')
     ]
     env['PYTHONPATH'] = ':'.join(filter(None, pythonpath_parts))
@@ -105,7 +105,7 @@ def build_validation_command(
 
     cmd = [
         python_cmd,
-        str(TOOLS_DIR / 'stat_var_processor.py'),
+        str(VALIDATION_DIR / 'stat_var_processor.py'),
         f'--input_data={input_data}',
         f'--pv_map={pvmap_path}',
         f'--config_file={metadata_file}',

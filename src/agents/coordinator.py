@@ -25,7 +25,8 @@ from src.agents.evaluation_agent import EvaluationAgent
 def create_pipeline_coordinator(
     name: str = "PipelineCoordinator",
     max_retries: int = 2,
-    model: str = "gemini-3-pro-preview"
+    model: str = "gemini-3-pro-preview",
+    use_structured_output: bool = False
 ) -> SequentialAgent:
     """
     Create pipeline coordinator using SequentialAgent.
@@ -81,7 +82,8 @@ def create_pipeline_coordinator(
     pvmap_generation = PVMAPGenerationAgent(
         name="PVMAPGenerationAgent",
         max_retries=max_retries,
-        model=model
+        model=model,
+        use_structured_output=use_structured_output
     )
     evaluation = EvaluationAgent(name="EvaluationAgent")
 

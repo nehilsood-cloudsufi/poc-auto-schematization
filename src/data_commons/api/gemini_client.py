@@ -25,35 +25,38 @@ except ImportError:
 
 
 def load_gemini_api_key() -> str:
-    """Load the Gemini API key from environment or .env file.
+    """Load the Gemini API key from .env file or environment.
+
+    Priority order:
+    1. .env file (highest priority - ensures fresh keys are used)
+    2. Environment variable (fallback if .env doesn't have key)
 
     Returns:
         str: The Gemini API key.
 
     Raises:
-        ValueError: If GEMINI_API_KEY is not found in environment.
+        ValueError: If GEMINI_API_KEY is not found.
     """
     import os
-
-    # First try environment variable (highest priority)
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if api_key:
-        return api_key.strip()
 
     # Find the .env file (look in project root - go up 4 levels from src/data_commons/api/)
     project_root = Path(__file__).parent.parent.parent.parent
     env_path = project_root / ".env"
 
-    # Read directly from .env file
+    # First try .env file (highest priority)
     if env_path.exists():
         env_vars = dotenv_values(env_path)
         api_key = env_vars.get("GEMINI_API_KEY") or env_vars.get("GOOGLE_API_KEY")
         if api_key:
             return api_key.strip()
 
+    # Fall back to environment variable only if .env doesn't have key
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if api_key:
+        return api_key.strip()
+
     raise ValueError(
-        "GEMINI_API_KEY not found in environment. "
-        "Please add it to your .env file or set it as an environment variable."
+        "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY in .env file"
     )
 
 
