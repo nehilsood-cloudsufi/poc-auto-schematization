@@ -157,13 +157,23 @@ class PVMAPGenerationAgent(BaseAgent):
                         raise ValueError("No metadata available")
                     metadata_content = read_file_content(current_dataset.combined_metadata)
 
-                    # Build prompt
+                    # Get discovered StatVars if MCP discovery was performed
+                    discovered_statvars = None
+                    if ctx.session.state.get("mcp_enabled", False):
+                        discovered_statvars = ctx.session.state.get("statvar_summary")
+
+                    # Get data context (skeleton summary) from sampling agent
+                    skeleton_summary = ctx.session.state.get("skeleton_summary")
+
+                    # Build prompt with discovered StatVars and data context
                     prompt = build_prompt_with_feedback(
                         template_path=template_path,
                         schema_content=schema_content,
                         sampled_data_content=sampled_data_content,
                         metadata_content=metadata_content,
-                        error_feedback=error_feedback
+                        error_feedback=error_feedback,
+                        discovered_statvars=discovered_statvars,
+                        data_context=skeleton_summary
                     )
 
                     # Add structured output instructions if enabled

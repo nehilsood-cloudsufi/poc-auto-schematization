@@ -1,16 +1,514 @@
-# Data Sampling Pipeline: Complete Analysis & Improvement Recommendations
+# Data Understanding & Sampling Agent: Complete Analysis & Implementation Plan
 
 ## Executive Summary
 
-This document provides a comprehensive analysis of the data sampling pipeline in the ADK-based PVMAP generation system. It includes:
+This document provides a comprehensive analysis of the data sampling pipeline and defines the **Data Understanding & Sampling Agent** - a transformation from a simple "row selector" into an intelligent agent that captures the **essence and context** of datasets for PVMAP generation.
+
+### Key Components
 
 1. **Complete understanding of the current sampling process** - How data flows through the three-layer architecture
-2. **Expert feedback analysis** - Insights from a PVMAP specialist (Sanika Prasad) on StatVar uniqueness
-3. **Gap identification** - Where the current approach falls short
-4. **Concrete evidence** - Real datasets showing the problem
-5. **Proposed improvements** - Actionable recommendations
+2. **Expert feedback analysis** - Insights from PVMAP specialist (Sanika Prasad) on StatVar uniqueness
+3. **Gemini consultation results** - AI-validated heuristics for dimension detection and universal templates
+4. **Gap identification** - Where the current approach falls short (85%+ missing combinations)
+5. **Improved solution architecture** - Data Understanding Agent with context generation
+6. **Implementation plan** - Phased approach with testing checklist
 
 **The Core Issue:** The current sampler tracks coverage of individual categorical **values**, but PVMAP generation requires understanding dimension **combinations** that define unique StatVars.
+
+**The Solution:** Transform the sampling agent to:
+1. **Understand the data** - What does this dataset represent? What StatVars can it produce?
+2. **Identify the data skeleton** - Which columns define uniqueness? What are the dimensions?
+3. **Sample strategically** - Select rows that demonstrate the dimension structure
+4. **Generate context** - Produce a DataContext package that flows through the pipeline
+
+---
+
+## NEW: Gemini Consultation Summary
+
+### How We Use Gemini for Data Intelligence
+
+The improved sampling agent uses **Gemini consultation** to validate and refine heuristics for understanding data structure. This is NOT using Gemini at runtime for each dataset, but rather to establish **universal patterns** that work across all domains.
+
+**Tool Used:** `src/tools/gemini_query_tool.py`
+
+**Questions Asked:**
+1. What determines StatVar uniqueness in Data Commons?
+2. What heuristics detect dimension columns automatically?
+3. Should sampling prioritize individual values or dimension combinations?
+4. How to handle cartesian product explosion?
+5. What is a "data skeleton" and how should it be summarized?
+6. How to use MCP for StatVar discovery?
+
+**Results Saved:** `output/gemini_consultation_results.json`
+
+### Key Gemini-Validated Insights
+
+#### 1. The Uniqueness Tuple (StatVarObservation)
+Every StatVarObservation in Data Commons is uniquely identified by:
+- **observationAbout** (Place): The geographic entity
+- **observationDate** (Time): The temporal dimension
+- **variableMeasured** (StatVar): The statistical variable definition
+
+The StatVar itself is defined by combining dimension columns (e.g., `Count_Person_Female_Age18To24`).
+
+#### 2. Column Classification Taxonomy (5 Roles)
+Gemini recommends classifying columns into 5 roles:
+
+| Role | Description | Example |
+|------|-------------|---------|
+| **Entity (Place)** | Geographic identifiers | State, FIPS, City, District |
+| **Temporal (Time)** | Time periods | Year, Date, Quarter, Month |
+| **Dimension** | Properties segmenting population | Gender, Age, Industry, Sector |
+| **Measure (Value)** | Statistical count/amount | Population, Rate, Amount |
+| **Metadata** | Context (doesn't define uniqueness) | Source, Unit, Notes, MOE |
+
+#### 3. Dimension Detection Heuristics (Gemini-Validated)
+
+**A. Cardinality Ratio Test**
+```
+Ratio = Unique_Values / Total_Rows
+
+- Dimension Pattern: Ratio < 0.1 (values repeat frequently)
+- Value Pattern: Ratio > 0.5 (continuous numeric, rarely repeats)
+- Metadata Pattern: Ratio < 0.01 (often constant across dataset)
+```
+
+**B. The "Pivot" Test**
+- Can you pivot the column to become headers?
+- If yes (and it's still readable) → **Dimension**
+- If no (creates nonsensical column names) → **Value**
+
+**C. The "Summation" Test**
+- If summing the Value column grouped by this column makes sense → **Dimension**
+- Example: Summing Population by Gender yields Total Population (meaningful)
+
+**D. Semantic Naming**
+- Dimension keywords: gender, sex, age, race, industry, education, status, type, category, sector
+- Value keywords: count, total, amount, percent, rate, value, number, sum
+- Metadata keywords: source, unit, note, moe, annotation, method
+- Place keywords: state, county, city, fips, geo, region, country, place, district
+- Time keywords: year, date, month, quarter, period, time
+
+#### 4. Fixed-Pivot Sampling Strategy (Gemini-Recommended)
+
+For a target of ~80 rows:
+
+| Allocation | Rows | Purpose |
+|------------|------|---------|
+| Diagonal Scan | 20 (25%) | Cover ALL unique dimension values |
+| Fixed-Pivot Blocks | 40 (50%) | Vary ONE dimension at a time, fix others |
+| Edge Cases | 20 (25%) | Totals, nulls, formatting edge cases |
+
+**Fixed-Pivot Blocks Explained:**
+```
+BLOCK A: VARY GEOGRAPHY (10 rows)
+  Fix: Year=2020, Gender=Female, Sector=Rural
+  Vary: State = CA, TX, NY, FL, PA, OH, IL, GA, NC, MI
+  → LLM sees: "Only State changes, confirms it's Place"
+
+BLOCK B: VARY TIME (10 rows)
+  Fix: State=CA, Gender=Female, Sector=Rural
+  Vary: Year = 2015, 2016, 2017, 2018, 2019, 2020...
+  → LLM sees: "Only Year changes, confirms it's Time"
+
+BLOCK C: VARY DIMENSIONS (20 rows)
+  Fix: State=CA, Year=2020
+  Vary: Full cartesian of Gender × Sector
+  → LLM sees: "Gender and Sector are INDEPENDENT dimensions"
+```
+
+#### 5. Universal Data Skeleton Summary Template
+
+Gemini validated a **universal template** that works across ALL domains (demographics, economy, health, energy, environment):
+
+```markdown
+## DATA SKELETON SUMMARY
+
+### Dataset Context
+- **Name:** {dataset_name}
+- **Topology:** {TIDY_LONG | PIVOTED_WIDE | HYBRID}
+- **Population Type:** {Person | Electricity | Atmosphere | etc.}
+
+### Anchors (Required)
+- **Geography:** Column `{geo_column}` (Format: {format})
+- **Time:** Column `{time_column}` (Format: {format})
+
+### Skeleton Dimensions (Define StatVar)
+- `{dimension_1}` → maps to DC property `{dc_property_1}`
+- `{dimension_2}` → maps to DC property `{dc_property_2}`
+
+### Measurement Logic
+- Value Column: `{value_col}` ({measurement_method}, {unit})
+
+### StatVar Pattern (P+M+C Formula)
+`{measurement}_{population}_{constraint_1}_{constraint_2}`
+
+### Coverage
+- Total Combinations: {N}
+- Sample Covers: {n} ({percent}%)
+
+**IMPORTANT:** Generate PVMAP for ALL dimension combinations, not just those in sample.
+```
+
+#### 6. P+M+C Formula for MCP Queries (Universal)
+
+For StatVar discovery via MCP, Gemini validated the **P+M+C Formula**:
+
+```
+Query = Population + MeasuredProperty + Constraints
+
+Examples by domain:
+- Demographics: "Count Person Female Hispanic Rural"
+- Energy: "Electricity Generation Solar"
+- Health: "Person MedicalCondition Diabetes 65YearsOrOver"
+- Environment: "AirPollutant Concentration PM2.5"
+- Economy: "EconomicActivity Amount Manufacturing"
+```
+
+This replaces domain-specific queries with a universal pattern.
+
+---
+
+## NEW: Complete Data Understanding & Sampling Flow
+
+### High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA UNDERSTANDING & SAMPLING AGENT                       │
+│                                                                             │
+│   INPUT: Raw CSV dataset                                                    │
+│                                                                             │
+│   ┌──────────────────────────────────────────────────────────────────────┐ │
+│   │ 1. UNDERSTAND THE DATA (Semantic Analysis)                           │ │
+│   │    - What does this dataset represent?                               │ │
+│   │    - What statistical variables can it produce?                      │ │
+│   │    - What entities are being measured?                               │ │
+│   │    - What time periods are covered?                                  │ │
+│   └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│   ┌──────────────────────────────────────────────────────────────────────┐ │
+│   │ 2. IDENTIFY DATA SKELETON (Structural Analysis)                      │ │
+│   │    - Which columns define StatVar uniqueness? (Dimensions)           │ │
+│   │    - Which columns are Place identifiers?                            │ │
+│   │    - Which columns are Time identifiers?                             │ │
+│   │    - Which columns are the measurement Values?                       │ │
+│   │    - What dimension combinations exist in the data?                  │ │
+│   └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│   ┌──────────────────────────────────────────────────────────────────────┐ │
+│   │ 3. SAMPLE + GENERATE CONTEXT (Output for Pipeline)                   │ │
+│   │    - Strategic sample demonstrating dimension structure              │ │
+│   │    - Data Skeleton Summary (markdown for LLM prompts)                │ │
+│   │    - Dimension metadata (for downstream validation)                  │ │
+│   │    - Coverage statistics (for quality assessment)                    │ │
+│   └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│   OUTPUT: Sampled CSV + DataContext (skeleton summary, metadata, stats)    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Two-Phase Sampling Strategy
+
+The agent uses a **two-phase sampling** approach:
+
+```
+PHASE 1: Basic Sampling (Existing Algorithm)
+    ↓
+    Uses current coverage-first algorithm
+    Output: ~40-50 rows with categorical coverage
+    ↓
+PHASE 2: Data Context Generation (NEW)
+    ↓
+    Analyze the basic sample
+    Classify columns (place, time, dimension, value)
+    Build dimension domains and combinations
+    Output: DataContext object
+    ↓
+PHASE 3: Advanced Sampling Using Context (NEW)
+    ↓
+    Use DataContext to guide Fixed-Pivot sampling
+    Add 30-40 more rows demonstrating dimension structure
+    Output: ~80 rows total + DataContext
+    ↓
+    Store in ADK state for downstream agents
+```
+
+### Detailed Sampling Algorithm Flow
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 1: EARLY EXIT CHECK
+═══════════════════════════════════════════════════════════════════════════════
+
+    Dataset ≤ 40 rows?
+        YES → Copy entire file → DONE
+        NO  → Continue to Phase 2
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 2: BASIC SAMPLING (Existing Algorithm - Unchanged)
+═══════════════════════════════════════════════════════════════════════════════
+
+    Uses existing coverage-first algorithm to:
+    - Cover all unique categorical values
+    - Sample numeric ranges across quartiles
+    - Limit aggregation/total rows
+
+    Output: ~40-50 rows with basic coverage
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 3: DATA CONTEXT GENERATION (NEW!)
+═══════════════════════════════════════════════════════════════════════════════
+
+    STEP 3.1: DIMENSION DETECTION
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ For each column, apply 3 tests:                                     │
+    │                                                                     │
+    │ 1. CARDINALITY TEST                                                 │
+    │    unique_values / total_rows < 0.1 → DIMENSION                     │
+    │    unique_values / total_rows > 0.5 → VALUE                         │
+    │    unique_values / total_rows < 0.01 → METADATA                     │
+    │                                                                     │
+    │ 2. SEMANTIC TEST                                                    │
+    │    Header matches dimension keywords? (gender, age, sector)         │
+    │    Header matches place keywords? (state, fips, county)             │
+    │    Header matches time keywords? (year, date, quarter)              │
+    │    Header matches value keywords? (count, total, amount)            │
+    │                                                                     │
+    │ 3. SUMMATION TEST                                                   │
+    │    Does grouping by column + summing value make sense?              │
+    │    Yes → DIMENSION, No → VALUE or METADATA                          │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    STEP 3.2: COLUMN CLASSIFICATION OUTPUT
+    ┌──────────────┬──────────────┬──────────────┬──────────────┐
+    │    PLACE     │    TIME      │  DIMENSION   │    VALUE     │
+    ├──────────────┼──────────────┼──────────────┼──────────────┤
+    │ State        │ Year         │ Gender       │ Population   │
+    │ District     │ Quarter      │ Sector       │ AvgWage      │
+    │ FIPS         │ Date         │ Age_Group    │ Count        │
+    └──────────────┴──────────────┴──────────────┴──────────────┘
+    + METADATA columns (Source, Unit) → SKIP for sampling
+
+    STEP 3.3: BUILD DIMENSION COMBINATIONS
+
+    Dimension columns: [State, Gender, Sector]
+
+    ALL COMBINATIONS (Cartesian product):
+    ┌─────────────────────────────────────────────────────────────┐
+    │ (CA, Male, Rural)    (CA, Male, Urban)                      │
+    │ (CA, Female, Rural)  (CA, Female, Urban)                    │
+    │ (TX, Male, Rural)    (TX, Male, Urban)                      │
+    │ (TX, Female, Rural)  (TX, Female, Urban)                    │
+    │ ... (50 states × 2 genders × 2 sectors = 200 combinations)  │
+    └─────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 4: ADVANCED SAMPLING USING CONTEXT (NEW!)
+═══════════════════════════════════════════════════════════════════════════════
+
+    Target: Add 30-40 more rows using Fixed-Pivot strategy (total ~80 rows)
+
+    STEP 4.1: DIAGONAL SCAN (25% = 20 rows)
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ Purpose: Cover ALL unique values across ALL dimension columns       │
+    │                                                                     │
+    │ Algorithm:                                                          │
+    │   Row 1: State=CA, Gender=Male, Sector=Rural     (new values)       │
+    │   Row 2: State=TX, Gender=Female, Sector=Urban   (new values)       │
+    │   Row 3: State=NY, Gender=Male, Sector=Urban     (new combo)        │
+    │   ...                                                               │
+    │   Select rows that maximize NEW individual values                   │
+    │                                                                     │
+    │ Result: All states, genders, sectors appear at least once           │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    STEP 4.2: FIXED-PIVOT BLOCKS (50% = 40 rows)
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ Purpose: Demonstrate dimension INDEPENDENCE to LLM                  │
+    │                                                                     │
+    │ BLOCK A: VARY GEOGRAPHY (10 rows)                                   │
+    │   Fix: Year=2020, Gender=Female, Sector=Rural                       │
+    │   Vary: State = CA, TX, NY, FL, PA, OH, IL, GA, NC, MI              │
+    │   → LLM sees: "Only State changes, confirms it's Place"             │
+    │                                                                     │
+    │ BLOCK B: VARY TIME (10 rows)                                        │
+    │   Fix: State=CA, Gender=Female, Sector=Rural                        │
+    │   Vary: Year = 2015, 2016, 2017, 2018, 2019, 2020...                │
+    │   → LLM sees: "Only Year changes, confirms it's Time"               │
+    │                                                                     │
+    │ BLOCK C: VARY DIMENSIONS (20 rows)                                  │
+    │   Fix: State=CA, Year=2020                                          │
+    │   Vary: Full cartesian of Gender × Sector                           │
+    │   → LLM sees: "Gender and Sector are INDEPENDENT dimensions"        │
+    │   → LLM learns: StatVar = Wage_[Gender]_[Sector]                    │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    STEP 4.3: EDGE CASES (25% = 20 rows)
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ Purpose: Cover special cases critical for correct PVMAP             │
+    │                                                                     │
+    │ TOTALS (5 rows):                                                    │
+    │   State=Total, Gender=All, Sector=Combined                          │
+    │   → Defines root StatVar (Count_Person)                             │
+    │                                                                     │
+    │ NULLS/ZEROS (5 rows):                                               │
+    │   Rows with missing values or zero counts                           │
+    │   → Tests null handling in PVMAP                                    │
+    │                                                                     │
+    │ FORMATTING EDGE CASES (10 rows):                                    │
+    │   "Washington, D.C." (punctuation)                                  │
+    │   "New York" vs "NY" (name variants)                                │
+    │   → Tests DCID resolution                                           │
+    └─────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 5: COMBINATION TRACKING (During Advanced Sampling)
+═══════════════════════════════════════════════════════════════════════════════
+
+    For each selected row:
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ 1. Extract dimension tuple: (State, Gender, Sector)                 │
+    │ 2. Check: Is this tuple in UNCOVERED set?                           │
+    │ 3. If YES: Move to COVERED set, increment coverage                  │
+    │ 4. Track coverage percentage                                        │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    Coverage Stats:
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ Total combinations: 200                                             │
+    │ Covered by sample: 80 (40%)                                         │
+    │ Missing: 120 (60%)                                                  │
+    └─────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 6: GENERATE DATA CONTEXT PACKAGE
+═══════════════════════════════════════════════════════════════════════════════
+
+    OUTPUT: DataContext object containing:
+
+    1. SAMPLED DATA (80 rows)
+       - Diagonal scan rows (20)
+       - Fixed-pivot block rows (40)
+       - Edge case rows (20)
+
+    2. SKELETON SUMMARY (Markdown for LLM prompts)
+       ## DATA SKELETON SUMMARY
+
+       ### Dataset Context
+       - **Name:** Monthly_Wages_India
+       - **Topology:** TIDY_LONG
+       - **Population Type:** Person
+
+       ### Anchors (Required)
+       - **Geography:** Column `State` (Format: US State Name)
+       - **Time:** Column `Quarter` (Format: YYYY-Q#)
+
+       ### Skeleton Dimensions (Define StatVar)
+       - `Gender` → maps to DC property `gender`
+       - `Sector` → maps to DC property `placeOfResidenceClassification`
+
+       ### Measurement Logic
+       - Value Column: `AvgWage` (Mean, INR)
+
+       ### StatVar Pattern
+       `Mean_WageOrSalary_Worker_{Gender}_{Sector}`
+
+       ### Coverage
+       - Total Combinations: 200
+       - Sample Covers: 80 (40%)
+
+       **IMPORTANT:** Generate PVMAP for ALL combinations.
+
+    3. STRUCTURAL METADATA (Dict for programmatic use)
+       {
+         "column_roles": {
+           "State": "place",
+           "Quarter": "time",
+           "Gender": "dimension",
+           "Sector": "dimension",
+           "AvgWage": "value"
+         },
+         "dimension_columns": ["Gender", "Sector"],
+         "dimension_domains": {
+           "Gender": ["Male", "Female"],
+           "Sector": ["Rural", "Urban"]
+         },
+         "statvar_pattern": "Mean_Wage_{Gender}_{Sector}",
+         "total_combinations": 200,
+         "coverage_percent": 40.0
+       }
+```
+
+### How Context Flows to Downstream Agents
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   HOW DOWNSTREAM AGENTS USE CONTEXT                          │
+│                                                                              │
+│   ╔═══════════════════════════════════════════════════════════════╗         │
+│   ║ STATVAR DISCOVERY AGENT (MCP)                                 ║         │
+│   ║ Uses: dimension_columns, statvar_pattern, column_roles        ║         │
+│   ║ → Builds queries using P+M+C Formula:                         ║         │
+│   ║   Query = Population + MeasuredProperty + Constraints         ║         │
+│   ║ → Example: "Mean Wage Person Male Rural"                      ║         │
+│   ║ → Outputs: discovered_statvars for PVMAP generation           ║         │
+│   ╚═══════════════════════════════════════════════════════════════╝         │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────┐         │
+│   │ SCHEMA SELECTION AGENT                                        │         │
+│   │ Uses: column_roles, dimension_columns                         │         │
+│   │ → Knows this is "Economy/Employment" domain                   │         │
+│   │ → Selects appropriate schema examples                         │         │
+│   └───────────────────────────────────────────────────────────────┘         │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────┐         │
+│   │ PVMAP GENERATION AGENT                                        │         │
+│   │ Uses: skeleton_summary (full markdown), dimension_domains,    │         │
+│   │       discovered_statvars (from MCP if available)             │         │
+│   │ → Understands what columns define StatVar uniqueness          │         │
+│   │ → Generates PVMAP that handles ALL combinations               │         │
+│   │ → Uses discovered StatVars as templates                       │         │
+│   └───────────────────────────────────────────────────────────────┘         │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────┐         │
+│   │ DC QUERY AGENT (MCP Tools)                                    │         │
+│   │ Uses: dimension_columns to build targeted queries             │         │
+│   │ → With context: search "Mean Wage Male Rural India"           │         │
+│   │ → Without context: search "wage" (too broad, poor results)    │         │
+│   └───────────────────────────────────────────────────────────────┘         │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────┐         │
+│   │ EVALUATION AGENT                                              │         │
+│   │ Uses: statvar_pattern, coverage_percent                       │         │
+│   │ → Compares generated StatVars against expected pattern        │         │
+│   │ → Reports dimension coverage in metrics                       │         │
+│   └───────────────────────────────────────────────────────────────┘         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Before vs After Comparison
+
+```
+BEFORE (Current):                          AFTER (Improved):
+────────────────────────────────────       ────────────────────────────────────
+
+Track: Individual column values            Track: Dimension COMBINATIONS
+  State: {CA, TX, NY...}                     {(CA, Male, Rural), (CA, Male, Urban),
+  Gender: {Male, Female}                      (CA, Female, Rural), (TX, Male, Rural)...}
+  Sector: {Rural, Urban}
+
+Coverage: 56 values covered                Coverage: 40%+ combinations covered
+          (100% individual)                          (vs 12-14% before)
+
+Strategy: Random after coverage            Strategy: Fixed-Pivot blocks
+          (haphazard combinations)                   (structured variation)
+
+Output: Just sampled CSV                   Output: Sampled CSV + DataContext
+
+LLM sees: Scattered examples               LLM sees: Dimension independence
+          No structure guidance                      Clear uniqueness pattern
+```
 
 ---
 
@@ -861,243 +1359,802 @@ self._uncovered_values = {}     # col_index -> set of uncovered values
 
 ---
 
-# Part 6: Proposed Improvements
+# Part 6: Implementation Plan (Gemini-Validated)
 
-## 6.1 Improvement 1: Detect Dimension Columns
+## 6.1 New Module: DataContext
 
-**Purpose:** Identify columns that together define StatVar uniqueness
+**File:** `src/pipeline/sampling/data_context.py` (NEW)
 
-**Implementation:**
+The core module that generates context for the pipeline using the **Universal Template**.
+
 ```python
-def _detect_dimension_columns(self, headers: list[str], all_rows: list) -> set[int]:
+from dataclasses import dataclass
+from typing import Dict, List, Any
+import pandas as pd
+
+@dataclass
+class DataContext:
     """
-    Dimension columns are properties that, combined, make each row's StatVar unique.
-
-    Heuristics:
-    1. Categorical columns (already detected)
-    2. NOT value columns (numeric columns that vary widely)
-    3. NOT ID/key columns (unique per row)
-    4. Common patterns: gender, age, sector, period, geographic level
+    Complete context about a dataset for PVMAP generation.
+    Uses UNIVERSAL TEMPLATE that works across all domains:
+    Demographics, Economy, Health, Energy, Environment, etc.
     """
-    dimension_cols = set()
-    dimension_patterns = [
-        'gender', 'sex', 'male', 'female',
-        'sector', 'rural', 'urban',
-        'age', 'age_group', 'agegroup',
-        'quarter', 'period', 'year', 'month',
-        'category', 'type', 'class',
-        'race', 'ethnicity',
-        'education', 'income_level',
-        'state', 'country', 'region', 'district'
-    ]
 
-    for col_idx, header in enumerate(headers):
-        header_lower = header.lower()
-        if any(pattern in header_lower for pattern in dimension_patterns):
-            dimension_cols.add(col_idx)
+    # === DATASET CONTEXT (Domain-Agnostic) ===
+    name: str                             # Dataset name
+    description: str                      # Brief description
+    topology: str                         # TIDY_LONG | PIVOTED_WIDE | HYBRID
+    population_type: str                  # DC entity: Person, Electricity, Atmosphere, etc.
 
-        # Also include categorical columns that aren't ID columns
-        if col_idx in self._categorical_columns and col_idx not in self._id_column_indices:
-            dimension_cols.add(col_idx)
+    # === ANCHORS (Required for all StatVarObservations) ===
+    geography: Dict[str, Any]             # {column, format, resolution}
+    time: Dict[str, Any]                  # {column, format, notes}
 
-    return dimension_cols
-```
+    # === SKELETON DIMENSIONS (Define StatVar uniqueness) ===
+    constraint_columns: List[Dict]        # [{name, represents, role}]
+    hidden_constraints: List[Dict]        # [{property, value, reason}]
 
-## 6.2 Improvement 2: Track Dimension Combinations
+    # === MEASUREMENT LOGIC ===
+    value_columns: List[Dict]             # [{name, stat_type, measurement_method, unit}]
+    header_semantics: str                 # For PIVOTED_WIDE: what headers represent
 
-**Purpose:** Track which (State, Year, Gender, ...) tuples are covered
+    # === DERIVED FIELDS ===
+    column_roles: Dict[str, str]          # {column_name: role}
+    dimension_columns: List[str]          # Dimension column names
+    dimension_domains: Dict[str, List]    # {dimension: [values]}
+    statvar_pattern: str                  # {measurement}_{population}_{constraints...}
+    total_combinations: int
+    sample_combinations: int
+    coverage_percent: float
 
-**Implementation:**
-```python
-def _build_dimension_combinations(self, all_rows: list, dimension_cols: set[int]) -> set[tuple]:
-    """Build set of all unique dimension combinations in the data."""
-    combinations = set()
-    for row in all_rows:
-        combo = tuple(row[col] for col in sorted(dimension_cols) if col < len(row))
-        combinations.add(combo)
-    return combinations
+    def to_skeleton_summary(self) -> str:
+        """
+        Generate UNIVERSAL markdown summary for LLM prompts.
+        Works for ANY domain: demographics, economy, health, energy, etc.
+        """
+        return f'''## DATA SKELETON SUMMARY
 
-def _covers_new_combination(self, row: list[str]) -> bool:
-    """Check if row covers a NEW dimension combination."""
-    combo = tuple(row[col] for col in sorted(self._dimension_columns) if col < len(row))
-    return combo in self._uncovered_combinations
+### Dataset Context
+- **Name:** {self.name}
+- **Topology:** {self.topology}
+- **Population Type:** {self.population_type}
 
-def _mark_combination_covered(self, row: list[str]) -> None:
-    """Mark a dimension combination as covered."""
-    combo = tuple(row[col] for col in sorted(self._dimension_columns) if col < len(row))
-    self._uncovered_combinations.discard(combo)
-```
+### Anchors (Required)
+- **Geography:** Column `{self.geography['column']}` (Format: {self.geography['format']})
+- **Time:** Column `{self.time['column']}` (Format: {self.time['format']})
 
-## 6.3 Improvement 3: Combination-First Selection Strategy
+### Skeleton Dimensions (Define StatVar)
+{self._format_constraints()}
 
-**Purpose:** Prioritize rows that cover NEW combinations
+### Measurement Logic
+{self._format_measurements()}
 
-**Implementation:**
-```python
-def select_row(self, row: list[str], sample_rate: float = -1) -> bool:
-    # ... existing filters (duplicate, aggregation) ...
+### StatVar Pattern
+`{self.statvar_pattern}`
 
-    # NEW PRIORITY 1: Dimension combination coverage
-    if self._dimension_columns and self._covers_new_combination(row):
-        self._counters.add_counter('sampler-combination-selected-rows', 1)
-        return True
+### Coverage
+- Total Combinations: {self.total_combinations}
+- Sample Covers: {self.sample_combinations} ({self.coverage_percent:.1f}%)
 
-    # PRIORITY 2: Categorical value coverage (existing)
-    if ensure_coverage and self._prescan_complete:
-        if self._covers_new_categorical_value(row):
-            self._counters.add_counter('sampler-coverage-selected-rows', 1)
-            return True
+**IMPORTANT:** Generate PVMAP for ALL dimension combinations, not just those in sample.
+'''
 
-    # ... rest of existing logic ...
-```
+    def to_mcp_query_context(self) -> dict:
+        """
+        Generate context for MCP StatVar discovery.
+        Uses P+M+C formula (Population + MeasuredProperty + Constraints).
+        """
+        return {
+            'population': self.population_type,
+            'measurement': self.value_columns[0]['measurement_method'] if self.value_columns else 'Count',
+            'constraints': {c['name']: c['represents'] for c in self.constraint_columns},
+        }
 
-## 6.4 Improvement 4: Output Data Skeleton Summary
+    def to_metadata_dict(self) -> dict:
+        """Return structural metadata for programmatic use."""
+        return {
+            "column_roles": self.column_roles,
+            "dimension_columns": self.dimension_columns,
+            "dimension_domains": self.dimension_domains,
+            "statvar_pattern": self.statvar_pattern,
+            "total_combinations": self.total_combinations,
+            "coverage_percent": self.coverage_percent,
+        }
 
-**Purpose:** Generate summary of the data's uniqueness structure for downstream use
+    def _format_constraints(self) -> str:
+        lines = []
+        for c in self.constraint_columns:
+            lines.append(f"- `{c['name']}` → maps to DC property `{c['represents']}`")
+        return "\n".join(lines) if lines else "- (none detected)"
 
-**Implementation:**
-```python
-def get_data_skeleton_summary(self) -> dict:
+    def _format_measurements(self) -> str:
+        lines = []
+        for v in self.value_columns:
+            lines.append(f"- Value Column: `{v['name']}` ({v['stat_type']}, {v.get('unit', 'unspecified')})")
+        return "\n".join(lines) if lines else "- (none detected)"
+
+
+class DataContextGenerator:
     """
-    Generate a summary of the data's uniqueness structure.
+    Generates DataContext using UNIVERSAL analysis that works across ALL domains.
+    NOT overfitted to any specific domain like wages or population.
+    """
 
-    Returns dict like:
-    {
-        "dimension_columns": ["Gender", "Sector", "Quarter", "State"],
-        "value_columns": ["AvgWage", "Count"],
-        "key_columns": ["ID"],
-        "total_unique_combinations": 400,
-        "sample_covers": 80,
-        "coverage_percent": 20.0,
-        "sample_combinations": [
-            ("Male", "Rural", "Q1", "CA"),
-            ("Male", "Rural", "Q2", "CA"),
-            ...
-        ]
+    # Universal population type mapping (domain-agnostic)
+    POPULATION_KEYWORDS = {
+        # Demographics
+        'person': 'Person', 'people': 'Person', 'population': 'Person',
+        'household': 'Household', 'family': 'Household',
+        # Economy
+        'business': 'EconomicActivity', 'gdp': 'EconomicActivity',
+        'worker': 'Worker', 'employee': 'Worker',
+        # Energy
+        'electricity': 'Electricity', 'power': 'Electricity', 'energy': 'Electricity',
+        'plant': 'PowerPlant',
+        # Environment
+        'air': 'Atmosphere', 'pollutant': 'AirPollutant', 'emission': 'Emissions',
+        'temperature': 'Atmosphere', 'weather': 'Atmosphere',
+        # Health
+        'patient': 'Person', 'case': 'MedicalCondition',
     }
-    """
-    dimension_names = [self._headers_list[i] for i in sorted(self._dimension_columns)]
 
-    total_combos = len(self._all_combinations)
-    covered_combos = total_combos - len(self._uncovered_combinations)
+    # Universal measurement type mapping
+    MEASUREMENT_KEYWORDS = {
+        'count': 'Count', 'number': 'Count', 'total': 'Count',
+        'amount': 'Amount', 'value': 'Amount',
+        'rate': 'Rate', 'percent': 'Percent', 'percentage': 'Percent',
+        'mean': 'Mean', 'average': 'Mean', 'avg': 'Mean',
+        'concentration': 'Concentration',
+        'generation': 'Generation', 'production': 'Generation',
+        'consumption': 'Consumption',
+    }
+
+    def generate(self, df: pd.DataFrame, metadata: dict = None) -> DataContext:
+        """Analyze dataset and generate UNIVERSAL context."""
+        # Implementation: Apply dimension detection heuristics
+        pass
+
+    def _detect_topology(self, df: pd.DataFrame) -> str:
+        """Detect if data is TIDY_LONG, PIVOTED_WIDE, or HYBRID."""
+        pass
+
+    def _infer_population_type(self, df: pd.DataFrame, metadata: dict) -> str:
+        """Infer population type using UNIVERSAL keyword mapping."""
+        pass
+
+    def _infer_measurement_type(self, column_name: str) -> str:
+        """Infer measurement type using UNIVERSAL keyword mapping."""
+        pass
+```
+
+## 6.2 New Module: DimensionDetector
+
+**File:** `src/pipeline/sampling/dimension_detector.py` (NEW)
+
+```python
+class DimensionDetector:
+    """Detects dimension columns using Gemini-validated heuristics."""
+
+    # Configuration from Gemini consultation
+    CONFIG = {
+        'cardinality_dimension_threshold': 0.1,   # < 10% unique = likely dimension
+        'cardinality_value_threshold': 0.5,       # > 50% unique = likely value
+        'cardinality_metadata_threshold': 0.01,   # < 1% unique = likely metadata
+
+        'dimension_keywords': ['gender', 'sex', 'age', 'race', 'industry',
+                               'education', 'status', 'type', 'category', 'sector'],
+        'value_keywords': ['count', 'total', 'amount', 'percent', 'rate',
+                           'value', 'number', 'sum'],
+        'metadata_keywords': ['source', 'unit', 'note', 'moe', 'annotation', 'method'],
+        'place_keywords': ['state', 'county', 'city', 'fips', 'geo',
+                           'region', 'country', 'place', 'district'],
+        'time_keywords': ['year', 'date', 'month', 'quarter', 'period', 'time'],
+    }
+
+    def classify_columns(self, df: pd.DataFrame) -> dict:
+        """
+        Classify columns into roles: place, time, dimension, value, metadata.
+
+        Returns:
+            dict with keys: 'place', 'time', 'dimensions', 'values', 'metadata'
+        """
+        result = {'place': [], 'time': [], 'dimensions': [], 'values': [], 'metadata': []}
+
+        for col in df.columns:
+            role = self._classify_single_column(df, col)
+            result[role].append(col)
+
+        return result
+
+    def _classify_single_column(self, df: pd.DataFrame, col: str) -> str:
+        """Apply all 3 tests to classify a single column."""
+        # 1. Semantic test (highest priority for place/time)
+        semantic_role = self.semantic_test(col)
+        if semantic_role in ['place', 'time']:
+            return semantic_role
+
+        # 2. Cardinality test
+        cardinality_role = self.cardinality_test(df[col])
+
+        # 3. Combine results
+        if semantic_role == 'dimension':
+            return 'dimension'
+        if semantic_role == 'value':
+            return 'value'
+
+        return cardinality_role
+
+    def cardinality_test(self, series: pd.Series) -> str:
+        """Apply cardinality ratio test."""
+        ratio = series.nunique() / len(series)
+
+        if ratio < self.CONFIG['cardinality_metadata_threshold']:
+            return 'metadata'
+        elif ratio < self.CONFIG['cardinality_dimension_threshold']:
+            return 'dimension'
+        elif ratio > self.CONFIG['cardinality_value_threshold']:
+            return 'value'
+        else:
+            return 'dimension'  # Default for ambiguous cases
+
+    def semantic_test(self, column_name: str) -> str:
+        """Apply semantic keyword matching."""
+        col_lower = column_name.lower()
+
+        for keyword in self.CONFIG['place_keywords']:
+            if keyword in col_lower:
+                return 'place'
+
+        for keyword in self.CONFIG['time_keywords']:
+            if keyword in col_lower:
+                return 'time'
+
+        for keyword in self.CONFIG['dimension_keywords']:
+            if keyword in col_lower:
+                return 'dimension'
+
+        for keyword in self.CONFIG['value_keywords']:
+            if keyword in col_lower:
+                return 'value'
+
+        for keyword in self.CONFIG['metadata_keywords']:
+            if keyword in col_lower:
+                return 'metadata'
+
+        return 'unknown'
+
+    def summation_test(self, df: pd.DataFrame, candidate_col: str, value_col: str) -> bool:
+        """Check if grouping by candidate and summing value is meaningful."""
+        try:
+            grouped = df.groupby(candidate_col)[value_col].sum()
+            # If grouping produces reasonable aggregation, it's a dimension
+            return len(grouped) > 1 and len(grouped) < len(df) * 0.5
+        except:
+            return False
+```
+
+## 6.3 New Module: CombinationTracker
+
+**File:** `src/pipeline/sampling/combination_tracker.py` (NEW)
+
+```python
+from collections import Counter
+from typing import Set, List, Dict
+
+class CombinationTracker:
+    """Tracks coverage of dimension combinations."""
+
+    def __init__(self, dimension_columns: List[str]):
+        self.dimension_columns = dimension_columns
+        self.seen_combinations: Set[tuple] = set()
+        self.combination_counts: Counter = Counter()
+
+    def add_row(self, row: Dict[str, Any]) -> bool:
+        """Add row and return True if it's a new combination."""
+        combo = self._extract_combination(row)
+        is_new = combo not in self.seen_combinations
+
+        if is_new:
+            self.seen_combinations.add(combo)
+        self.combination_counts[combo] += 1
+
+        return is_new
+
+    def _extract_combination(self, row: Dict[str, Any]) -> tuple:
+        """Extract dimension combination tuple from row."""
+        return tuple(row.get(col, '') for col in self.dimension_columns)
+
+    def get_coverage_stats(self) -> dict:
+        """Return coverage statistics."""
+        return {
+            "total_seen": len(self.seen_combinations),
+            "combinations": list(self.seen_combinations),
+            "counts": dict(self.combination_counts),
+        }
+
+    def get_missing_combinations(self, full_cartesian: Set[tuple]) -> Set[tuple]:
+        """Return combinations not yet seen."""
+        return full_cartesian - self.seen_combinations
+```
+
+## 6.4 New Module: SkeletonSampler
+
+**File:** `src/pipeline/sampling/skeleton_sampler.py` (NEW)
+
+```python
+class SkeletonSampler:
+    """Implements Fixed-Pivot sampling strategy (Gemini-validated)."""
+
+    def __init__(self, config: dict = None):
+        self.config = config or {
+            'target_rows': 80,
+            'diagonal_scan_ratio': 0.25,    # 20 rows
+            'fixed_pivot_ratio': 0.50,      # 40 rows
+            'edge_cases_ratio': 0.25,       # 20 rows
+            'total_keywords': ['total', 'all', 'overall', 'aggregate', 'combined'],
+        }
+
+    def sample(self, df: pd.DataFrame, column_roles: dict, target_rows: int = 80) -> pd.DataFrame:
+        """
+        Generate a skeleton sample that preserves dimension structure.
+
+        Strategy:
+        1. Diagonal Scan (25%): Cover all unique dimension values
+        2. Fixed-Pivot Blocks (50%): Vary ONE dimension at a time
+        3. Edge Cases (25%): Totals, nulls, formatting edge cases
+        """
+        n_diagonal = int(target_rows * self.config['diagonal_scan_ratio'])
+        n_pivot = int(target_rows * self.config['fixed_pivot_ratio'])
+        n_edge = target_rows - n_diagonal - n_pivot
+
+        diagonal_rows = self._diagonal_scan(df, column_roles, n_diagonal)
+        pivot_rows = self._fixed_pivot_blocks(df, column_roles, n_pivot)
+        edge_rows = self._edge_cases(df, column_roles, n_edge)
+
+        # Combine and deduplicate
+        all_indices = set(diagonal_rows.index) | set(pivot_rows.index) | set(edge_rows.index)
+        return df.loc[list(all_indices)[:target_rows]]
+
+    def _diagonal_scan(self, df: pd.DataFrame, column_roles: dict, n_rows: int) -> pd.DataFrame:
+        """Select rows to maximize dimension value coverage."""
+        dimensions = column_roles.get('dimensions', [])
+        if not dimensions:
+            return df.head(n_rows)
+
+        selected_indices = []
+        covered_values = {dim: set() for dim in dimensions}
+
+        for idx, row in df.iterrows():
+            covers_new = False
+            for dim in dimensions:
+                val = row.get(dim)
+                if val and val not in covered_values[dim]:
+                    covered_values[dim].add(val)
+                    covers_new = True
+
+            if covers_new:
+                selected_indices.append(idx)
+
+            if len(selected_indices) >= n_rows:
+                break
+
+        return df.loc[selected_indices] if selected_indices else df.head(n_rows)
+
+    def _fixed_pivot_blocks(self, df: pd.DataFrame, column_roles: dict, n_rows: int) -> pd.DataFrame:
+        """Create pivot blocks varying one dimension at a time."""
+        place_cols = column_roles.get('place', [])
+        time_cols = column_roles.get('time', [])
+        dim_cols = column_roles.get('dimensions', [])
+
+        rows_per_block = n_rows // 3
+        selected_indices = []
+
+        # Block A: Vary Geography
+        if place_cols:
+            place_col = place_cols[0]
+            # Fix other dimensions, vary place
+            sample_a = df.drop_duplicates(subset=[place_col]).head(rows_per_block)
+            selected_indices.extend(sample_a.index.tolist())
+
+        # Block B: Vary Time
+        if time_cols:
+            time_col = time_cols[0]
+            sample_b = df.drop_duplicates(subset=[time_col]).head(rows_per_block)
+            selected_indices.extend(sample_b.index.tolist())
+
+        # Block C: Vary Dimensions (cartesian product)
+        if dim_cols:
+            sample_c = df.drop_duplicates(subset=dim_cols).head(rows_per_block)
+            selected_indices.extend(sample_c.index.tolist())
+
+        return df.loc[list(set(selected_indices))[:n_rows]]
+
+    def _edge_cases(self, df: pd.DataFrame, column_roles: dict, n_rows: int) -> pd.DataFrame:
+        """Select total rows, nulls, and formatting edge cases."""
+        selected_indices = []
+
+        # Find "Total" rows
+        for idx, row in df.iterrows():
+            row_str = ' '.join(str(v).lower() for v in row.values[:5])
+            if any(kw in row_str for kw in self.config['total_keywords']):
+                selected_indices.append(idx)
+                if len(selected_indices) >= n_rows // 2:
+                    break
+
+        # Find rows with nulls
+        null_rows = df[df.isnull().any(axis=1)].head(n_rows // 4)
+        selected_indices.extend(null_rows.index.tolist())
+
+        # Find rows with zeros (edge case values)
+        value_cols = column_roles.get('values', [])
+        for col in value_cols:
+            if col in df.columns:
+                zero_rows = df[df[col] == 0].head(n_rows // 4)
+                selected_indices.extend(zero_rows.index.tolist())
+                break
+
+        return df.loc[list(set(selected_indices))[:n_rows]]
+```
+
+## 6.5 Integration with Existing Code
+
+### Modify: `src/pipeline/sampling/data_sampler.py`
+
+Add DataContext generation after basic sampling:
+
+```python
+def sample_csv_file(input_path: str, output_path: str, config: dict = None) -> dict:
+    """Sample CSV file and generate DataContext."""
+
+    # ... existing sampling logic ...
+
+    # NEW: Generate DataContext
+    from .data_context import DataContextGenerator
+    from .dimension_detector import DimensionDetector
+
+    df = pd.read_csv(input_path)
+    detector = DimensionDetector()
+    column_roles = detector.classify_columns(df)
+
+    context_gen = DataContextGenerator()
+    data_context = context_gen.generate(df, metadata)
 
     return {
-        "dimension_columns": dimension_names,
-        "value_columns": self._detect_value_columns(),
-        "key_columns": [self._headers_list[i] for i in self._id_column_indices],
-        "total_unique_combinations": total_combos,
-        "sample_covers": covered_combos,
-        "coverage_percent": (covered_combos / total_combos * 100) if total_combos > 0 else 0,
+        "success": True,
+        "output_file": str(output_path),
+        "rows_sampled": rows_written,
+        "data_context": data_context.to_metadata_dict(),
+        "skeleton_summary": data_context.to_skeleton_summary(),
+        "error": ""
     }
 ```
 
-## 6.5 Improvement 5: Enhanced Prompt Guidance
+### Modify: `src/agents/sampling_agent.py`
 
-**Purpose:** Help LLM understand the dimension structure
+Store DataContext in ADK state:
 
-**File:** `src/resources/prompts/improved_pvmap_prompt.txt`
+```python
+async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+    # ... existing logic ...
 
-**Addition:**
+    result = sample_data(input_file, output_file)
+
+    # NEW: Store DataContext in state
+    if result.get("data_context"):
+        ctx.session.state["data_context"] = result["data_context"]
+        ctx.session.state["skeleton_summary"] = result.get("skeleton_summary", "")
+
+    # ... rest of logic ...
 ```
-## DATA SKELETON ANALYSIS
 
-The sampled data represents a dataset where each row is a UNIQUE statistical observation.
+### Modify: `src/resources/prompts/improved_pvmap_prompt.txt`
 
-### Dimension Columns (define StatVar uniqueness):
-{{DIMENSION_COLUMNS}}
+Add DataContext placeholder:
 
-### Value Columns (the measurements):
-{{VALUE_COLUMNS}}
+```markdown
+## DATA UNDERSTANDING
 
-### Uniqueness Pattern:
-Each unique combination of dimension values creates a DISTINCT StatVar.
-Example: Average_Monthly_Wage_[Gender]_[Sector]_[Quarter]_[State]
+{{DATA_CONTEXT}}
 
-### Coverage Summary:
-- Total unique combinations in full data: {{TOTAL_COMBINATIONS}}
-- Combinations shown in sample: {{SAMPLE_COMBINATIONS}}
-- Coverage: {{COVERAGE_PERCENT}}%
+## SAMPLED DATA
 
-IMPORTANT: Your PVMAP must handle ALL combinations of dimension values,
-not just the specific combinations shown in the sample. The dimension
-columns define the structure; the sample shows representative patterns.
+Below is a strategic sample of the data. It demonstrates the dimension
+structure, but does NOT show all possible combinations.
+
+{{SAMPLED_DATA}}
+
+## IMPORTANT
+
+Your PVMAP must handle ALL dimension combinations shown in the skeleton
+summary above, not just the specific rows in the sample.
+```
+
+## 6.6 MCP Integration for StatVar Discovery
+
+### Modify: `src/agents/statvar_discovery_agent.py`
+
+Use DataContext for targeted MCP queries:
+
+```python
+def build_mcp_queries(data_context: dict) -> List[str]:
+    """
+    Build MCP queries using P+M+C Formula (Gemini-validated).
+
+    P+M+C = Population + MeasuredProperty + Constraints
+    """
+    population = data_context.get('population_type', 'Person')
+    measurement = data_context.get('measurement_type', 'Count')
+    dimension_domains = data_context.get('dimension_domains', {})
+
+    queries = []
+
+    # Full query with all constraints
+    for combo in itertools.product(*dimension_domains.values()):
+        constraint_str = ' '.join(combo)
+        queries.append(f"{measurement} {population} {constraint_str}")
+
+    # Relaxed queries (fewer constraints)
+    for dim_name, values in dimension_domains.items():
+        for value in values[:3]:  # Top 3 values per dimension
+            queries.append(f"{measurement} {population} {value}")
+
+    # Broad query (just population + measurement)
+    queries.append(f"{measurement} {population}")
+
+    return queries
 ```
 
 ---
 
 # Part 7: Implementation Considerations
 
-## 7.1 New Configuration Parameters
+## 7.1 Configuration Parameters
 
-| Parameter | Default | Purpose |
-|-----------|---------|---------|
-| `sampler_detect_dimensions` | True | Enable dimension column detection |
-| `sampler_combination_coverage` | True | Track dimension combinations |
-| `sampler_min_combination_coverage` | 0.2 | Minimum % of combinations to cover (20%) |
-| `sampler_max_dimension_columns` | 5 | Limit dimension tracking to prevent explosion |
-| `sampler_output_skeleton` | True | Generate skeleton summary |
+```python
+SAMPLING_CONFIG = {
+    # Target sample size
+    'target_rows': 80,
 
-## 7.2 Files to Modify
+    # Allocation ratios (Fixed-Pivot strategy)
+    'diagonal_scan_ratio': 0.25,      # 20 rows
+    'fixed_pivot_ratio': 0.50,        # 40 rows
+    'edge_cases_ratio': 0.25,         # 20 rows
+
+    # Dimension detection thresholds (Gemini-validated)
+    'cardinality_dimension_threshold': 0.1,   # < 10% unique = likely dimension
+    'cardinality_value_threshold': 0.5,       # > 50% unique = likely value
+    'cardinality_metadata_threshold': 0.01,   # < 1% unique = likely metadata
+
+    # Semantic keywords
+    'dimension_keywords': ['gender', 'sex', 'age', 'race', 'industry',
+                           'education', 'status', 'type', 'category', 'sector'],
+    'value_keywords': ['count', 'total', 'amount', 'percent', 'rate',
+                       'value', 'number', 'sum'],
+    'metadata_keywords': ['source', 'unit', 'note', 'moe', 'annotation', 'method'],
+    'place_keywords': ['state', 'county', 'city', 'fips', 'geo',
+                       'region', 'country', 'place', 'district'],
+    'time_keywords': ['year', 'date', 'month', 'quarter', 'period', 'time'],
+
+    # Total/aggregate detection
+    'total_keywords': ['total', 'all', 'overall', 'aggregate', 'combined'],
+
+    # Combination tracking limits
+    'max_dimension_columns': 5,           # Limit to prevent cartesian explosion
+    'min_combination_coverage': 0.2,      # Target 20% of combinations
+}
+```
+
+## 7.2 Files to Create/Modify
+
+### New Modules (Core Data Understanding)
+
+| File | Purpose |
+|------|---------|
+| `src/pipeline/sampling/data_context.py` | **DataContext dataclass + DataContextGenerator** |
+| `src/pipeline/sampling/dimension_detector.py` | Column classification using Gemini-validated heuristics |
+| `src/pipeline/sampling/combination_tracker.py` | Track dimension combination coverage |
+| `src/pipeline/sampling/skeleton_sampler.py` | Fixed-Pivot sampling strategy |
+
+### Modified Modules (Integration)
 
 | File | Changes |
 |------|---------|
-| `src/pipeline/sampling/data_sampler.py` | Add dimension detection, combination tracking, skeleton output |
-| `src/pipeline/sampling/column_analyzer.py` | Add dimension column classification |
-| `src/tools/data_sampler_tool.py` | Return skeleton summary in result dict |
-| `src/agents/sampling_agent.py` | Store skeleton summary in state |
-| `src/resources/prompts/improved_pvmap_prompt.txt` | Add skeleton guidance section |
+| `src/pipeline/sampling/data_sampler.py` | Integrate DataContextGenerator, return DataContext |
+| `src/tools/data_sampler_tool.py` | Return full data_context in result dict |
+| `src/agents/sampling_agent.py` | Store data_context in ADK state |
+| `src/resources/prompts/improved_pvmap_prompt.txt` | Add `{{DATA_CONTEXT}}` placeholder |
+
+### Downstream Agent Updates (Context Consumers)
+
+| File | Changes |
+|------|---------|
+| `src/agents/statvar_discovery_agent.py` | Use dimension_columns for targeted MCP queries |
+| `src/agents/dc_query_agent.py` | Enhance search queries with dimension context |
+| `src/agents/pvmap_generation_agent.py` | Read and use data_context from state |
+| `src/agents/schema_selection_agent.py` | Use column_roles for schema selection |
+| `src/agents/evaluation_agent.py` | Validate against expected StatVar pattern |
 
 ## 7.3 Complexity Considerations
 
 **Cartesian Product Explosion:**
 - If 5 dimension columns with 10 values each: 10^5 = 100,000 combinations
-- Need to limit tracking to most important dimension pairs
-- Or use sampling of combinations rather than full coverage
+- Mitigation: Limit tracking to top 3-5 dimensions by importance
 
 **Proposed Mitigation:**
 ```python
-# Limit to top 3 most important dimension columns
-if len(dimension_cols) > self._config.get('sampler_max_dimension_columns', 3):
-    # Prioritize by: (1) known dimension patterns, (2) lowest cardinality
-    dimension_cols = self._rank_and_limit_dimensions(dimension_cols, limit=3)
+# Limit to top dimensions based on cardinality and semantics
+if len(dimension_cols) > config['max_dimension_columns']:
+    dimension_cols = rank_and_limit_dimensions(
+        dimension_cols,
+        limit=config['max_dimension_columns'],
+        prioritize=['place', 'time']  # Anchors first
+    )
 ```
 
-## 7.4 Testing Strategy
+## 7.4 Comprehensive Testing Checklist
 
-1. **Unit Tests:**
-   - Dimension detection on known datasets
-   - Combination tracking accuracy
-   - Skeleton summary correctness
+### Unit Tests
 
-2. **Integration Tests:**
-   - Full pipeline on wages-type dataset
-   - Check PVMAP handles all combinations
+#### Data Context Tests (`tests/pipeline/sampling/test_data_context.py`)
+- [ ] `test_data_context_creation` - DataContext dataclass works correctly
+- [ ] `test_to_skeleton_summary_format` - Generates valid markdown
+- [ ] `test_to_metadata_dict` - Returns correct structure
+- [ ] `test_context_generator_basic` - Generator produces valid context
+- [ ] `test_infer_description_from_columns` - Infers meaningful description
+- [ ] `test_infer_statvar_pattern` - Generates correct pattern
+- [ ] `test_context_for_demographics_dataset` - Demographics domain
+- [ ] `test_context_for_energy_dataset` - Energy domain
+- [ ] `test_context_for_health_dataset` - Health domain
 
-3. **Regression Tests:**
-   - Existing datasets still pass
-   - No performance regression on large files
+#### Dimension Detector Tests (`tests/pipeline/sampling/test_dimension_detector.py`)
+- [ ] `test_classify_columns_basic` - Basic column classification
+- [ ] `test_cardinality_test_low_ratio` - Correctly identifies dimensions
+- [ ] `test_cardinality_test_high_ratio` - Correctly identifies values
+- [ ] `test_semantic_test_dimension_keywords` - Recognizes "gender", "age", etc.
+- [ ] `test_semantic_test_value_keywords` - Recognizes "count", "total", etc.
+- [ ] `test_semantic_test_place_keywords` - Recognizes "state", "fips", etc.
+- [ ] `test_summation_test_valid_dimension` - Grouping makes semantic sense
+- [ ] `test_classify_columns_real_dataset` - Test on India NFHS columns
 
-## 7.5 Implementation Phases
+#### Combination Tracker Tests (`tests/pipeline/sampling/test_combination_tracker.py`)
+- [ ] `test_add_row_new_combination` - Returns True for new combo
+- [ ] `test_add_row_existing_combination` - Returns False for existing combo
+- [ ] `test_get_coverage_stats_empty` - Empty tracker stats
+- [ ] `test_get_coverage_stats_partial` - Partial coverage calculation
+- [ ] `test_get_missing_combinations` - Correctly identifies missing combos
 
-**Phase 1: Analysis & Design** (Current) ✓
+#### Skeleton Sampler Tests (`tests/pipeline/sampling/test_skeleton_sampler.py`)
+- [ ] `test_diagonal_scan_covers_all_values` - All unique values appear
+- [ ] `test_fixed_pivot_blocks_vary_one_dimension` - Each block varies one dim
+- [ ] `test_edge_cases_includes_totals` - Total rows included
+- [ ] `test_edge_cases_includes_nulls` - Null rows included if present
+- [ ] `test_sample_respects_target_rows` - Output size matches target
+- [ ] `test_sample_allocation_ratios` - 25/50/25 split maintained
+
+### Integration Tests
+
+#### Data Sampler Integration (`tests/pipeline/sampling/test_data_sampler_integration.py`)
+- [ ] `test_sample_csv_with_dimension_tracking` - End-to-end dimension tracking
+- [ ] `test_sample_csv_skeleton_summary_generated` - Summary in output
+- [ ] `test_sample_csv_combination_coverage_improved` - Better than baseline
+- [ ] `test_sample_csv_backward_compatible` - Existing configs still work
+
+#### Agent Integration (`tests/agents/test_sampling_agent_context.py`)
+- [ ] `test_sampling_agent_generates_context` - DataContext created
+- [ ] `test_sampling_agent_stores_context_in_state` - Context in ADK state
+- [ ] `test_context_flows_to_pvmap_agent` - PVMAP agent receives context
+- [ ] `test_context_used_in_prompt` - Skeleton summary appears in PVMAP prompt
+
+#### MCP Agent Integration (`tests/agents/test_statvar_discovery_with_context.py`)
+- [ ] `test_discovery_uses_dimension_columns` - Builds queries from dimensions
+- [ ] `test_discovery_query_uses_pmc_formula` - Uses P+M+C pattern
+- [ ] `test_discovery_without_context_fallback` - Works without context
+
+### Dataset-Specific Tests
+
+#### India NFHS Dataset (`tests/pipeline/sampling/test_india_nfhs_sampling.py`)
+- [ ] `test_india_nfhs_state_district_coverage` - > 50% combo coverage (was 14.2%)
+- [ ] `test_india_nfhs_dimension_detection` - State, District detected as dims
+- [ ] `test_india_nfhs_skeleton_summary` - Correct hierarchy shown
+
+#### INPE Fire Dataset (`tests/pipeline/sampling/test_inpe_fire_sampling.py`)
+- [ ] `test_inpe_fire_year_place_coverage` - > 50% combo coverage (was 12%)
+- [ ] `test_inpe_fire_dimension_detection` - Year, Place detected as dims
+
+### Full Pipeline Tests
+
+#### End-to-End (`tests/integration/test_full_pipeline_with_skeleton.py`)
+- [ ] `test_pipeline_discovery_to_evaluation` - Full run succeeds
+- [ ] `test_pipeline_skeleton_flows_to_pvmap` - Skeleton reaches PVMAP prompt
+- [ ] `test_pipeline_pvmap_accuracy_improved` - Better PVMAP quality
+
+#### Regression Tests (`tests/integration/test_pipeline_regression.py`)
+- [ ] `test_existing_datasets_still_pass` - All existing datasets still work
+- [ ] `test_no_performance_regression` - Sampling time acceptable
+
+## 7.5 Success Criteria
+
+### Data Understanding Quality
+| Metric | Current | Target |
+|--------|---------|--------|
+| Column classification accuracy | N/A | > 90% correct role assignment |
+| Dimension detection accuracy | N/A | > 95% dimensions identified |
+| StatVar pattern inference | N/A | Matches expected pattern |
+
+### Sampling Quality
+| Metric | Current | Target |
+|--------|---------|--------|
+| India NFHS combo coverage | 14.2% | > 50% |
+| INPE Fire combo coverage | 12% | > 50% |
+| Individual value coverage | 100% | 100% (maintain) |
+
+### Pipeline Quality
+| Metric | Current | Target |
+|--------|---------|--------|
+| PVMAP accuracy (PV match) | 26.8% | > 40% |
+| Context flows to PVMAP agent | No | Yes |
+| Skeleton summary in prompt | No | Yes |
+| All existing tests pass | Yes | Yes |
+
+## 7.6 Implementation Phases
+
+**Phase 1: Analysis & Design** ✅ COMPLETE
 - Document gap
-- Research evidence
-- Propose solution
+- Gemini consultation
+- Propose solution with universal templates
 
-**Phase 2: Prompt Enhancement** (Low Risk)
-- Add skeleton analysis to PVMAP prompt
-- No sampler changes required
-- Quick win for LLM understanding
+**Phase 2: Core Modules** (Week 1-2)
+1. Create `data_context.py` - DataContext dataclass + DataContextGenerator
+2. Create `dimension_detector.py` - Column classification heuristics
+3. Create `combination_tracker.py` - Combination coverage tracking
+4. Create `skeleton_sampler.py` - Fixed-Pivot sampling strategy
 
-**Phase 3: Sampler Enhancement** (Medium Complexity)
-- Add dimension detection
-- Add combination tracking
-- Add skeleton output
+**Phase 3: Integration** (Week 3)
+5. Integrate into `data_sampler.py` - Return DataContext
+6. Update `data_sampler_tool.py` - Include data_context in result
+7. Update `sampling_agent.py` - Store context in ADK state
 
-**Phase 4: Validation & Tuning**
-- Test on problem datasets (India NFHS, INPE Fire)
-- Tune combination coverage thresholds
-- Measure PVMAP accuracy improvement
+**Phase 4: Pipeline Flow** (Week 4)
+8. Update `improved_pvmap_prompt.txt` - Add `{{DATA_CONTEXT}}` placeholder
+9. Update `pvmap_generation_agent.py` - Use context in prompt
+10. Update `statvar_discovery_agent.py` - Use P+M+C queries
+
+**Phase 5: Validation** (Week 5)
+11. Run unit tests for all new modules
+12. Run integration tests for context flow
+13. Run dataset-specific tests (India NFHS, INPE Fire)
+14. Manual validation on 3+ real datasets
+
+## 7.7 Verification Commands
+
+```bash
+# Run unit tests for new modules
+pytest tests/pipeline/sampling/test_dimension_detector.py -v
+pytest tests/pipeline/sampling/test_combination_tracker.py -v
+pytest tests/pipeline/sampling/test_skeleton_sampler.py -v
+pytest tests/pipeline/sampling/test_data_context.py -v
+
+# Run integration tests
+pytest tests/pipeline/sampling/test_data_sampler_integration.py -v
+pytest tests/agents/test_sampling_agent_context.py -v
+
+# Run dataset-specific tests
+pytest tests/pipeline/sampling/test_india_nfhs_sampling.py -v
+pytest tests/pipeline/sampling/test_inpe_fire_sampling.py -v
+
+# Run full pipeline tests
+pytest tests/integration/test_full_pipeline_with_skeleton.py -v
+
+# Manual validation: sample a specific dataset
+PYTHONPATH="$(pwd):$(pwd)/src" python3 -c "
+from src.pipeline.sampling.data_sampler import sample_csv_file
+result = sample_csv_file('input/india_nfhs/test_data/india_nfhs_input.csv', 'test_output.csv')
+print(f'Sampled: {result}')
+"
+
+# Manual validation: run full pipeline on single dataset
+python3 run_pvmap_pipeline.py --dataset=india_nfhs --force-resample
+```
 
 ---
 

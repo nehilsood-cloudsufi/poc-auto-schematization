@@ -53,6 +53,14 @@ from src.pipeline.sampling.data_sampler import sample_csv_file as data_sample_cs
 # Import schema selector for Phase 2.5 integration
 from src.pipeline.schema_selection import schema_selector
 
+# Import counter feedback for improved validation diagnostics
+from src.pipeline.validation.counter_feedback import (
+    parse_counters_file,
+    generate_feedback,
+    calculate_coverage,
+    get_error_counters,
+)
+
 # Import Gemini client for LLM calls
 from src.data_commons.api.gemini_client import GeminiClient
 INPUT_DIR = BASE_DIR / "input"
@@ -60,7 +68,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 SRC_DIR = BASE_DIR / "src"
 LOGS_DIR = OUTPUT_DIR / "logs"  # Changed to output/logs for centralized logging
 SCHEMA_BASE_DIR = SRC_DIR / "resources" / "schema_examples"
-PROMPT_TEMPLATE = SRC_DIR / "resources" / "prompts" / "improved_pvmap_prompt.txt"
+PROMPT_TEMPLATE = SRC_DIR / "resources" / "prompts" / "improved_pvmap_prompt_v2.txt"
 
 MAX_RETRIES = 2
 
@@ -978,8 +986,58 @@ def get_validation_command(dataset: DatasetInfo) -> str:
     return cmd
 
 
+def generate_counter_based_feedback(
+    counters_path: Path,
+    log_output: str,
+    logger: logging.Logger
+) -> str:
+    """Generate feedback using counter analysis, with log sampling fallback.
+
+    This function provides structured, actionable feedback based on the
+    stat_var_processor counters file. If the counters file is not available,
+    it falls back to random log sampling.
+
+    Args:
+        counters_path: Path to the _counters.txt file
+        log_output: Raw log output from stat_var_processor
+        logger: Logger instance
+
+    Returns:
+        Formatted feedback string for LLM retry loop
+    """
+    # Try counter-based feedback first
+    if counters_path.exists():
+        try:
+            counters = parse_counters_file(counters_path)
+            if counters:
+                logger.info("Using counter-based feedback (structured diagnostics)")
+
+                # Log summary of errors found
+                error_counters = get_error_counters(counters)
+                if error_counters:
+                    logger.debug(f"Error counters: {error_counters}")
+
+                coverage, output_rows, input_rows = calculate_coverage(counters)
+                logger.info(f"Coverage: {output_rows}/{input_rows} rows ({coverage*100:.1f}%)")
+
+                # Generate targeted feedback
+                feedback = generate_feedback(counters, log_output)
+                return feedback
+        except Exception as e:
+            logger.warning(f"Counter parsing failed, falling back to log sampling: {e}")
+
+    # Fallback to random log sampling
+    logger.info("Using log sampling feedback (counters file not available)")
+    sampled_logs = extract_log_samples(log_output, tail_lines=50, sample_count=10, sample_size=5)
+    return f"Processor logs (sampled):\n{sampled_logs}"
+
+
 def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, Optional[str]]:
-    """Run stat_var_processor.py automatically and return success/error."""
+    """Run stat_var_processor.py automatically and return success/error.
+
+    Uses counter-based feedback for targeted error diagnostics when available,
+    with fallback to random log sampling.
+    """
     logger.info("Running stat_var_processor validation...")
 
     # Set up environment with PYTHONPATH
@@ -1008,13 +1066,17 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
     venv_python = BASE_DIR / 'venv' / 'bin' / 'python3'
     python_cmd = str(venv_python) if venv_python.exists() else 'python3'
 
+    # Output path for processed files (without extension)
+    output_path = dataset.output_dir / "processed"
+    counters_path = Path(f"{output_path}_counters.txt")
+
     cmd = [
         python_cmd,
         str(SRC_DIR / 'pipeline' / 'validation' / 'stat_var_processor.py'),
         f'--input_data={input_file}',
         f'--pv_map={dataset.pvmap_path}',
         '--generate_statvar_name=True',
-        f'--output_path={dataset.output_dir}/processed'
+        f'--output_path={output_path}'
     ]
 
     # Add config file only if metadata exists
@@ -1035,6 +1097,9 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
             env=env
         )
 
+        # Combine stdout and stderr for log analysis
+        processor_output = f"{result.stdout or ''}\n{result.stderr or ''}"
+
         # Log output
         if result.stdout:
             logger.debug(f"Validation stdout: {result.stdout[:500]}...")
@@ -1050,16 +1115,16 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
                 # Filter out empty lines
                 data_lines = [l for l in lines if l.strip()]
                 if len(data_lines) <= 1:  # Only header or empty
-                    # Include stderr/stdout for debugging with better sampling
-                    processor_output = result.stderr or result.stdout or ""
-                    # Extract meaningful log samples: last 50 lines + 10 random samples of 5 lines each
-                    sampled_logs = extract_log_samples(processor_output, tail_lines=50, sample_count=10, sample_size=5)
+                    # Use counter-based feedback for better diagnostics
+                    feedback = generate_counter_based_feedback(
+                        counters_path, processor_output, logger
+                    )
                     error_msg = (
                         f"Validation produced empty output (no data rows). "
                         f"The PVMAP may have incorrect column mappings or key names that don't match the input data.\n\n"
-                        f"Processor logs:\n{sampled_logs}"
+                        f"{feedback}"
                     )
-                    logger.error(f"Validation FAILED: {error_msg}")
+                    logger.error(f"Validation FAILED: empty output")
                     return False, error_msg
                 logger.info(f"Validation PASSED ({len(data_lines) - 1} data rows)")
             else:
@@ -1068,12 +1133,12 @@ def run_validation(dataset: DatasetInfo, logger: logging.Logger) -> Tuple[bool, 
                 return False, error_msg
             return True, result.stdout
         else:
-            raw_error = result.stderr or result.stdout or "Unknown validation error"
-            # Extract meaningful log samples for better debugging
-            sampled_logs = extract_log_samples(raw_error, tail_lines=50, sample_count=10, sample_size=5)
-            error_msg = f"Validation FAILED (exit code {result.returncode}).\n\nProcessor logs:\n{sampled_logs}"
+            # Use counter-based feedback for better diagnostics
+            feedback = generate_counter_based_feedback(
+                counters_path, processor_output, logger
+            )
+            error_msg = f"Validation FAILED (exit code {result.returncode}).\n\n{feedback}"
             logger.error(f"Validation FAILED (exit code {result.returncode})")
-            logger.error(f"Error: {raw_error[:200]}...")
             return False, error_msg
 
     except subprocess.TimeoutExpired:

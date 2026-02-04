@@ -94,7 +94,7 @@ def test_coordinator_custom_model():
     assert schema_agent.model == "gemini-2.0-flash-exp"
     
     assert pvmap_agent is not None
-    assert pvmap_agent._generator.model == "gemini-2.0-flash-exp"
+    assert pvmap_agent._model == "gemini-2.0-flash-exp"
 
 
 def test_coordinator_backward_compatibility_alias():

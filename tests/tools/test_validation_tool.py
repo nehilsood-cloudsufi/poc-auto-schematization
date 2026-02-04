@@ -255,7 +255,8 @@ def test_run_validation_empty_output(mock_run, temp_dir):
     assert result['success'] is False
     assert "empty output" in result['error'].lower()
     assert result['error_logs'] is not None
-    assert "LAST" in result['error_logs']  # Contains log samples
+    # For short logs, the original text is returned; for long logs, "LAST" prefix is added
+    assert "No rows matched" in result['error_logs'] or "LAST" in result['error_logs']
 
 
 @patch('src.tools.validation_tool.subprocess.run')

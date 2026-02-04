@@ -8,6 +8,7 @@ dependencies = [
     # Data Commons
     "datacommons>=1.4.3",
     "datacommons-client>=2.1.4",
+    "datacommons-mcp>=1.1.0",  # MCP server for Data Commons
 
     # Data Processing
     "pandas>=2.3.3",
@@ -37,6 +38,9 @@ dependencies = [
     "google-cloud-storage-control>=1.8.0",
     "gcsfs>=2026.1.0",
     "gspread>=6.2.1",
+
+    # Google ADK (Agent Development Kit)
+    "google-adk>=1.0.0",
 
     # Google APIs & Auth
     "google-api-python-client>=2.187.0",

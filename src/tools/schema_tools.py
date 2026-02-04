@@ -58,20 +58,20 @@ def generate_data_preview(
         if preview_text.startswith("ERROR"):
             return {
                 "success": False,
-                "preview": "",
+                "preview": None,
                 "error": preview_text
             }
 
         return {
             "success": True,
             "preview": preview_text,
-            "error": ""
+            "error": None
         }
 
     except Exception as e:
         return {
             "success": False,
-            "preview": "",
+            "preview": None,
             "error": f"Failed to generate data preview: {str(e)}"
         }
 
@@ -115,13 +115,13 @@ def build_prompt(
         return {
             "success": True,
             "prompt": prompt_text,
-            "error": ""
+            "error": None
         }
 
     except Exception as e:
         return {
             "success": False,
-            "prompt": "",
+            "prompt": None,
             "error": f"Failed to build prompt: {str(e)}"
         }
 
@@ -151,20 +151,20 @@ def select_schema_category(
         if not success:
             return {
                 "success": False,
-                "category": "",
+                "category": None,
                 "error": result  # result contains error message
             }
 
         return {
             "success": True,
             "category": result,  # result contains category name
-            "error": ""
+            "error": None
         }
 
     except Exception as e:
         return {
             "success": False,
-            "category": "",
+            "category": None,
             "error": f"Schema selection failed: {str(e)}"
         }
 
@@ -191,6 +191,15 @@ def copy_schema_files(
             - error: str with error message if failed
     """
     try:
+        # Validate input directory exists
+        input_path = Path(input_dir)
+        if not input_path.exists():
+            return {
+                "success": False,
+                "files_copied": [],
+                "error": f"Input directory not found: {input_dir}"
+            }
+
         success, copied_files = _copy_schema_files(
             category=category,
             schema_base_dir=Path(schema_base_dir),
@@ -211,7 +220,7 @@ def copy_schema_files(
         return {
             "success": True,
             "files_copied": copied_files_str,
-            "error": ""
+            "error": None
         }
 
     except Exception as e:

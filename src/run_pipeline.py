@@ -1,4 +1,14 @@
-"""ADK pipeline runner with comprehensive logging."""
+"""ADK pipeline runner with comprehensive logging.
+
+Supports optional MCP integration for enhanced StatVar discovery.
+
+Usage:
+    # Without MCP
+    python src/run_pipeline.py --dataset=my_dataset
+
+    # With MCP (starts/stops server automatically)
+    python src/run_pipeline.py --dataset=my_dataset --enable-mcp
+"""
 import sys
 import os
 from pathlib import Path
@@ -20,19 +30,28 @@ sys.path.insert(0, str(PROJECT_ROOT / "util"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from google.adk import Runner
+from google.adk.agents import SequentialAgent
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import SamplingAgent
+from src.agents.sampling_agent import create_sampling_agent, SamplingAgent, SamplingAgentWrapper
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_generation_agent import PVMAPGenerationAgent
+from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
 from typing import Optional, Dict, Any
 import uuid
 import logging
 import asyncio
+
+# MCP integration (optional)
+try:
+    from src.data_commons.api.mcp_server_manager import MCPServerManager
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
 
 
 def get_session_state_direct(
@@ -186,7 +205,11 @@ def run_dataset_pipeline(
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
     use_structured_output: bool = False,
-    model: str = "gemini-3-pro-preview"
+    model: str = "gemini-3-pro-preview",
+    enable_mcp: bool = False,
+    mcp_url: Optional[str] = None,
+    skip_sampling: bool = False,
+    force_resample: bool = False
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -198,27 +221,18 @@ def run_dataset_pipeline(
         schema_base_dir: Schema examples directory (optional)
         use_structured_output: If True, use structured JSON output with deterministic CSV conversion
         model: Gemini model to use for generation
+        enable_mcp: Enable MCP integration for StatVar discovery
+        mcp_url: MCP server URL (required if enable_mcp=True)
+        skip_sampling: If True, skip agentic sampling phase
+        force_resample: If True, force re-run sampling even if cached
 
     Returns:
         Final state dictionary
     """
-    # Create PVMAP generation agent as root
-    pvmap_agent = PVMAPGenerationAgent(
-        name="PVMAPGeneration",
-        use_structured_output=use_structured_output,
-        model=model
-    )
-
-    # Create runner with dataset-specific artifact logging
+    # Generate session ID early for logging
     session_id = f"{dataset_name}_{uuid.uuid4().hex[:8]}"
-    runner = create_runner(
-        root_agent=pvmap_agent,
-        output_dir=output_dir,
-        dataset_name=dataset_name,
-        session_id=session_id
-    )
 
-    # Setup Python logging for compatibility (Layer 3)
+    # Setup Python logging for compatibility (Layer 3) - do this first so logger is available
     logger = setup_python_logging(
         output_dir=output_dir,
         session_id=session_id,
@@ -226,6 +240,70 @@ def run_dataset_pipeline(
     )
 
     logger.info(f"Starting PVMAP pipeline for dataset: {dataset_name}")
+
+    # Create Sampling agent (agentic sampling with LLM)
+    sampling_agent = SamplingAgentWrapper(
+        name="Sampling",
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
+    )
+
+    # Create PVMAP generation agent or retry loop based on structured_output flag
+    if use_structured_output:
+        # Use new ADK LoopAgent-based retry loop with structured output
+        pvmap_agent = create_pvmap_retry_loop(
+            model=model,
+            max_retries=2,  # 3 total attempts
+            use_structured_output=True,
+            name="PVMAPRetryLoop"
+        )
+        logger.info("Using ADK LoopAgent-based PVMAP retry loop with structured output")
+    else:
+        # Use original BaseAgent-based generation
+        pvmap_agent = PVMAPGenerationAgent(
+            name="PVMAPGeneration",
+            use_structured_output=False,
+            model=model
+        )
+        logger.info("Using BaseAgent-based PVMAPGenerationAgent")
+
+    # Create evaluation agent
+    evaluation_agent = EvaluationAgent(name="Evaluation")
+
+    # Build sub_agents list - Sampling first, then StatVar discovery, then generation, then evaluation
+    sub_agents = [sampling_agent]
+    logger.info("SamplingAgentWrapper added to pipeline")
+
+    # Add StatVarDiscoveryAgent if MCP is enabled (for pre-generation StatVar discovery)
+    if enable_mcp and mcp_url:
+        try:
+            from src.agents.statvar_discovery_agent import StatVarDiscoveryAgent
+            statvar_discovery = StatVarDiscoveryAgent(
+                name="StatVarDiscovery",
+                model=model
+            )
+            sub_agents.append(statvar_discovery)
+            logger.info("StatVarDiscoveryAgent added to pipeline")
+        except ImportError as e:
+            logger.warning(f"StatVarDiscoveryAgent not available: {e}")
+
+    # Add generation and evaluation
+    sub_agents.extend([pvmap_agent, evaluation_agent])
+
+    # Create a sequential agent to run the pipeline
+    # With MCP: StatVarDiscovery -> PVMAPGeneration -> Evaluation
+    # Without MCP: PVMAPGeneration -> Evaluation
+    pipeline_agent = SequentialAgent(
+        name="GenerationAndEvaluation",
+        sub_agents=sub_agents
+    )
+
+    # Create runner with dataset-specific artifact logging
+    runner = create_runner(
+        root_agent=pipeline_agent,
+        output_dir=output_dir,
+        dataset_name=dataset_name,
+        session_id=session_id
+    )
 
     # Discover dataset files using DiscoveryAgent helper
     dataset_path = input_dir / dataset_name
@@ -235,16 +313,48 @@ def run_dataset_pipeline(
 
     logger.info(f"Discovered dataset: {current_dataset}")
 
+    # Read sampled data content for session state (StatVarDiscoveryAgent needs this)
+    sampled_data_content = ""
+    if current_dataset.combined_sampled_data and Path(current_dataset.combined_sampled_data).exists():
+        with open(current_dataset.combined_sampled_data, 'r') as f:
+            sampled_data_content = f.read()
+
+    # Read metadata content for session state
+    metadata_content = ""
+    if current_dataset.combined_metadata and Path(current_dataset.combined_metadata).exists():
+        with open(current_dataset.combined_metadata, 'r') as f:
+            metadata_content = f.read()
+
     # Initial state with DatasetInfo object
+    # Use dataset-specific output_dir so EvaluationAgent saves results in correct location
     initial_state = {
         "input_dir": str(input_dir),
-        "output_dir": str(output_dir),
+        "output_dir": str(current_dataset.output_dir),  # Dataset-specific output dir
         "dataset_name": dataset_name,
         "current_dataset": current_dataset,
+        "sampled_data_content": sampled_data_content,  # For StatVar discovery
+        "metadata_content": metadata_content,          # For StatVar discovery
+        # Sampling agent flags
+        "skip_sampling": skip_sampling,
+        "force_resample": force_resample,
     }
 
     if schema_base_dir:
         initial_state["schema_base_dir"] = str(schema_base_dir)
+
+    # Add MCP state if enabled
+    if enable_mcp and mcp_url:
+        initial_state["mcp_enabled"] = True
+        initial_state["mcp_url"] = mcp_url
+        logger.info(f"MCP enabled with URL: {mcp_url}")
+
+    # Log sampling configuration
+    if skip_sampling:
+        logger.info("Agentic sampling: SKIPPED (using existing sampled files)")
+    elif force_resample:
+        logger.info("Agentic sampling: ENABLED (force resample)")
+    else:
+        logger.info("Agentic sampling: ENABLED (will use cache if available)")
 
     # Run pipeline
     try:
@@ -296,13 +406,42 @@ def run_dataset_pipeline(
 
         generation_success = pvmap_exists and validation_passed
 
+        # Check for evaluation results
+        eval_results_dir = current_dataset.output_dir / "eval_results"
+        eval_results_path = eval_results_dir / "diff_results.json"
+        eval_results_exist = eval_results_path.exists()
+
+        eval_metrics = None
+        if eval_results_exist:
+            try:
+                import json
+                with open(eval_results_path, 'r') as f:
+                    eval_metrics = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not load eval_results.json: {e}")
+
         # Update final state with artifact-based success determination
         final_state["generation_success"] = generation_success
         final_state["pvmap_path"] = str(pvmap_path) if pvmap_exists else None
         final_state["validation_passed"] = validation_passed
+        final_state["eval_results_exist"] = eval_results_exist
+        if eval_metrics:
+            final_state["eval_metrics"] = eval_metrics
 
         logger.info(f"Pipeline completed for {dataset_name}. Success: {generation_success}")
         logger.info(f"  PVMAP exists: {pvmap_exists}, Validation passed: {validation_passed}")
+        logger.info(f"  Eval results exist: {eval_results_exist}")
+        if eval_metrics:
+            nodes_matched = eval_metrics.get('nodes-matched', 0)
+            nodes_gt = eval_metrics.get('nodes-ground-truth', 0)
+            pvs_matched = eval_metrics.get('PVs-matched', 0)
+            pvs_modified = eval_metrics.get('pvs-modified', 0)
+            pvs_deleted = eval_metrics.get('pvs-deleted', 0)
+            pvs_total = pvs_matched + pvs_modified + pvs_deleted
+            node_acc = (nodes_matched / nodes_gt * 100) if nodes_gt > 0 else 0
+            pv_acc = (pvs_matched / pvs_total * 100) if pvs_total > 0 else 0
+            logger.info(f"  Node accuracy: {node_acc:.1f}% ({nodes_matched}/{nodes_gt})")
+            logger.info(f"  PV accuracy: {pv_acc:.1f}%")
         logger.info(f"Received {len(events)} events from execution")
 
         return final_state
@@ -329,6 +468,18 @@ if __name__ == "__main__":
                         help="Use structured JSON output from LLM with deterministic CSV conversion")
     parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
                         help="Gemini model to use (default: gemini-3-pro-preview)")
+    # MCP integration flags
+    parser.add_argument("--enable-mcp", action="store_true",
+                        help="Enable MCP integration for Data Commons StatVar discovery")
+    parser.add_argument("--mcp-port", type=int, default=None,
+                        help="MCP server port (default: from MCP_PORT env or 3000)")
+    parser.add_argument("--no-mcp", action="store_true",
+                        help="Explicitly disable MCP (overrides --enable-mcp)")
+    # Sampling agent flags
+    parser.add_argument("--skip-sampling", action="store_true",
+                        help="Skip agentic sampling phase (use existing sampled files)")
+    parser.add_argument("--force-resample", action="store_true",
+                        help="Force re-run of agentic sampling even if cached context exists")
     args = parser.parse_args()
 
     # Setup paths
@@ -338,6 +489,12 @@ if __name__ == "__main__":
 
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine MCP settings
+    enable_mcp = args.enable_mcp and not args.no_mcp
+    mcp_port = args.mcp_port or int(os.getenv("MCP_PORT", "3000"))
+    mcp_manager = None
+    mcp_url = None
 
     # Get dataset name from command line or use default
     if args.dataset:
@@ -360,24 +517,78 @@ if __name__ == "__main__":
     print(f"\nRunning pipeline for: {dataset_name}")
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
+    print(f"Model: {args.model}")
+    if args.structured_output:
+        print(f"Generation mode: ADK LoopAgent with structured output")
+    else:
+        print(f"Generation mode: BaseAgent (legacy)")
+    if enable_mcp:
+        print(f"MCP integration: ENABLED (port {mcp_port})")
+    else:
+        print(f"MCP integration: disabled")
     print("-" * 60)
 
     try:
+        # Start MCP server if enabled
+        if enable_mcp:
+            if not MCP_AVAILABLE:
+                print("WARNING: MCP integration requested but datacommons-mcp not installed.")
+                print("         Install with: pip install datacommons-mcp")
+                print("         Continuing without MCP...")
+                enable_mcp = False
+            else:
+                print("Starting MCP server...")
+                mcp_manager = MCPServerManager(port=mcp_port)
+                if mcp_manager.start(timeout=30):
+                    mcp_url = mcp_manager.mcp_url
+                    print(f"MCP server started at: {mcp_url}")
+                else:
+                    print("WARNING: MCP server failed to start. Continuing without MCP.")
+                    enable_mcp = False
+                    mcp_manager = None
+
         final_state = run_dataset_pipeline(
             dataset_name=dataset_name,
             input_dir=input_dir,
             output_dir=output_dir,
             use_structured_output=args.structured_output,
-            model=args.model
+            model=args.model,
+            enable_mcp=enable_mcp,
+            mcp_url=mcp_url,
+            skip_sampling=args.skip_sampling,
+            force_resample=args.force_resample
         )
 
         print("\n" + "=" * 60)
         print("Pipeline Complete!")
         print("=" * 60)
         print(f"Generation success: {final_state.get('generation_success', False)}")
+        print(f"Validation passed: {final_state.get('validation_passed', False)}")
 
         if final_state.get('error'):
             print(f"Error: {final_state['error']}")
+
+        # Display evaluation metrics if available
+        if final_state.get('eval_results_exist'):
+            print("\nEvaluation Results:")
+            eval_metrics = final_state.get('eval_metrics', {})
+            # Compute accuracy from counters
+            nodes_matched = eval_metrics.get('nodes-matched', 0)
+            nodes_gt = eval_metrics.get('nodes-ground-truth', 0)
+            pvs_matched = eval_metrics.get('PVs-matched', 0)
+            pvs_modified = eval_metrics.get('pvs-modified', 0)
+            pvs_deleted = eval_metrics.get('pvs-deleted', 0)
+            pvs_total = pvs_matched + pvs_modified + pvs_deleted
+
+            node_acc = (nodes_matched / nodes_gt * 100) if nodes_gt > 0 else 0
+            pv_acc = (pvs_matched / pvs_total * 100) if pvs_total > 0 else 0
+
+            print(f"  Node accuracy: {node_acc:.1f}%")
+            print(f"  PV accuracy: {pv_acc:.1f}%")
+            print(f"  Nodes matched: {nodes_matched}/{nodes_gt}")
+            print(f"  Eval results: {output_dir}/{dataset_name}/eval_results/")
+        else:
+            print("\nEvaluation: No ground truth found or evaluation skipped")
 
         print(f"\nLogs location: {output_dir}/logs/")
         print(f"Artifacts location: {output_dir}/{dataset_name}/")
@@ -385,3 +596,10 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Pipeline failed: {str(e)}")
         sys.exit(1)
+
+    finally:
+        # Clean up MCP server
+        if mcp_manager:
+            print("\nStopping MCP server...")
+            mcp_manager.stop()
+            print("MCP server stopped.")
