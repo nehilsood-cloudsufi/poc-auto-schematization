@@ -1,4 +1,14 @@
-"""ADK pipeline runner with comprehensive logging."""
+"""ADK pipeline runner with comprehensive logging.
+
+Supports optional MCP integration for enhanced StatVar discovery.
+
+Usage:
+    # Without MCP
+    python src/run_pipeline.py --dataset=my_dataset
+
+    # With MCP (starts/stops server automatically)
+    python src/run_pipeline.py --dataset=my_dataset --enable-mcp
+"""
 import sys
 import os
 from pathlib import Path
@@ -12,6 +22,13 @@ env_path = PROJECT_ROOT / ".env"
 if env_path.exists():
     load_dotenv(env_path, override=True)
     print(f"Loaded environment from {env_path}")
+
+# MCP integration (optional)
+try:
+    from src.data_commons.api.mcp_server_manager import MCPServerManager
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
 
 # Setup sys.path before any other imports
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -186,7 +203,9 @@ def run_dataset_pipeline(
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
     use_structured_output: bool = False,
-    model: str = "gemini-3-pro-preview"
+    model: str = "gemini-3-pro-preview",
+    enable_mcp: bool = False,
+    mcp_url: Optional[str] = None
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -198,6 +217,8 @@ def run_dataset_pipeline(
         schema_base_dir: Schema examples directory (optional)
         use_structured_output: If True, use structured JSON output with deterministic CSV conversion
         model: Gemini model to use for generation
+        enable_mcp: Enable MCP integration for StatVar discovery
+        mcp_url: MCP server URL (required if enable_mcp=True)
 
     Returns:
         Final state dictionary
@@ -245,6 +266,12 @@ def run_dataset_pipeline(
 
     if schema_base_dir:
         initial_state["schema_base_dir"] = str(schema_base_dir)
+
+    # Add MCP state if enabled
+    if enable_mcp and mcp_url:
+        initial_state["mcp_enabled"] = True
+        initial_state["mcp_url"] = mcp_url
+        logger.info(f"MCP enabled with URL: {mcp_url}")
 
     # Run pipeline
     try:
@@ -329,7 +356,21 @@ if __name__ == "__main__":
                         help="Use structured JSON output from LLM with deterministic CSV conversion")
     parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
                         help="Gemini model to use (default: gemini-3-pro-preview)")
+
+    # MCP integration flags
+    parser.add_argument("--enable-mcp", action="store_true",
+                        help="Enable MCP integration for Data Commons StatVar discovery")
+    parser.add_argument("--mcp-port", type=int, default=None,
+                        help="MCP server port (default: from MCP_PORT env or 3000)")
+    parser.add_argument("--no-mcp", action="store_true",
+                        help="Explicitly disable MCP (overrides --enable-mcp)")
     args = parser.parse_args()
+
+    # Determine MCP settings
+    enable_mcp = args.enable_mcp and not args.no_mcp
+    if enable_mcp and not MCP_AVAILABLE:
+        print("Warning: MCP requested but not available. Install datacommons-mcp package.")
+        enable_mcp = False
 
     # Setup paths
     base_dir = Path(__file__).parent.parent
@@ -360,16 +401,34 @@ if __name__ == "__main__":
     print(f"\nRunning pipeline for: {dataset_name}")
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
+    if enable_mcp:
+        print(f"MCP integration: ENABLED")
     print("-" * 60)
 
-    try:
-        final_state = run_dataset_pipeline(
+    def run_pipeline_with_mcp(mcp_url: Optional[str] = None):
+        """Run pipeline, optionally with MCP URL."""
+        return run_dataset_pipeline(
             dataset_name=dataset_name,
             input_dir=input_dir,
             output_dir=output_dir,
             use_structured_output=args.structured_output,
-            model=args.model
+            model=args.model,
+            enable_mcp=enable_mcp,
+            mcp_url=mcp_url
         )
+
+    try:
+        if enable_mcp:
+            # Start MCP server and run pipeline
+            mcp_port = args.mcp_port or int(os.getenv("MCP_PORT", "3000"))
+            print(f"Starting MCP server on port {mcp_port}...")
+
+            with MCPServerManager(port=mcp_port) as mcp:
+                print(f"MCP server running at: {mcp.mcp_url}")
+                final_state = run_pipeline_with_mcp(mcp_url=mcp.mcp_url)
+        else:
+            # Run pipeline without MCP
+            final_state = run_pipeline_with_mcp()
 
         print("\n" + "=" * 60)
         print("Pipeline Complete!")
@@ -383,5 +442,5 @@ if __name__ == "__main__":
         print(f"Artifacts location: {output_dir}/{dataset_name}/")
 
     except Exception as e:
-        print(f"\n❌ Pipeline failed: {str(e)}")
+        print(f"\nPipeline failed: {str(e)}")
         sys.exit(1)
