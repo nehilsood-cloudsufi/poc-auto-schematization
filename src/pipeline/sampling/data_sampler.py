@@ -1438,6 +1438,132 @@ def get_default_config() -> dict:
     }
 
 
+def sample_csv_with_context(
+    input_file: str,
+    output_file: str = '',
+    config: dict = None,
+    metadata: dict = None,
+    dataset_name: str = ''
+) -> dict:
+    """Sample a CSV file and generate DataContext for pipeline use.
+
+    This function combines sampling with data understanding, returning
+    both the sampled file path and a DataContext object that captures
+    the dataset's structure for downstream agents.
+
+    Args:
+        input_file: Path to input CSV file
+        output_file: Path to output sampled CSV file (optional)
+        config: Sampler configuration dictionary (optional)
+        metadata: Dataset metadata dictionary (optional)
+        dataset_name: Name of the dataset (optional)
+
+    Returns:
+        Dictionary containing:
+            - output_file: Path to sampled CSV file
+            - data_context: DataContext object with structural analysis
+            - skeleton_summary: Markdown summary for LLM prompts
+            - rows_sampled: Number of rows in output
+            - success: Boolean indicating success
+            - error: Error message if failed
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        return {
+            'success': False,
+            'error': 'pandas is required for sample_csv_with_context',
+            'output_file': '',
+            'data_context': None,
+            'skeleton_summary': '',
+            'rows_sampled': 0,
+        }
+
+    # Import data context modules
+    try:
+        from src.pipeline.sampling.data_context import DataContextGenerator, DataContext
+        from src.pipeline.sampling.dimension_detector import DimensionDetector
+        from src.pipeline.sampling.combination_tracker import CombinationTracker
+    except ImportError:
+        from data_context import DataContextGenerator, DataContext
+        from dimension_detector import DimensionDetector
+        from combination_tracker import CombinationTracker
+
+    # Step 1: Run basic sampling
+    result_path = sample_csv_file(input_file, output_file, config)
+    if not result_path:
+        return {
+            'success': False,
+            'error': 'Sampling failed',
+            'output_file': '',
+            'data_context': None,
+            'skeleton_summary': '',
+            'rows_sampled': 0,
+        }
+
+    # Step 2: Read sampled data for context generation
+    try:
+        sampled_df = pd.read_csv(result_path)
+        rows_sampled = len(sampled_df)
+    except Exception as e:
+        logging.error(f'Failed to read sampled file: {e}')
+        return {
+            'success': True,  # Sampling succeeded, context failed
+            'error': f'Context generation failed: {e}',
+            'output_file': result_path,
+            'data_context': None,
+            'skeleton_summary': '',
+            'rows_sampled': 0,
+        }
+
+    # Step 3: Generate DataContext
+    try:
+        context_generator = DataContextGenerator()
+        data_context = context_generator.generate(
+            sampled_df,
+            metadata=metadata,
+            dataset_name=dataset_name
+        )
+
+        # Step 4: Calculate combination coverage using tracker
+        if data_context.dimension_columns:
+            tracker = CombinationTracker(
+                data_context.dimension_columns,
+                data_context.dimension_domains
+            )
+            for _, row in sampled_df.iterrows():
+                row_dict = row.to_dict()
+                tracker.add_row(row_dict)
+
+            stats = tracker.get_coverage_stats()
+            data_context.sample_combinations = stats.seen_combinations
+            data_context.coverage_percent = stats.coverage_percent
+
+        # Generate skeleton summary
+        skeleton_summary = data_context.to_skeleton_summary()
+
+        return {
+            'success': True,
+            'error': None,
+            'output_file': result_path,
+            'data_context': data_context,
+            'skeleton_summary': skeleton_summary,
+            'rows_sampled': rows_sampled,
+            'metadata_dict': data_context.to_metadata_dict(),
+        }
+
+    except Exception as e:
+        logging.error(f'Context generation failed: {e}')
+        return {
+            'success': True,  # Sampling succeeded
+            'error': f'Context generation failed: {e}',
+            'output_file': result_path,
+            'data_context': None,
+            'skeleton_summary': '',
+            'rows_sampled': rows_sampled,
+        }
+
+
 def main(_):
     sample_csv_file(_FLAGS.sampler_input, _FLAGS.sampler_output)
 
