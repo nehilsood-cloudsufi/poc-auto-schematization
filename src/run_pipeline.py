@@ -41,8 +41,9 @@ from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
+from google.adk.agents import SequentialAgent
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import SamplingAgent
+from src.agents.sampling_agent import SamplingAgent, SamplingAgentWrapper, create_sampling_agent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_generation_agent import PVMAPGenerationAgent
 from src.agents.evaluation_agent import EvaluationAgent
@@ -205,7 +206,9 @@ def run_dataset_pipeline(
     use_structured_output: bool = False,
     model: str = "gemini-3-pro-preview",
     enable_mcp: bool = False,
-    mcp_url: Optional[str] = None
+    mcp_url: Optional[str] = None,
+    skip_sampling: bool = False,
+    force_resample: bool = False
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -219,25 +222,14 @@ def run_dataset_pipeline(
         model: Gemini model to use for generation
         enable_mcp: Enable MCP integration for StatVar discovery
         mcp_url: MCP server URL (required if enable_mcp=True)
+        skip_sampling: If True, skip agentic sampling phase
+        force_resample: If True, force re-run sampling even if cached
 
     Returns:
         Final state dictionary
     """
-    # Create PVMAP generation agent as root
-    pvmap_agent = PVMAPGenerationAgent(
-        name="PVMAPGeneration",
-        use_structured_output=use_structured_output,
-        model=model
-    )
-
-    # Create runner with dataset-specific artifact logging
+    # Generate session ID early for logging
     session_id = f"{dataset_name}_{uuid.uuid4().hex[:8]}"
-    runner = create_runner(
-        root_agent=pvmap_agent,
-        output_dir=output_dir,
-        dataset_name=dataset_name,
-        session_id=session_id
-    )
 
     # Setup Python logging for compatibility (Layer 3)
     logger = setup_python_logging(
@@ -247,6 +239,40 @@ def run_dataset_pipeline(
     )
 
     logger.info(f"Starting PVMAP pipeline for dataset: {dataset_name}")
+
+    # Create Sampling agent (agentic sampling with LLM)
+    sampling_agent = SamplingAgentWrapper(
+        name="Sampling",
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
+    )
+
+    # Create PVMAP generation agent
+    pvmap_agent = PVMAPGenerationAgent(
+        name="PVMAPGeneration",
+        use_structured_output=use_structured_output,
+        model=model
+    )
+
+    # Create evaluation agent
+    evaluation_agent = EvaluationAgent(name="Evaluation")
+
+    # Build sub_agents list - Sampling first, then generation, then evaluation
+    sub_agents = [sampling_agent, pvmap_agent, evaluation_agent]
+    logger.info("Pipeline agents: Sampling -> PVMAPGeneration -> Evaluation")
+
+    # Create a sequential agent to run the pipeline
+    pipeline_agent = SequentialAgent(
+        name="PipelineAgent",
+        sub_agents=sub_agents
+    )
+
+    # Create runner with dataset-specific artifact logging
+    runner = create_runner(
+        root_agent=pipeline_agent,
+        output_dir=output_dir,
+        dataset_name=dataset_name,
+        session_id=session_id
+    )
 
     # Discover dataset files using DiscoveryAgent helper
     dataset_path = input_dir / dataset_name
@@ -259,9 +285,12 @@ def run_dataset_pipeline(
     # Initial state with DatasetInfo object
     initial_state = {
         "input_dir": str(input_dir),
-        "output_dir": str(output_dir),
+        "output_dir": str(current_dataset.output_dir),  # Dataset-specific output dir
         "dataset_name": dataset_name,
         "current_dataset": current_dataset,
+        # Sampling agent flags
+        "skip_sampling": skip_sampling,
+        "force_resample": force_resample,
     }
 
     if schema_base_dir:
@@ -272,6 +301,14 @@ def run_dataset_pipeline(
         initial_state["mcp_enabled"] = True
         initial_state["mcp_url"] = mcp_url
         logger.info(f"MCP enabled with URL: {mcp_url}")
+
+    # Log sampling configuration
+    if skip_sampling:
+        logger.info("Agentic sampling: SKIPPED (using existing sampled files)")
+    elif force_resample:
+        logger.info("Agentic sampling: ENABLED (force resample)")
+    else:
+        logger.info("Agentic sampling: ENABLED (will use cache if available)")
 
     # Run pipeline
     try:
@@ -364,6 +401,11 @@ if __name__ == "__main__":
                         help="MCP server port (default: from MCP_PORT env or 3000)")
     parser.add_argument("--no-mcp", action="store_true",
                         help="Explicitly disable MCP (overrides --enable-mcp)")
+    # Sampling agent flags
+    parser.add_argument("--skip-sampling", action="store_true",
+                        help="Skip agentic sampling phase (use existing sampled files)")
+    parser.add_argument("--force-resample", action="store_true",
+                        help="Force re-run of agentic sampling even if cached context exists")
     args = parser.parse_args()
 
     # Determine MCP settings
@@ -403,6 +445,12 @@ if __name__ == "__main__":
     print(f"Output directory: {output_dir}")
     if enable_mcp:
         print(f"MCP integration: ENABLED")
+    if args.skip_sampling:
+        print(f"Sampling: SKIPPED (using existing files)")
+    elif args.force_resample:
+        print(f"Sampling: FORCE RESAMPLE")
+    else:
+        print(f"Sampling: ENABLED (use cache if available)")
     print("-" * 60)
 
     def run_pipeline_with_mcp(mcp_url: Optional[str] = None):
@@ -414,7 +462,9 @@ if __name__ == "__main__":
             use_structured_output=args.structured_output,
             model=args.model,
             enable_mcp=enable_mcp,
-            mcp_url=mcp_url
+            mcp_url=mcp_url,
+            skip_sampling=args.skip_sampling,
+            force_resample=args.force_resample
         )
 
     try:
