@@ -107,11 +107,15 @@ async def test_evaluation_agent_success(mock_invocation_context, temp_dir):
 
         mock_compare.return_value = {
             "success": True,
-            "metrics": {
-                "f1_score": 0.95,
-                "precision": 0.96,
-                "recall": 0.94
-            }
+            "accuracy": 95.0,
+            "pv_accuracy": 90.0,
+            "counters": {
+                "nodes-matched": 10,
+                "nodes-ground-truth": 12,
+                "PVs-matched": 8
+            },
+            "diff_text": "Diff results...",
+            "error": None
         }
 
         agent = EvaluationAgent(name="EvaluationAgent")
@@ -121,14 +125,15 @@ async def test_evaluation_agent_success(mock_invocation_context, temp_dir):
 
     # Verify state was updated
     assert mock_invocation_context.session.state["evaluation_passed"] is True
-    assert mock_invocation_context.session.state["eval_metrics"]["f1_score"] == 0.95
+    assert mock_invocation_context.session.state["eval_metrics"]["node_accuracy"] == 95.0
+    assert mock_invocation_context.session.state["eval_metrics"]["pv_accuracy"] == 90.0
     assert mock_invocation_context.session.state["best_ground_truth_pvmap"] == str(gt_pvmap_path)
     assert len(mock_invocation_context.session.state["ground_truth_pvmaps"]) == 1
 
     # Verify event
     assert len(events) == 1
     event_text = events[0].content.parts[0].text
-    assert "F1=0.95" in event_text or "F1=0.950" in event_text
+    assert "Node Acc=95.0%" in event_text or "95.0" in event_text
 
 
 @pytest.mark.asyncio
@@ -184,7 +189,7 @@ async def test_evaluation_agent_multiple_ground_truths(mock_invocation_context, 
     mock_invocation_context.session.state["pvmap_path"] = str(pvmap_path)
     mock_invocation_context.session.state["output_dir"] = str(dataset_dir)
 
-    # Mock tools - gt2 has better F1 score
+    # Mock tools - gt2 has better node accuracy
     with patch('src.agents.evaluation_agent.find_ground_truth_pvmaps') as mock_find_gt, \
          patch('src.agents.evaluation_agent.compare_pvmaps') as mock_compare:
 
@@ -200,12 +205,20 @@ async def test_evaluation_agent_multiple_ground_truths(mock_invocation_context, 
             if gt_pvmap_path == gt1:
                 return {
                     "success": True,
-                    "metrics": {"f1_score": 0.80, "precision": 0.85, "recall": 0.75}
+                    "accuracy": 80.0,
+                    "pv_accuracy": 75.0,
+                    "counters": {"nodes-matched": 8, "nodes-ground-truth": 10, "PVs-matched": 6},
+                    "diff_text": "",
+                    "error": None
                 }
             else:  # gt2
                 return {
                     "success": True,
-                    "metrics": {"f1_score": 0.92, "precision": 0.93, "recall": 0.91}
+                    "accuracy": 92.0,
+                    "pv_accuracy": 91.0,
+                    "counters": {"nodes-matched": 10, "nodes-ground-truth": 11, "PVs-matched": 9},
+                    "diff_text": "",
+                    "error": None
                 }
 
         mock_compare.side_effect = compare_side_effect
@@ -215,9 +228,9 @@ async def test_evaluation_agent_multiple_ground_truths(mock_invocation_context, 
         async for event in agent._run_async_impl(mock_invocation_context):
             events.append(event)
 
-    # Verify best GT was selected (gt2 with F1=0.92)
+    # Verify best GT was selected (gt2 with node_accuracy=92.0)
     assert mock_invocation_context.session.state["evaluation_passed"] is True
-    assert mock_invocation_context.session.state["eval_metrics"]["f1_score"] == 0.92
+    assert mock_invocation_context.session.state["eval_metrics"]["node_accuracy"] == 92.0
     assert mock_invocation_context.session.state["best_ground_truth_pvmap"] == str(gt2)
     assert len(mock_invocation_context.session.state["ground_truth_pvmaps"]) == 2
 
@@ -251,7 +264,10 @@ async def test_evaluation_agent_comparison_failure(mock_invocation_context, temp
 
         mock_compare.return_value = {
             "success": False,
-            "metrics": {},
+            "accuracy": 0.0,
+            "pv_accuracy": 0.0,
+            "counters": {},
+            "diff_text": None,
             "error": "Comparison failed"
         }
 

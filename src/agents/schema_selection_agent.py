@@ -37,6 +37,7 @@ def create_schema_selection_agent(
         - combined_sampled_data: Path - Combined sample data for analysis
         - skip_schema_selection: bool - Whether to skip schema selection
         - force_schema_selection: bool - Whether to force new selection
+        - data_context: Dict - Data context from SamplingAgent (column_roles, dimensions)
 
     ADK State Outputs:
         - schema_category: str - Selected schema category name
@@ -58,13 +59,19 @@ Your task is to:
 1. Check if schema selection should be skipped (skip_schema_selection flag)
 2. Get available schema categories from the schema library
 3. Generate a preview of the dataset to understand its structure
-4. Analyze the data and select the most appropriate schema category
-5. Copy the selected schema files to the dataset directory (if they exist)
+4. Use the data_context (if available) to understand column classifications
+5. Analyze the data and select the most appropriate schema category
+6. Copy the selected schema files to the dataset directory (if they exist)
 
 **Current Dataset:** {current_dataset.name}
 **Sample Data Path:** {combined_sampled_data}
 **Skip Schema Selection:** {skip_schema_selection}
 **Force Schema Selection:** {force_schema_selection}
+
+**Data Context (from SamplingAgent):** {data_context}
+- column_roles: Maps each column to its role (place, time, dimension, value, metadata)
+- dimension_columns: List of dimension columns that define StatVar uniqueness
+- population_type: Inferred population type (Person, Household, etc.)
 
 **Available Tools:**
 - get_schema_categories: Lists all available schema categories
@@ -75,19 +82,25 @@ Your task is to:
 1. If skip_schema_selection is True, output "Schema selection skipped" and FINISH
 2. Call get_schema_categories to see what's available
 3. Call generate_data_preview to understand the dataset structure
-4. Analyze the data columns, types, and content to select the best schema
+4. Use data_context column_roles and dimension_columns to inform your decision:
+   - If dimensions include gender, age, race → Demographics
+   - If dimensions include industry, sector, occupation → Employment/Economy
+   - If dimensions include disease, condition, treatment → Health
+   - If dimensions include grade, school, enrollment → Education
+   - If columns mention energy, power, generation → Energy
 5. Call copy_schema_files with your selected category name
 6. Output your selection and FINISH
 
-**Selection Criteria:**
-- Demographics: Population, age, gender, race data
-- Economics: GDP, employment, income, trade data
+**Selection Criteria (use data_context to guide):**
+- Demographics: Population, age, gender, race data (population_type=Person with demographic dimensions)
+- Economics: GDP, business establishments, revenue, trade data
 - Health: Disease, mortality, healthcare data
 - Education: Schools, enrollment, graduation data
+- Employment: Labor force, jobs, wages, unemployment (dimension includes occupation/industry)
+- Energy: Power generation, consumption, renewable energy
 - Environment: Climate, pollution, natural resources
-- Crime: Criminal activity, arrests, convictions
 
-Choose the category that best matches the dataset's primary focus.
+Choose the category that best matches the dataset's primary focus and detected dimensions.
 
 **CRITICAL ERROR HANDLING:**
 - If copy_schema_files returns success=False (files don't exist), this is ACCEPTABLE

@@ -77,9 +77,9 @@ def find_ground_truth_pvmaps(
             if explicit_path.exists():
                 return {
                     "success": True,
-                    "pvmaps": [str(explicit_path)],
+                    "pvmaps": [explicit_path],
                     "count": 1,
-                    "error": ""
+                    "error": None
                 }
             else:
                 return {
@@ -98,13 +98,13 @@ def find_ground_truth_pvmaps(
                     if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
                         for file in subdir.iterdir():
                             if file.is_file() and is_pvmap_filename(file.name):
-                                pvmaps.append(str(file))
+                                pvmaps.append(file)
                 if pvmaps:
                     return {
                         "success": True,
                         "pvmaps": pvmaps,
                         "count": len(pvmaps),
-                        "error": ""
+                        "error": None
                     }
 
         # Search in source_repo (ground_truth directory)
@@ -116,14 +116,14 @@ def find_ground_truth_pvmaps(
                     if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
                         for file in subdir.iterdir():
                             if file.is_file() and is_pvmap_filename(file.name):
-                                pvmaps.append(str(file))
+                                pvmaps.append(file)
 
         if pvmaps:
             return {
                 "success": True,
                 "pvmaps": pvmaps,
                 "count": len(pvmaps),
-                "error": ""
+                "error": None
             }
         else:
             return {
@@ -177,7 +177,7 @@ def compare_pvmaps(
                 "success": False,
                 "error": f"Auto-generated PVMAP not found: {auto_pvmap_path}",
                 "counters": {},
-                "diff_text": "",
+                "diff_text": None,
                 "accuracy": 0.0,
                 "pv_accuracy": 0.0
             }
@@ -187,7 +187,7 @@ def compare_pvmaps(
                 "success": False,
                 "error": f"Ground truth PVMAP not found: {gt_pvmap_path}",
                 "counters": {},
-                "diff_text": "",
+                "diff_text": None,
                 "accuracy": 0.0,
                 "pv_accuracy": 0.0
             }
@@ -217,7 +217,7 @@ def compare_pvmaps(
 
         return {
             "success": True,
-            "error": "",
+            "error": None,
             "counters": counters,
             "diff_text": diff_str,
             "accuracy": accuracy,
@@ -229,7 +229,7 @@ def compare_pvmaps(
             "success": False,
             "error": f"PVMAP comparison failed: {str(e)}",
             "counters": {},
-            "diff_text": "",
+            "diff_text": None,
             "accuracy": 0.0,
             "pv_accuracy": 0.0
         }
@@ -308,12 +308,12 @@ def select_best_ground_truth(
                 "best_accuracy": best_accuracy,
                 "best_counters": best_counters,
                 "all_results": all_results,
-                "error": ""
+                "error": None
             }
         else:
             return {
                 "success": False,
-                "best_pvmap": "",
+                "best_pvmap": None,
                 "best_accuracy": 0.0,
                 "all_results": all_results,
                 "error": "All comparisons failed"
@@ -322,7 +322,7 @@ def select_best_ground_truth(
     except Exception as e:
         return {
             "success": False,
-            "best_pvmap": "",
+            "best_pvmap": None,
             "best_accuracy": 0.0,
             "all_results": [],
             "error": f"Error selecting best ground truth: {str(e)}"

@@ -37,11 +37,13 @@ class EvaluationAgent(BaseAgent):
         - pvmap_path: Path - Path to generated PVMAP file
         - skip_evaluation: bool - Whether to skip evaluation
         - output_dir: Path - Directory for evaluation outputs
+        - data_context: Dict - Data context from SamplingAgent (for validation)
 
     ADK State Outputs:
         - eval_metrics: Dict - Evaluation metrics with keys:
             node_accuracy, pv_accuracy, nodes_matched, nodes_ground_truth,
-            pvs_matched, best_ground_truth_pvmap
+            pvs_matched, best_ground_truth_pvmap, expected_combinations,
+            expected_pattern
         - best_ground_truth_pvmap: Path - Best matching ground truth file
         - ground_truth_pvmaps: List[Path] - All found ground truth files
         - evaluation_passed: bool - Whether evaluation succeeded
@@ -52,6 +54,7 @@ class EvaluationAgent(BaseAgent):
     - Compare generated PVMAP against each ground truth
     - Select best matching ground truth
     - Calculate and store evaluation metrics
+    - Include data_context metrics (expected combinations, pattern) for analysis
     """
 
     async def _run_async_impl(
@@ -116,9 +119,17 @@ class EvaluationAgent(BaseAgent):
             return
 
         # 3. Find ground truth PVMAPs
+        # Look in ground_truth directory (default location) and also search_dir
+        import os
+        ground_truth_repo = ctx.session.state.get(
+            "ground_truth_repo",
+            os.getenv("GROUND_TRUTH_REPO", str(PROJECT_ROOT / "ground_truth"))
+        )
+
         dataset_name = current_dataset.name
         gt_result = find_ground_truth_pvmaps(
             dataset_name=dataset_name,
+            source_repo=ground_truth_repo,
             search_dir=current_dataset.path
         )
 
@@ -165,10 +176,17 @@ class EvaluationAgent(BaseAgent):
                     best_diff_text = comparison.get("diff_text", "")
                     best_counters = comparison.get("counters", {})
 
-        # 5. Write results to state and save diff files
+        # 5. Get data_context for additional metrics (if available)
+        data_context = ctx.session.state.get("data_context", {})
+        expected_combinations = data_context.get("total_combinations", 0) if data_context else 0
+        expected_pattern = data_context.get("statvar_pattern", "") if data_context else ""
+        dimension_columns = data_context.get("dimension_columns", []) if data_context else []
+        coverage_percent = data_context.get("coverage_percent", 0) if data_context else 0
+
+        # 6. Write results to state and save diff files
         if best_gt_pvmap is not None:
-            # Store proper metrics in state (matches procedural pipeline)
-            ctx.session.state["eval_metrics"] = {
+            # Store proper metrics in state (matches procedural pipeline + data_context)
+            eval_metrics = {
                 'node_accuracy': best_accuracy,
                 'pv_accuracy': best_pv_accuracy,
                 'nodes_matched': best_counters.get('nodes-matched', 0),
@@ -176,6 +194,15 @@ class EvaluationAgent(BaseAgent):
                 'pvs_matched': best_counters.get('PVs-matched', 0),
                 'best_ground_truth_pvmap': str(Path(best_gt_pvmap).name)
             }
+
+            # Add data_context metrics if available
+            if data_context:
+                eval_metrics['expected_combinations'] = expected_combinations
+                eval_metrics['expected_pattern'] = expected_pattern
+                eval_metrics['dimension_columns'] = dimension_columns
+                eval_metrics['sample_coverage_percent'] = coverage_percent
+
+            ctx.session.state["eval_metrics"] = eval_metrics
             ctx.session.state["best_ground_truth_pvmap"] = str(best_gt_pvmap)
             ctx.session.state["evaluation_passed"] = True
             ctx.session.state["error"] = None
@@ -184,29 +211,44 @@ class EvaluationAgent(BaseAgent):
             eval_results_dir = Path(output_dir if output_dir else current_dataset.output_dir) / "eval_results"
             eval_results_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save diff.txt (match procedural pipeline format)
+            # Save diff.txt (match procedural pipeline format + data_context info)
             diff_txt_path = eval_results_dir / "diff.txt"
             with open(diff_txt_path, 'w', encoding='utf-8') as f:
                 f.write(f"Best match: {Path(best_gt_pvmap).name}\n")
                 f.write(f"Tested {len(ground_truth_pvmaps)} ground truth PVMAP(s)\n")
+                if data_context:
+                    f.write(f"\nData Context:\n")
+                    f.write(f"  Expected StatVar Pattern: {expected_pattern}\n")
+                    f.write(f"  Dimension Columns: {', '.join(dimension_columns) if dimension_columns else 'None'}\n")
+                    f.write(f"  Expected Combinations: {expected_combinations}\n")
+                    f.write(f"  Sample Coverage: {coverage_percent:.1f}%\n")
                 f.write("=" * 60 + "\n\n")
                 f.write(best_diff_text if best_diff_text else "(No diff text available)")
 
-            # Save diff_results.json (match procedural pipeline structure)
+            # Save diff_results.json (match procedural pipeline structure + data_context)
             # Save counters directly with extra fields (not wrapped in nested structure)
             diff_results_path = eval_results_dir / "diff_results.json"
             best_counters['best_ground_truth_pvmap'] = str(best_gt_pvmap)
             best_counters['ground_truth_pvmaps_tested'] = len(ground_truth_pvmaps)
+            if data_context:
+                best_counters['expected_combinations'] = expected_combinations
+                best_counters['expected_pattern'] = expected_pattern
+                best_counters['dimension_columns'] = dimension_columns
+                best_counters['sample_coverage_percent'] = coverage_percent
             with open(diff_results_path, 'w', encoding='utf-8') as f:
                 json.dump(best_counters, f, indent=2, default=str)
+
+            # Build result message
+            result_msg = (f"Evaluation complete: Node Acc={best_accuracy:.1f}%, "
+                         f"PV Acc={best_pv_accuracy:.1f}%. "
+                         f"Best match: {Path(best_gt_pvmap).name}.")
+            if data_context and expected_combinations > 0:
+                result_msg += f" Expected {expected_combinations} combinations."
 
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Evaluation complete: Node Acc={best_accuracy:.1f}%, "
-                                   f"PV Acc={best_pv_accuracy:.1f}%. "
-                                   f"Best match: {Path(best_gt_pvmap).name}. "
-                                   f"Results saved to {eval_results_dir}")
+                    types.Part(text=f"{result_msg} Results saved to {eval_results_dir}")
                 ])
             )
         else:

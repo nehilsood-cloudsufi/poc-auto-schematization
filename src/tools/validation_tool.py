@@ -183,8 +183,8 @@ def run_validation(
         return {
             "success": False,
             "error": f"Input data file not found: {input_data}",
-            "error_logs": "",
-            "output_file": "",
+            "error_logs": None,
+            "output_file": None,
             "data_rows": 0
         }
 
@@ -192,8 +192,8 @@ def run_validation(
         return {
             "success": False,
             "error": f"Metadata file not found: {metadata_file}",
-            "error_logs": "",
-            "output_file": "",
+            "error_logs": None,
+            "output_file": None,
             "data_rows": 0
         }
 
@@ -201,8 +201,8 @@ def run_validation(
         return {
             "success": False,
             "error": f"PVMAP file not found: {pvmap_path}",
-            "error_logs": "",
-            "output_file": "",
+            "error_logs": None,
+            "output_file": None,
             "data_rows": 0
         }
 
@@ -253,7 +253,7 @@ def run_validation(
                     "success": False,
                     "error": full_error,
                     "error_logs": sampled_logs,
-                    "output_file": str(output_file) if output_file.exists() else "",
+                    "output_file": str(output_file) if output_file.exists() else None,
                     "data_rows": 0,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
@@ -263,8 +263,8 @@ def run_validation(
             # Validation passed
             return {
                 "success": True,
-                "error": "",
-                "error_logs": "",
+                "error": None,
+                "error_logs": None,
                 "output_file": str(output_file),
                 "data_rows": data_rows,
                 "stdout": result.stdout,
@@ -291,7 +291,7 @@ def run_validation(
                 "success": False,
                 "error": error_msg,
                 "error_logs": sampled_logs,
-                "output_file": str(output_file) if output_file.exists() else "",
+                "output_file": str(output_file) if output_file.exists() else None,
                 "data_rows": 0,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
@@ -302,8 +302,8 @@ def run_validation(
         return {
             "success": False,
             "error": f"Validation timed out after {timeout} seconds",
-            "error_logs": "",
-            "output_file": "",
+            "error_logs": None,
+            "output_file": None,
             "data_rows": 0,
             "returncode": -1
         }
@@ -311,8 +311,8 @@ def run_validation(
         return {
             "success": False,
             "error": f"Validation error: {str(e)}",
-            "error_logs": "",
-            "output_file": "",
+            "error_logs": None,
+            "output_file": None,
             "data_rows": 0,
             "returncode": -1
         }
