@@ -68,7 +68,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 SRC_DIR = BASE_DIR / "src"
 LOGS_DIR = OUTPUT_DIR / "logs"  # Changed to output/logs for centralized logging
 SCHEMA_BASE_DIR = SRC_DIR / "resources" / "schema_examples"
-PROMPT_TEMPLATE = SRC_DIR / "resources" / "prompts" / "improved_pvmap_prompt_v2.txt"
+PROMPT_TEMPLATE = SRC_DIR / "resources" / "prompts" / "improved_pvmap_prompt.txt"
 
 MAX_RETRIES = 2
 
