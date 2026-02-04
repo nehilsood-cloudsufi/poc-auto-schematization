@@ -164,7 +164,7 @@ When responding:
     return agent
 
 
-async def test_statvar_discovery(mcp_url: str) -> bool:
+async def _run_statvar_discovery(mcp_url: str) -> bool:
     """Test discovering StatVars for a dataset topic."""
     all_passed = True
 
@@ -226,7 +226,7 @@ Report the variable DCIDs you find.
         return print_result("StatVar discovery test", False, str(e))
 
 
-async def test_observation_fetch(mcp_url: str) -> bool:
+async def _run_observation_fetch(mcp_url: str) -> bool:
     """Test fetching observations for known StatVars."""
     all_passed = True
 
@@ -288,7 +288,7 @@ Report the value and date.
         return print_result("Observation fetch test", False, str(e))
 
 
-async def test_pipeline_relevant_query(mcp_url: str) -> bool:
+async def _run_pipeline_relevant_query(mcp_url: str) -> bool:
     """Test a query relevant to the PVMAP pipeline use case."""
     all_passed = True
 
@@ -392,17 +392,17 @@ async def run_tests():
             # Test 1: StatVar Discovery
             print("\nTest 1: StatVar Discovery")
             print("-" * 40)
-            all_passed &= await test_statvar_discovery(mcp.mcp_url)
+            all_passed &= await _run_statvar_discovery(mcp.mcp_url)
 
             # Test 2: Observation Fetch
             print("\nTest 2: Observation Fetch")
             print("-" * 40)
-            all_passed &= await test_observation_fetch(mcp.mcp_url)
+            all_passed &= await _run_observation_fetch(mcp.mcp_url)
 
             # Test 3: Pipeline-relevant Query
             print("\nTest 3: Pipeline-relevant Query")
             print("-" * 40)
-            all_passed &= await test_pipeline_relevant_query(mcp.mcp_url)
+            all_passed &= await _run_pipeline_relevant_query(mcp.mcp_url)
 
     except Exception as e:
         print_result("MCP server startup", False, str(e))

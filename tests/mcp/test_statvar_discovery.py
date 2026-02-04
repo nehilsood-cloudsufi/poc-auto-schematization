@@ -3,13 +3,24 @@
 
 This tests the new StatVarDiscoveryAgent that queries MCP for existing
 Data Commons StatVars before PVMAP generation.
+
+Run as pytest:
+    pytest tests/mcp/test_statvar_discovery.py -v
+
+Run with MCP integration tests:
+    RUN_MCP_INTEGRATION_TESTS=true pytest tests/mcp/test_statvar_discovery.py -v
+
+Run as standalone script:
+    python tests/mcp/test_statvar_discovery.py
 """
 
 import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+import pytest
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
@@ -19,7 +30,14 @@ load_dotenv(PROJECT_ROOT / ".env", override=True)
 if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
+# Import skip markers
+from tests.mcp.conftest import requires_mcp_server, requires_api_keys, requires_input_datasets
 
+
+@requires_mcp_server
+@requires_api_keys
+@requires_input_datasets
+@pytest.mark.mcp_integration
 def test_statvar_discovery():
     """Test StatVarDiscoveryAgent with MCP."""
     from src.data_commons.api.mcp_server_manager import MCPServerManager
@@ -132,6 +150,9 @@ def test_statvar_discovery():
         return discovered_something or state.get('discovery_success', False)
 
 
+@requires_api_keys
+@requires_input_datasets
+@pytest.mark.mcp_integration
 def test_without_mcp():
     """Test that StatVarDiscoveryAgent gracefully handles MCP disabled."""
     from src.agents.statvar_discovery_agent import StatVarDiscoveryAgent

@@ -105,7 +105,7 @@ class MCPServerContext:
         return f"{self.base_url}/mcp"
 
 
-async def test_mcp_toolset_creation(mcp_url: str) -> bool:
+async def _run_mcp_toolset_creation(mcp_url: str) -> bool:
     """Test that MCPToolset can be created with the MCP server URL."""
     all_passed = True
 
@@ -134,7 +134,7 @@ async def test_mcp_toolset_creation(mcp_url: str) -> bool:
         return all_passed
 
 
-async def test_mcp_tools_with_agent(mcp_url: str) -> bool:
+async def _run_mcp_tools_with_agent(mcp_url: str) -> bool:
     """Test using MCP tools through an ADK agent."""
     all_passed = True
 
@@ -268,13 +268,13 @@ async def run_tests():
             # Test 1: MCPToolset creation
             print("Test 1: MCPToolset Creation")
             print("-" * 40)
-            all_passed &= await test_mcp_toolset_creation(mcp.mcp_url)
+            all_passed &= await _run_mcp_toolset_creation(mcp.mcp_url)
             print()
 
             # Test 2: Agent with MCP tools
             print("Test 2: Agent with MCP Tools")
             print("-" * 40)
-            all_passed &= await test_mcp_tools_with_agent(mcp.mcp_url)
+            all_passed &= await _run_mcp_tools_with_agent(mcp.mcp_url)
 
     except Exception as e:
         print_result("MCP server startup", False, str(e))

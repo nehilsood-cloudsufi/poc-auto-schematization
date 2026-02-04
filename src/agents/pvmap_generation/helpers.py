@@ -25,7 +25,9 @@ def build_prompt_with_feedback(
     schema_content: Optional[str],
     sampled_data_content: str,
     metadata_content: str,
-    error_feedback: Optional[str] = None
+    error_feedback: Optional[str] = None,
+    discovered_statvars: Optional[str] = None,
+    data_context: Optional[str] = None
 ) -> str:
     """
     Build PVMAP generation prompt by populating template.
@@ -36,6 +38,8 @@ def build_prompt_with_feedback(
         sampled_data_content: Sampled data CSV content
         metadata_content: Metadata config content
         error_feedback: Optional error feedback from previous attempt
+        discovered_statvars: Optional discovered StatVars from MCP discovery
+        data_context: Optional skeleton summary markdown from DataContext
 
     Returns:
         Populated prompt string
@@ -64,10 +68,48 @@ def build_prompt_with_feedback(
             "provided below, using your knowledge of Data Commons schema conventions."
         )
 
+    # Handle data context - provide default if not available
+    if not data_context:
+        data_context = (
+            "_Data context analysis not available. "
+            "Please analyze the sampled data below to understand the dataset structure._"
+        )
+
     # Replace placeholders
-    prompt = template.replace("{{SCHEMA_EXAMPLES}}", schema_content)
+    prompt = template.replace("{{DATA_CONTEXT}}", data_context)
+    prompt = prompt.replace("{{SCHEMA_EXAMPLES}}", schema_content)
     prompt = prompt.replace("{{SAMPLED_DATA}}", sampled_data_content)
     prompt = prompt.replace("{{METADATA_CONFIG}}", metadata_content)
+
+    # Inject discovered StatVars before OUTPUT section
+    if discovered_statvars and discovered_statvars.strip():
+        # Check if discovery found exact matches or just "related" variables
+        lower_summary = discovered_statvars.lower()
+        has_no_matches = (
+            "no exact matches" in lower_summary or
+            "not found" in lower_summary or
+            "were not found" in lower_summary
+        )
+
+        if has_no_matches:
+            # Don't inject if only "related" variables were found - they can confuse the LLM
+            statvars_section = ""
+        else:
+            statvars_section = (
+                "\n\n---\n\n"
+                "# EXISTING DATA COMMONS VARIABLES (Reference Only)\n\n"
+                "The following statistical variables exist in Data Commons. "
+                "**ONLY use these if your dataset measures the EXACT same thing**:\n\n"
+                f"{discovered_statvars}\n\n"
+                "**IMPORTANT**: If these variables don't EXACTLY match your data, IGNORE them "
+                "and generate a new StatVar definition based on the schema examples above. "
+                "Do NOT let these influence your key formats or property choices.\n"
+            )
+            # Insert before "# OUTPUT" section
+            if "# OUTPUT" in prompt:
+                prompt = prompt.replace("# OUTPUT", statvars_section + "# OUTPUT")
+            else:
+                prompt += statvars_section
 
     # Add error feedback if retrying
     if error_feedback:
@@ -472,6 +514,10 @@ def escape_csv_value(value: str) -> str:
     """
     Escape a value for CSV format.
 
+    Also translates placeholder values:
+    - PASSTHROUGH_DATA -> {Data}
+    - PASSTHROUGH_NUMBER -> {Number}
+
     Args:
         value: The string value to escape
 
@@ -480,6 +526,13 @@ def escape_csv_value(value: str) -> str:
     """
     if not value:
         return ""
+
+    # Translate placeholder values (used to avoid ADK instruction templating)
+    # Support both old (PASSTHROUGH_*) and new ([DATA]/[NUMBER]) syntax
+    value = value.replace("PASSTHROUGH_DATA", "{Data}")
+    value = value.replace("PASSTHROUGH_NUMBER", "{Number}")
+    value = value.replace("[DATA]", "{Data}")
+    value = value.replace("[NUMBER]", "{Number}")
 
     # Quote if contains comma, quote, or newline
     if ',' in value or '"' in value or '\n' in value:
