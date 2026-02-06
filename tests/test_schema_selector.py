@@ -379,7 +379,7 @@ class TestCopySchemaFiles:
     """Tests for copy_schema_files function."""
 
     def test_copy_schema_files_success(self, schema_base_dir, temp_dir):
-        """Test successful schema file copying."""
+        """Test successful schema file copying to schema/ subfolder."""
         from src.pipeline.schema_selection.schema_selector import copy_schema_files
 
         input_dir = temp_dir / "target"
@@ -390,8 +390,8 @@ class TestCopySchemaFiles:
         assert success is True
         assert len(copied) >= 1
 
-        # Verify file was copied
-        expected_file = input_dir / "scripts_statvar_llm_config_schema_examples_dc_topic_Demographics.txt"
+        # Verify file was copied to schema/ subfolder
+        expected_file = input_dir / "schema" / "scripts_statvar_llm_config_schema_examples_dc_topic_Demographics.txt"
         assert expected_file.exists()
 
     def test_copy_schema_files_dry_run(self, schema_base_dir, temp_dir):
@@ -406,8 +406,8 @@ class TestCopySchemaFiles:
         assert success is True
         assert len(copied) >= 1
 
-        # File should NOT be copied in dry run
-        expected_file = input_dir / "scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt"
+        # File should NOT be copied in dry run (schema/ dir not created)
+        expected_file = input_dir / "schema" / "scripts_statvar_llm_config_schema_examples_dc_topic_Economy.txt"
         assert not expected_file.exists()
 
     def test_copy_schema_files_school_category(self, schema_base_dir, temp_dir):

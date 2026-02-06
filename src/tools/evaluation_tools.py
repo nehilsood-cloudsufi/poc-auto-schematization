@@ -96,9 +96,15 @@ def find_ground_truth_pvmaps(
                 # Look for subdirectory matching dataset name
                 for subdir in search_path.iterdir():
                     if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
-                        for file in subdir.iterdir():
-                            if file.is_file() and is_pvmap_filename(file.name):
-                                pvmaps.append(file)
+                        # Search root and pvmap/ subfolder
+                        search_locations = [subdir]
+                        pvmap_subdir = subdir / "pvmap"
+                        if pvmap_subdir.exists():
+                            search_locations.append(pvmap_subdir)
+                        for loc in search_locations:
+                            for file in loc.iterdir():
+                                if file.is_file() and is_pvmap_filename(file.name):
+                                    pvmaps.append(file)
                 if pvmaps:
                     return {
                         "success": True,
@@ -114,9 +120,15 @@ def find_ground_truth_pvmaps(
                 # Look for subdirectory matching dataset name
                 for subdir in repo_path.iterdir():
                     if subdir.is_dir() and dataset_name.lower() in subdir.name.lower():
-                        for file in subdir.iterdir():
-                            if file.is_file() and is_pvmap_filename(file.name):
-                                pvmaps.append(file)
+                        # Search root and pvmap/ subfolder
+                        search_locations = [subdir]
+                        pvmap_subdir = subdir / "pvmap"
+                        if pvmap_subdir.exists():
+                            search_locations.append(pvmap_subdir)
+                        for loc in search_locations:
+                            for file in loc.iterdir():
+                                if file.is_file() and is_pvmap_filename(file.name):
+                                    pvmaps.append(file)
 
         if pvmaps:
             return {

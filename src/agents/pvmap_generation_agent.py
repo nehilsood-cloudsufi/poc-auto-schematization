@@ -152,10 +152,10 @@ class PVMAPGenerationAgent(BaseAgent):
                         raise ValueError("No sampled data available")
                     sampled_data_content = read_file_content(current_dataset.combined_sampled_data)
 
-                    # Read metadata
-                    if not current_dataset.combined_metadata or not current_dataset.combined_metadata.exists():
-                        raise ValueError("No metadata available")
-                    metadata_content = read_file_content(current_dataset.combined_metadata)
+                    # Read metadata (optional)
+                    metadata_content = "(No metadata provided)"
+                    if current_dataset.combined_metadata and current_dataset.combined_metadata.exists():
+                        metadata_content = read_file_content(current_dataset.combined_metadata)
 
                     # Get discovered StatVars if MCP discovery was performed
                     discovered_statvars = None

@@ -107,9 +107,9 @@ def find_ground_truth_pvmap(dataset_path, input_file=None):
     if input_file:
         input_base = os.path.basename(input_file).replace('_input.csv', '').replace('_input.xlsx', '').replace('_input.xls', '').replace('_data.csv', '').replace('_data.xlsx', '')
 
-    # Search locations: dataset root, config_files/, pv_map/
+    # Search locations: dataset root, config_files/, pv_map/, pvmap/
     search_dirs = [dataset_path]
-    for subdir in ['config_files', 'pv_map']:
+    for subdir in ['config_files', 'pv_map', 'pvmap']:
         subdir_path = os.path.join(dataset_path, subdir)
         if os.path.exists(subdir_path):
             search_dirs.append(subdir_path)

@@ -215,3 +215,51 @@ how this architecture is very helpful
 write it in a tone that this architecture need to be implemented and can show better results
 prepare a proper plan on how you will be creating this document (docx) using docs-js.md skill
 ask the clarifying questions
+
+
+=======================================================
+discover single agent
+input file -> mandatory ( it could be txt or csv or excel file, default consideration = csv)
+metadata file -> optional ( it could be txt or csv or excel file, default consideration = csv)
+currently let's keep it simple and think there will be only 1 input (and 1 metadata file (not mandatory))
+so we dont need combined files
+
+prepare me a plan to clean the input folder
+only keep input file which dont have keywords in the name ["metadata","combined","sampled","schema_example"]
+so the folder structure will be 
+input/{dataset_name} for each dataset /input file 
+prepare me a plan first
+
+=====================================================
+help me prepare a plan
+I want to update _discover_single_dataset() and DiscoveryAgent function
+I want to make it like
+input file -> mandatory ( it could be txt or csv or excel file, default consideration = csv)
+for input file, if dataset folder is given it should pick it from 
+ input/{dataset_name}/
+  └── test_data/
+      └── *_input.csv
+(if multiple files, combined them if they have same columns or header row is same)
+or a argpraser argument which will be like --input-file = file path 
+
+metadata file -> optional ( it could be txt or csv or excel file, default consideration = csv)
+for metadata it is optional
+metadata file -> optional (it could be txt or csv or excel file, default consideration = csv)
+set a --use-metadata parameter if it is on
+pick the metadata file from 
+ input/{dataset_name}/
+  ├── metadata/
+  │   └── *.csv
+
+or --metadata-file-path=file path which auto set it on and file path with it
+
+(if multiple files, combined them if they have same columns or header row is same)
+
+for schema_example (optional or auto picked if not present)
+if user have schema file: it will give with a argparser argument else autoselect
+
+ ground_truth/{dataset_name}/
+ ├── metadata/              (copied from input_metadata/, used by validation)
+ │   └── *.csv
+ ── pvmap/ 
+ └── pvmap.csv              (existing ground truth)

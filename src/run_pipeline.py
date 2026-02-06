@@ -215,7 +215,11 @@ def run_dataset_pipeline(
     ground_truth_pvmap: Optional[str] = None,
     ground_truth_dir: Optional[str] = None,
     ground_truth_repo: Optional[str] = None,
-    skip_evaluation: bool = False
+    skip_evaluation: bool = False,
+    input_file: Optional[str] = None,
+    use_metadata: bool = False,
+    metadata_file_path: Optional[str] = None,
+    schema_file: Optional[str] = None,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -237,6 +241,10 @@ def run_dataset_pipeline(
         ground_truth_dir: Directory to search for GT PVMAPs
         ground_truth_repo: GT repository path (lowest precedence, default)
         skip_evaluation: If True, skip evaluation phase
+        input_file: Standalone input file path (no dataset folder required)
+        use_metadata: Whether to use metadata for prompt building
+        metadata_file_path: Explicit metadata file path (auto-enables use_metadata)
+        schema_file: Explicit schema file override
 
     Returns:
         Final state dictionary
@@ -325,10 +333,34 @@ def run_dataset_pipeline(
         session_id=session_id
     )
 
+    # Auto-enable use_metadata if metadata_file_path is provided
+    if metadata_file_path:
+        use_metadata = True
+
     # Discover dataset files using DiscoveryAgent helper
-    dataset_path = input_dir / dataset_name
     discovery_agent = DiscoveryAgent(name="Discovery")
-    current_dataset = discovery_agent._discover_single_dataset(dataset_path, dataset_name)
+
+    if input_file:
+        # Standalone mode
+        current_dataset = discovery_agent._discover_standalone(
+            input_file=Path(input_file),
+            output_base_dir=output_dir,
+            use_metadata=use_metadata,
+            metadata_file=Path(metadata_file_path) if metadata_file_path else None,
+            schema_file=Path(schema_file) if schema_file else None,
+        )
+    else:
+        # Normal dataset folder mode
+        dataset_path = input_dir / dataset_name
+        current_dataset = discovery_agent._discover_single_dataset(
+            dataset_path=dataset_path,
+            dataset_name=dataset_name,
+            use_metadata=use_metadata,
+            metadata_file_override=Path(metadata_file_path) if metadata_file_path else None,
+            schema_file_override=Path(schema_file) if schema_file else None,
+            ground_truth_repo=Path(ground_truth_repo) if ground_truth_repo else None,
+        )
+
     current_dataset.output_dir = output_dir / dataset_name
 
     logger.info(f"Discovered dataset: {current_dataset}")
@@ -368,6 +400,8 @@ def run_dataset_pipeline(
         "skip_evaluation": skip_evaluation,
         # Default data_context (may be updated by SamplingAgent)
         "data_context": {},
+        # New discovery flags
+        "use_metadata": use_metadata,
     }
 
     if schema_base_dir:
@@ -527,10 +561,37 @@ if __name__ == "__main__":
     # Evaluation flags
     parser.add_argument("--skip-evaluation", action="store_true",
                         help="Skip evaluation phase (no ground truth comparison)")
+    # Standalone file mode
+    parser.add_argument("--input-file", type=str, default=None,
+                        help="Path to standalone input file (no dataset folder required)")
+    # Metadata control
+    parser.add_argument("--use-metadata", action="store_true",
+                        help="Use metadata files for prompt building (default: off)")
+    parser.add_argument("--metadata-file-path", type=str, default=None,
+                        help="Path to explicit metadata file (auto-enables --use-metadata)")
+    # Schema file override
+    parser.add_argument("--schema-file", type=str, default=None,
+                        help="Path to explicit schema file override")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
     args = parser.parse_args()
+
+    # Validation: --input-file and --dataset are mutually exclusive
+    if args.input_file and args.dataset:
+        parser.error("--input-file and --dataset are mutually exclusive")
+
+    # Validation: --metadata-file-path auto-enables use_metadata
+    if args.metadata_file_path:
+        args.use_metadata = True
+
+    # Validation: verify explicit file paths exist
+    if args.input_file and not Path(args.input_file).exists():
+        parser.error(f"Input file not found: {args.input_file}")
+    if args.metadata_file_path and not Path(args.metadata_file_path).exists():
+        parser.error(f"Metadata file not found: {args.metadata_file_path}")
+    if args.schema_file and not Path(args.schema_file).exists():
+        parser.error(f"Schema file not found: {args.schema_file}")
 
     # Setup paths
     base_dir = Path(__file__).parent.parent
@@ -546,8 +607,12 @@ if __name__ == "__main__":
     mcp_manager = None
     mcp_url = None
 
-    # Get dataset name from command line or use default
-    if args.dataset:
+    # Get dataset name from command line, standalone file, or discovery
+    if args.input_file:
+        from src.pipeline.discovery.file_utils import derive_dataset_name
+        dataset_name = derive_dataset_name(Path(args.input_file))
+        print(f"Standalone mode: derived dataset name '{dataset_name}' from {args.input_file}")
+    elif args.dataset:
         dataset_name = args.dataset
     else:
         # Run discovery to find datasets
@@ -569,10 +634,14 @@ if __name__ == "__main__":
         print("[DRY RUN] Preview - no changes will be made")
         print("=" * 60)
         print(f"Would process dataset: {dataset_name}")
-        print(f"  Input directory: {input_dir / dataset_name}")
+        if args.input_file:
+            print(f"  Input file: {args.input_file} (standalone mode)")
+        else:
+            print(f"  Input directory: {input_dir / dataset_name}")
         print(f"  Output directory: {output_dir / dataset_name}")
         print(f"  Model: {args.model}")
         print(f"  Structured output: {args.structured_output}")
+        print(f"  Use metadata: {args.use_metadata}")
         print(f"  Skip sampling: {args.skip_sampling}")
         print(f"  Skip schema selection: {args.skip_schema_selection}")
         print(f"  Skip evaluation: {args.skip_evaluation}")
@@ -581,6 +650,10 @@ if __name__ == "__main__":
             print(f"  Ground truth PVMAP: {args.ground_truth_pvmap}")
         if args.ground_truth_dir:
             print(f"  Ground truth directory: {args.ground_truth_dir}")
+        if args.metadata_file_path:
+            print(f"  Metadata file: {args.metadata_file_path}")
+        if args.schema_file:
+            print(f"  Schema file: {args.schema_file}")
         sys.exit(0)
 
     # Run pipeline for dataset
@@ -632,7 +705,11 @@ if __name__ == "__main__":
             ground_truth_pvmap=args.ground_truth_pvmap,
             ground_truth_dir=args.ground_truth_dir,
             ground_truth_repo=args.ground_truth_repo,
-            skip_evaluation=args.skip_evaluation
+            skip_evaluation=args.skip_evaluation,
+            input_file=args.input_file,
+            use_metadata=args.use_metadata,
+            metadata_file_path=args.metadata_file_path,
+            schema_file=args.schema_file,
         )
 
         print("\n" + "=" * 60)

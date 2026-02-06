@@ -69,7 +69,9 @@ def mock_invocation_context(temp_dir):
     ctx = Mock()
     ctx.session = Mock()
     ctx.session.state = {
-        "input_dir": str(temp_dir)
+        "input_dir": str(temp_dir),
+        "use_metadata": False,
+        "ground_truth_repo": None,
     }
     ctx.session.id = "test-session-123"
     ctx.invocation_id = "test-invocation-456"

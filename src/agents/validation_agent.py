@@ -204,19 +204,25 @@ class ValidationAgent(BaseAgent):
             )
             return
 
-        # Get metadata file
-        metadata_file = str(current_dataset.combined_metadata) if current_dataset.combined_metadata else None
-        if not metadata_file or not Path(metadata_file).exists():
-            ctx.session.state["validation_success"] = False
-            ctx.session.state["validation_error"] = "No metadata file found"
+        # Get metadata file: prefer ground_truth metadata, then combined_metadata
+        metadata_file = None
+        if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
+            # Use first CSV in ground_truth metadata dir
+            gt_meta_dir = Path(current_dataset.ground_truth_metadata)
+            gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
+            if gt_meta_files:
+                metadata_file = str(gt_meta_files[0])
+        if not metadata_file and current_dataset.combined_metadata:
+            if Path(str(current_dataset.combined_metadata)).exists():
+                metadata_file = str(current_dataset.combined_metadata)
+        if not metadata_file:
+            # Metadata is optional — validation can proceed without it
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text="ERROR: No metadata file for validation")
-                ]),
-                actions=EventActions(escalate=False)
+                    types.Part(text="Warning: No metadata file found, proceeding without config_file")
+                ])
             )
-            return
 
         # Run validation (pass attempt_number for iteration-specific feedback)
         result = run_validation(

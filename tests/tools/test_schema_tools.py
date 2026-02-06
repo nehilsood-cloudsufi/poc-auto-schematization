@@ -224,8 +224,8 @@ def test_copy_schema_files_success(temp_dir):
     assert result['error'] is None
     assert len(result['files_copied']) == 1
 
-    # Verify file was actually copied
-    copied_file = input_dir / schema_file.name
+    # Verify file was actually copied (now goes to schema/ subfolder)
+    copied_file = input_dir / "schema" / schema_file.name
     assert copied_file.exists()
 
 
@@ -256,8 +256,8 @@ def test_copy_schema_files_dry_run(temp_dir):
     assert result['success'] is True
     assert result['error'] is None
 
-    # File should NOT be copied in dry run
-    copied_file = input_dir / schema_file.name
+    # File should NOT be copied in dry run (check schema/ subfolder)
+    copied_file = input_dir / "schema" / schema_file.name
     assert not copied_file.exists()
 
 

@@ -467,22 +467,26 @@ def copy_schema_files(category: str, schema_base_dir: Path,
 
     files_to_copy = [txt_file]
 
+    # Copy files into schema/ subfolder
+    schema_dir = input_dir / "schema"
+
     # If dry run, just log what would be copied
     if dry_run:
         logging.info("DRY RUN - Would copy the following files:")
         for src_file in files_to_copy:
             size_kb = src_file.stat().st_size / 1024
-            dest_file = input_dir / src_file.name
+            dest_file = schema_dir / src_file.name
             logging.info(f"  {src_file.name} ({size_kb:.1f} KB) -> {dest_file}")
-        return True, [input_dir / f.name for f in files_to_copy]
+        return True, [schema_dir / f.name for f in files_to_copy]
 
     # Copy files
     try:
+        schema_dir.mkdir(parents=True, exist_ok=True)
         for src_file in files_to_copy:
-            dest_file = input_dir / src_file.name
+            dest_file = schema_dir / src_file.name
             shutil.copy2(src_file, dest_file)
             size_kb = src_file.stat().st_size / 1024
-            logging.info(f"Copied: {src_file.name} ({size_kb:.1f} KB)")
+            logging.info(f"Copied: {src_file.name} ({size_kb:.1f} KB) to schema/")
             copied_files.append(dest_file)
 
         return True, copied_files

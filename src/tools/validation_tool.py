@@ -85,7 +85,7 @@ def extract_log_samples(
 def build_validation_command(
     input_data: Path,
     pvmap_path: Path,
-    metadata_file: Path,
+    metadata_file: Optional[Path],
     output_dir: Path,
     debug: bool = True
 ) -> Tuple[list, dict]:
@@ -97,7 +97,7 @@ def build_validation_command(
     Args:
         input_data: Path to input data CSV
         pvmap_path: Path to PVMAP CSV file
-        metadata_file: Path to metadata config CSV
+        metadata_file: Path to metadata config CSV (optional, omit --config_file if None)
         output_dir: Output directory for processed file
         debug: Enable debug counters for detailed error context (default: True)
 
@@ -122,10 +122,15 @@ def build_validation_command(
         str(VALIDATION_DIR / 'stat_var_processor.py'),
         f'--input_data={input_data}',
         f'--pv_map={pvmap_path}',
-        f'--config_file={metadata_file}',
+    ]
+
+    if metadata_file:
+        cmd.append(f'--config_file={metadata_file}')
+
+    cmd.extend([
         '--generate_statvar_name=True',
         f'--output_path={output_dir}/processed'
-    ]
+    ])
 
     # Add debug flag to capture specific failing values in counters
     if debug:
@@ -211,7 +216,7 @@ def run_validation(
             "data_rows": 0
         }
 
-    if not metadata_file or not Path(metadata_file).exists():
+    if metadata_file and not Path(metadata_file).exists():
         return {
             "success": False,
             "error": f"Metadata file not found: {metadata_file}",
@@ -233,7 +238,7 @@ def run_validation(
     cmd, env = build_validation_command(
         input_data=Path(input_data),
         pvmap_path=Path(pvmap_path),
-        metadata_file=Path(metadata_file),
+        metadata_file=Path(metadata_file) if metadata_file else None,
         output_dir=Path(output_dir),
         debug=True
     )
