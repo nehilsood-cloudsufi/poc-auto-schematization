@@ -2911,8 +2911,8 @@ class StatVarDataProcessor:
                 output_tmcf_file=output_tmcf_file,
             )
         self._counters.print_counters()
-        counters_filename = self._config.get('output_counters',
-                                             output_path + '_counters.txt')
+        # Use 'or' to handle empty string case (config defaults to '')
+        counters_filename = self._config.get('output_counters') or (output_path + '_counters.txt')
         logging.info(f'Writing counters to {counters_filename}')
         file_util.file_write_csv_dict(
             OrderedDict(sorted(self._counters.get_counters().items())),

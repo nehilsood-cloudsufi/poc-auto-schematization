@@ -209,7 +209,13 @@ def run_dataset_pipeline(
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
-    force_resample: bool = False
+    force_resample: bool = False,
+    skip_schema_selection: bool = False,
+    force_schema_selection: bool = False,
+    ground_truth_pvmap: Optional[str] = None,
+    ground_truth_dir: Optional[str] = None,
+    ground_truth_repo: Optional[str] = None,
+    skip_evaluation: bool = False
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -225,6 +231,12 @@ def run_dataset_pipeline(
         mcp_url: MCP server URL (required if enable_mcp=True)
         skip_sampling: If True, skip agentic sampling phase
         force_resample: If True, force re-run sampling even if cached
+        skip_schema_selection: If True, skip schema selection phase
+        force_schema_selection: If True, force re-run schema selection
+        ground_truth_pvmap: Explicit GT PVMAP file path (highest precedence)
+        ground_truth_dir: Directory to search for GT PVMAPs
+        ground_truth_repo: GT repository path (lowest precedence, default)
+        skip_evaluation: If True, skip evaluation phase
 
     Returns:
         Final state dictionary
@@ -272,6 +284,14 @@ def run_dataset_pipeline(
     # Build sub_agents list - Sampling first, then StatVar discovery, then generation, then evaluation
     sub_agents = [sampling_agent]
     logger.info("SamplingAgentWrapper added to pipeline")
+
+    # Add SchemaSelectionAgent if not skipped (Phase 2.5)
+    if not skip_schema_selection:
+        schema_agent = create_schema_selection_agent(model=model)
+        sub_agents.append(schema_agent)
+        logger.info("SchemaSelectionAgent added to pipeline")
+    else:
+        logger.info("SchemaSelectionAgent skipped (--skip-schema-selection)")
 
     # Add StatVarDiscoveryAgent if MCP is enabled (for pre-generation StatVar discovery)
     if enable_mcp and mcp_url:
@@ -337,6 +357,17 @@ def run_dataset_pipeline(
         # Sampling agent flags
         "skip_sampling": skip_sampling,
         "force_resample": force_resample,
+        # Schema selection agent flags
+        "skip_schema_selection": skip_schema_selection,
+        "force_schema_selection": force_schema_selection,
+        # Ground truth configuration (precedence: pvmap > dir > repo)
+        "ground_truth_pvmap": ground_truth_pvmap,
+        "ground_truth_dir": ground_truth_dir,
+        "ground_truth_repo": ground_truth_repo or str(PROJECT_ROOT / "ground_truth"),
+        # Evaluation flags
+        "skip_evaluation": skip_evaluation,
+        # Default data_context (may be updated by SamplingAgent)
+        "data_context": {},
     }
 
     if schema_base_dir:
@@ -480,6 +511,25 @@ if __name__ == "__main__":
                         help="Skip agentic sampling phase (use existing sampled files)")
     parser.add_argument("--force-resample", action="store_true",
                         help="Force re-run of agentic sampling even if cached context exists")
+    # Schema selection flags
+    parser.add_argument("--skip-schema-selection", action="store_true",
+                        help="Skip schema selection phase (use existing schema files)")
+    parser.add_argument("--force-schema-selection", action="store_true",
+                        help="Force re-run schema selection even if files exist")
+    # Ground truth flags (precedence: pvmap > dir > repo)
+    parser.add_argument("--ground-truth-pvmap", type=str, default=None,
+                        help="Path to explicit ground truth PVMAP file (highest priority)")
+    parser.add_argument("--ground-truth-dir", type=str, default=None,
+                        help="Path to directory with ground truth PVMAPs")
+    parser.add_argument("--ground-truth-repo", type=str,
+                        default=os.environ.get('GROUND_TRUTH_REPO', str(PROJECT_ROOT / 'ground_truth')),
+                        help="Path to ground truth repository (default: ground_truth/)")
+    # Evaluation flags
+    parser.add_argument("--skip-evaluation", action="store_true",
+                        help="Skip evaluation phase (no ground truth comparison)")
+    # Dry run
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Preview what would be processed without executing")
     args = parser.parse_args()
 
     # Setup paths
@@ -512,6 +562,26 @@ if __name__ == "__main__":
         # Use first dataset
         dataset_name = datasets[0].name
         print(f"No dataset specified, using first discovered: {dataset_name}")
+
+    # Dry-run mode: preview what would be processed without executing
+    if args.dry_run:
+        print("\n" + "=" * 60)
+        print("[DRY RUN] Preview - no changes will be made")
+        print("=" * 60)
+        print(f"Would process dataset: {dataset_name}")
+        print(f"  Input directory: {input_dir / dataset_name}")
+        print(f"  Output directory: {output_dir / dataset_name}")
+        print(f"  Model: {args.model}")
+        print(f"  Structured output: {args.structured_output}")
+        print(f"  Skip sampling: {args.skip_sampling}")
+        print(f"  Skip schema selection: {args.skip_schema_selection}")
+        print(f"  Skip evaluation: {args.skip_evaluation}")
+        print(f"  Ground truth repo: {args.ground_truth_repo}")
+        if args.ground_truth_pvmap:
+            print(f"  Ground truth PVMAP: {args.ground_truth_pvmap}")
+        if args.ground_truth_dir:
+            print(f"  Ground truth directory: {args.ground_truth_dir}")
+        sys.exit(0)
 
     # Run pipeline for dataset
     print(f"\nRunning pipeline for: {dataset_name}")
@@ -556,7 +626,13 @@ if __name__ == "__main__":
             enable_mcp=enable_mcp,
             mcp_url=mcp_url,
             skip_sampling=args.skip_sampling,
-            force_resample=args.force_resample
+            force_resample=args.force_resample,
+            skip_schema_selection=args.skip_schema_selection,
+            force_schema_selection=args.force_schema_selection,
+            ground_truth_pvmap=args.ground_truth_pvmap,
+            ground_truth_dir=args.ground_truth_dir,
+            ground_truth_repo=args.ground_truth_repo,
+            skip_evaluation=args.skip_evaluation
         )
 
         print("\n" + "=" * 60)

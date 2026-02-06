@@ -62,7 +62,6 @@ async def test_schema_selection_agent_instruction_has_flags(mock_invocation_cont
     """Test that instruction template includes schema selection flags."""
     dataset = DatasetInfo(name="test_dataset", path=temp_dir / "test_dataset")
     mock_invocation_context.session.state["current_dataset"] = dataset
-    mock_invocation_context.session.state["combined_sampled_data"] = str(temp_dir / "sample.csv")
     mock_invocation_context.session.state["skip_schema_selection"] = False
     mock_invocation_context.session.state["force_schema_selection"] = False
 
@@ -70,7 +69,7 @@ async def test_schema_selection_agent_instruction_has_flags(mock_invocation_cont
 
     # Verify instruction has template placeholders
     assert "{current_dataset.name}" in agent.instruction or "{current_dataset}" in agent.instruction
-    assert "{combined_sampled_data}" in agent.instruction
+    assert "{current_dataset.combined_sampled_data}" in agent.instruction
     assert "{skip_schema_selection}" in agent.instruction
     assert "{force_schema_selection}" in agent.instruction
 

@@ -476,12 +476,14 @@ The generate_context tool will write the results to a JSON file.
                 self._populate_state_from_context(ctx, data_context, str(context_file))
                 yield self._create_event(f"Sampling complete. Skeleton summary stored in state.")
             except Exception as e:
-                yield self._create_event(f"Warning: Failed to read data_context.json: {e}")
+                yield self._create_event(f"ERROR: Failed to read data_context.json: {e}")
+                yield self._create_event("Check Gemini API status or manually create agentic_sampled.csv + data_context.json")
                 ctx.session.state["sampling_success"] = False
                 ctx.session.state["error"] = f"Failed to read context file: {e}"
         else:
-            # Context file not created - this should not happen with forced tool calling
+            # Context file not created
             yield self._create_event("ERROR: LLM didn't call generate_context despite forced tool calling")
+            yield self._create_event("Check Gemini API status or manually create agentic_sampled.csv + data_context.json")
             ctx.session.state["skeleton_summary"] = ""
             ctx.session.state["sampling_success"] = False
             ctx.session.state["error"] = "generate_context was not called by the LLM"

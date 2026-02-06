@@ -11,11 +11,23 @@ Counter Categories:
 - generated-*: Success metrics
 - input-*: Input statistics
 
+Enhanced Features:
+- Debug context extraction: Extracts specific failing values from debug counters
+- Iteration-specific advice: Different guidance for each retry attempt
+- Error prioritization: Errors sorted by impact (Gemini-recommended order)
+- Actionable fixes: Concrete examples for common error types
+- Transformation feedback: Shows before/after for failing rows
+- Systematic pattern detection: Identifies patterns across errors
+
 Usage:
     from src.pipeline.validation.counter_feedback import parse_counters_file, generate_feedback
 
     counters = parse_counters_file(counters_file_path)
-    feedback = generate_feedback(counters, log_output=optional_log_text)
+    feedback = generate_feedback(counters, log_output=optional_log_text, attempt_number=1)
+
+    # For transformation analysis (Phase 10)
+    from src.pipeline.validation.counter_feedback import detect_systematic_patterns
+    patterns = detect_systematic_patterns(error_context_dict)
 """
 
 import csv
@@ -23,6 +35,36 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+
+# Error priority order (Gemini-recommended: fix highest-impact errors first)
+# Errors are sorted by this priority, then by count
+ERROR_PRIORITY = [
+    'error-pvmap-dropped-undefined-property',  # 1. PVMAP structure errors first
+    'error-unresolved-place',                  # 2. Place resolution (unlocks many rows)
+    'error-statvar-missing-property',          # 3. StatVar completeness
+    'error-svobs-missing-property',            # 4. Observation completeness
+    'error-mismatched-svobs',                  # 5. Duplicate observations
+    'error-duplicate-statvars',                # 6. Duplicate StatVar definitions
+    'error-aggregate-invalid-values',          # 7. Value aggregation
+    'error-invalid-multiply-factor',           # 8. Multiplication factors
+]
+
+# Iteration-specific advice (retry strategies)
+ITERATION_ADVICE = {
+    1: """## Retry Strategy (Attempt 1 → 2)
+Focus on the highest-count errors first. Fixing place resolution often unlocks many other rows.
+Check PVMAP key names match CSV column headers EXACTLY (case-sensitive).""",
+
+    2: """## Retry Strategy (Attempt 2 → 3)
+Review changes from last attempt - did they address the right issue?
+For place errors: verify format with Data Commons Explorer (e.g., geoId/06 not geoId/6).
+For property errors: check CSV column names match PVMAP property definitions.""",
+
+    3: """## Retry Strategy (Attempt 3 → 4)
+Consider simplifying: fix ONE error type at a time.
+If place resolution fails repeatedly, try explicit dcid mappings instead of format strings.
+If StatVar properties missing, ensure populationType, measuredProperty, statType are all defined.""",
+}
 
 # Error counter patterns and their fix recommendations
 ERROR_PATTERNS = {
@@ -32,44 +74,87 @@ ERROR_PATTERNS = {
         'common_causes': [
             'FIPS codes missing leading zeros (e.g., 6 instead of 06)',
             'Missing geoId/ prefix in observationAbout mapping',
-            'Invalid place identifiers that don\'t match Data Commons schema',
+            'Place names ambiguous without typeOf or containedInPlace context',
         ],
         'fix_pattern': '''Fix place mapping in PVMAP:
-- Add dcid:geoId/ prefix: observationAbout,dcid:geoId/{Data}
-- Ensure FIPS codes are zero-padded (2 digits for state, 5 for county)
-- For country codes, use dcid:country/{Data} format''',
+
+**For FIPS codes (most common):**
+```
+State FIPS Code,observationAbout,dcid:geoId/{Number:02d}
+```
+Or use explicit padding: `dcid:geoId/0{Data}` for single-digit states.
+
+**For country ISO codes:**
+```
+Country,observationAbout,dcid:country/{Data}
+```
+
+**For city/county names (needs context):**
+Add both place name AND parent place for disambiguation.
+
+**Common FIPS Fixes:**
+- California: geoId/06 (not geoId/6)
+- Texas: geoId/48
+- Counties need 5 digits: geoId/06037 (Los Angeles)''',
     },
     'error-statvar-missing-property': {
-        'category': 'StatVar Definition',
-        'description': 'StatVar definitions are incomplete (missing required properties)',
+        'category': 'StatVar Definition Incomplete',
+        'description': 'Statistical variable missing required properties',
         'common_causes': [
-            'Missing populationType (what entity is being counted)',
-            'Missing measuredProperty (what aspect is being measured)',
-            'Missing value mapping for the measurement column',
+            'Missing populationType (Person, Household, Establishment, etc.)',
+            'Missing measuredProperty (count, income, area, etc.)',
+            'Missing statType (Count, Mean, Median, Percent, etc.)',
         ],
-        'fix_pattern': '''Fix StatVar definition in PVMAP:
-Required properties for every StatVar:
-- populationType: what are we counting? (Person, Household, Establishment, etc.)
-- measuredProperty: what aspect? (count, income, age, amount, etc.)
-- value: the numeric measurement from the data
+        'fix_pattern': '''Add required StatVar properties:
 
-Example: Population,populationType,dcid:Person,measuredProperty,dcid:count,value,{Number}''',
+**Every StatVar needs:**
+- populationType: what entity (Person, Household, Place)
+- measuredProperty: what aspect (count, income, area)
+- statType: how measured (Count, Mean, Percent)
+- value: the numeric measurement column
+
+**Example for population count:**
+```
+Population,populationType,dcid:Person,measuredProperty,dcid:count,statType,dcid:measuredValue,value,{Number}
+```
+
+**Example for median income:**
+```
+Median Income,populationType,dcid:Person,measuredProperty,dcid:income,statType,dcid:medianValue,value,{Number}
+```''',
     },
     'error-mismatched-svobs': {
         'category': 'Duplicate Observations',
-        'description': 'Multiple rows creating the same observation (collision)',
+        'description': 'Multiple observations for same StatVar + Place + Date',
         'common_causes': [
-            'A dimension column (Gender, Age, Race, etc.) is not mapped',
-            'Multiple values for same Place + Date + StatVar combination',
-            'Missing constraint property that differentiates rows',
+            'A dimension column (Gender, Age, Race) not mapped as StatVar qualifier',
+            'Multiple measurement methods not differentiated',
+            'Missing constraint property to distinguish rows',
         ],
-        'fix_pattern': '''Fix by mapping the differentiating column:
-The uniqueness rule: Place + Date + StatVar = ONE value only
+        'fix_pattern': '''Add qualifiers to differentiate observations:
 
-Identify which column creates different rows and add its mapping:
-- For gender: Male,gender,dcid:Male and Female,gender,dcid:Female
-- For age groups: map each age bracket to appropriate constraint
-- For categories: map each category value as a StatVar constraint''',
+**Identify the column creating different rows and add its mapping:**
+
+**For gender breakdowns:**
+```
+Male,gender,dcid:Male
+Female,gender,dcid:Female
+```
+
+**For age groups:**
+```
+0-17,age,dcid:Years0To17
+18-64,age,dcid:Years18To64
+65+,age,dcid:Years65Onwards
+```
+
+**For race/ethnicity:**
+```
+White,race,dcid:WhiteAlone
+Black,race,dcid:BlackOrAfricanAmericanAlone
+```
+
+**Rule: Place + Date + StatVar = ONE value only**''',
     },
     'error-pvmap-dropped-undefined-property': {
         'category': 'PVMAP Key Mismatch',
@@ -80,9 +165,13 @@ Identify which column creates different rows and add its mapping:
             'Column renamed or missing from input data',
         ],
         'fix_pattern': '''Fix column name matching:
-- Match CSV column headers exactly (case-sensitive)
-- Check for underscores vs spaces in column names
-- Verify column exists in the input data''',
+
+**Keys must match EXACTLY (case-sensitive):**
+- If CSV has "State FIPS", PVMAP key must be "State FIPS" (not "state fips")
+- Check for leading/trailing spaces in CSV headers
+- Check for underscores vs spaces: "State_FIPS" vs "State FIPS"
+
+**Debugging tip:** Print the first row of the CSV to see exact column names.''',
     },
     'error-duplicate-statvars': {
         'category': 'Duplicate StatVars',
@@ -115,10 +204,15 @@ Identify which column creates different rows and add its mapping:
             'Missing value mapping',
         ],
         'fix_pattern': '''Ensure all required observation properties are mapped:
-- observationAbout: the place DCID
-- observationDate: the date/time of observation
-- value: the numeric measurement
-- variableMeasured: reference to StatVar (auto-generated)''',
+
+**Required for every observation:**
+```
+Year,observationDate,{Data}
+State FIPS,observationAbout,dcid:geoId/{Data}
+Population,value,{Number}
+```
+
+All three (observationAbout, observationDate, value) MUST be present.''',
     },
     'error-invalid-multiply-factor': {
         'category': 'Invalid Multiply Factor',
@@ -261,6 +355,71 @@ def identify_primary_error(error_counters: Dict[str, int]) -> Optional[str]:
     return max(error_counters.items(), key=lambda x: x[1])[0]
 
 
+def prioritize_errors(error_counters: Dict[str, int]) -> List[Tuple[str, int]]:
+    """Sort errors by priority order, then by count.
+
+    Uses ERROR_PRIORITY to determine which errors to fix first.
+    Errors not in priority list are sorted to the end by count.
+
+    Args:
+        error_counters: Dictionary of error counters
+
+    Returns:
+        List of (error_name, count) tuples sorted by priority
+    """
+    def priority_key(item):
+        error_name, count = item
+        # Find priority (lower = higher priority)
+        try:
+            priority = ERROR_PRIORITY.index(error_name)
+        except ValueError:
+            # Check if error_name starts with any priority pattern
+            for i, pattern in enumerate(ERROR_PRIORITY):
+                if error_name.startswith(pattern):
+                    priority = i
+                    break
+            else:
+                priority = len(ERROR_PRIORITY)  # Unknown errors last
+
+        return (priority, -count)  # Sort by priority, then by count desc
+
+    return sorted(error_counters.items(), key=priority_key)
+
+
+def extract_debug_examples(
+    counters: Dict[str, int],
+    error_type: str,
+    max_examples: int = 5
+) -> List[str]:
+    """Extract specific failing examples from debug counters.
+
+    When stat_var_processor runs with --debug=True, it creates extended
+    counters like 'error-unresolved-place_geoId/6' that capture the
+    specific failing values. This function extracts those values.
+
+    Args:
+        counters: Full counter dictionary including debug counters
+        error_type: Base error type (e.g., 'error-unresolved-place')
+        max_examples: Maximum examples to return
+
+    Returns:
+        List of specific failing values (e.g., ['geoId/6', 'geoId/12', ...])
+    """
+    examples = []
+    prefix = f"{error_type}_"
+
+    for counter_name, count in counters.items():
+        if counter_name.startswith(prefix) and isinstance(count, (int, float)) and count > 0:
+            # Extract the debug context (everything after the prefix)
+            example = counter_name[len(prefix):]
+            if example:  # Skip empty examples
+                examples.append((example, int(count)))
+
+    # Sort by count (most frequent first) and return top N
+    examples.sort(key=lambda x: -x[1])
+    return [ex[0] for ex in examples[:max_examples]]
+
+
 def match_error_pattern(error_name: str) -> Optional[Dict]:
     """Match an error counter name to a known error pattern.
 
@@ -343,14 +502,21 @@ def extract_log_samples_for_error(
 def generate_feedback(
     counters: Dict[str, int],
     log_output: Optional[str] = None,
-    include_coverage: bool = True
+    include_coverage: bool = True,
+    attempt_number: int = 0
 ) -> str:
     """Generate targeted feedback based on counter analysis.
+
+    Enhanced version with:
+    - Priority-sorted errors (fix most impactful first)
+    - Specific failing examples from debug counters
+    - Iteration-specific advice
 
     Args:
         counters: Parsed counter dictionary
         log_output: Optional log output for extracting sample errors
         include_coverage: Whether to include coverage analysis
+        attempt_number: Current attempt number (0-indexed) for iteration-specific advice
 
     Returns:
         Formatted feedback string for LLM retry loop
@@ -361,8 +527,8 @@ def generate_feedback(
     if include_coverage:
         coverage, output_rows, input_rows = calculate_coverage(counters)
         coverage_section = f"""## Coverage Analysis
-- Input rows processed: {input_rows}
-- Output observations generated: {output_rows}
+- Input rows processed: {input_rows:,}
+- Output observations generated: {output_rows:,}
 - Coverage ratio: {coverage*100:.1f}%"""
 
         if coverage < 0.5:
@@ -372,24 +538,24 @@ def generate_feedback(
 
         sections.append(coverage_section)
 
-    # 2. Error Analysis
+    # 2. Prioritized Error Analysis
     error_counters = get_error_counters(counters)
 
     if error_counters:
-        error_section = "## Error Summary\n"
-        error_section += "The following errors were detected:\n\n"
+        error_section = "## Prioritized Errors\n"
+        error_section += "The following errors were detected (sorted by fix priority):\n\n"
 
-        # Sort errors by count (descending)
-        sorted_errors = sorted(error_counters.items(), key=lambda x: -x[1])
+        # Sort errors by priority, then by count
+        sorted_errors = prioritize_errors(error_counters)
 
-        for error_name, count in sorted_errors:
-            error_section += f"- **{error_name}**: {count:,} occurrences\n"
+        for i, (error_name, count) in enumerate(sorted_errors, 1):
+            error_section += f"{i}. **{error_name}**: {count:,} occurrences\n"
 
         sections.append(error_section)
 
-        # 3. Primary Error Diagnosis
-        primary_error = identify_primary_error(error_counters)
-        if primary_error:
+        # 3. Primary Error Diagnosis (highest priority error)
+        if sorted_errors:
+            primary_error = sorted_errors[0][0]
             pattern = match_error_pattern(primary_error)
 
             if pattern:
@@ -402,6 +568,17 @@ def generate_feedback(
                 for cause in pattern.get('common_causes', []):
                     diagnosis += f"- {cause}\n"
 
+                # 3a. Extract specific failing examples from debug counters
+                debug_examples = extract_debug_examples(counters, primary_error)
+                if debug_examples:
+                    diagnosis += f"""
+**Specific Failing Examples:**
+These values are causing {pattern['category'].lower()} errors:
+"""
+                    for example in debug_examples[:5]:
+                        diagnosis += f"- `{example}`\n"
+                    diagnosis += "\nFocus on fixing these specific cases in your PVMAP.\n"
+
                 diagnosis += f"""
 **How to Fix:**
 {pattern['fix_pattern']}"""
@@ -413,8 +590,9 @@ def generate_feedback(
 This error type is not in the known patterns.
 Please review the PVMAP for issues related to: {primary_error.replace('error-', '').replace('-', ' ')}""")
 
-        # 4. Sample Error Lines
-        if log_output and primary_error:
+        # 4. Sample Error Lines from Log
+        if log_output and sorted_errors:
+            primary_error = sorted_errors[0][0]
             samples = extract_log_samples_for_error(log_output, primary_error)
             if samples:
                 sample_section = "## Sample Error Messages\n```\n"
@@ -442,6 +620,10 @@ Please review the PVMAP for issues related to: {primary_error.replace('error-', 
         if generated_svobs:
             success_section += f"- Observations generated: {generated_svobs}\n"
         sections.append(success_section)
+
+    # 7. Iteration-Specific Advice
+    if attempt_number > 0 and attempt_number in ITERATION_ADVICE:
+        sections.append(ITERATION_ADVICE[attempt_number])
 
     # Combine all sections
     if sections:
@@ -501,3 +683,287 @@ def diagnose_validation_failure(
     }
 
     return result
+
+
+# ============================================================================
+# Phase 9-10: Enhanced Pattern Detection and Transformation Feedback
+# ============================================================================
+
+def detect_systematic_patterns(
+    error_contexts: Dict,
+    threshold: float = 0.8
+) -> List[Dict]:
+    """Detect systematic patterns in errors.
+
+    Analyzes error context to identify patterns that affect many rows
+    with the same or similar characteristics.
+
+    Args:
+        error_contexts: Dict mapping error_type -> context dict with
+            'total_count' and 'unique_failing_values' keys
+        threshold: Minimum ratio of errors sharing a pattern (default: 0.8)
+
+    Returns:
+        List of detected patterns sorted by confidence
+    """
+    patterns = []
+
+    for error_type, ctx in error_contexts.items():
+        total_count = ctx.get('total_count', 0)
+        if total_count < 5:
+            continue
+
+        unique_values = ctx.get('unique_failing_values', {})
+
+        for col, values in unique_values.items():
+            value_list = list(values) if isinstance(values, set) else values
+
+            # Single-value pattern: all errors have same value
+            if len(value_list) == 1:
+                patterns.append({
+                    'type': 'single_value',
+                    'error': error_type,
+                    'column': col,
+                    'value': value_list[0],
+                    'count': total_count,
+                    'confidence': 1.0,
+                    'description': (
+                        f"All {total_count} '{error_type}' errors "
+                        f"have {col}='{value_list[0]}'"
+                    )
+                })
+
+            # Few-values pattern: limited unique values causing many errors
+            elif len(value_list) < total_count * 0.2 and total_count >= 10:
+                patterns.append({
+                    'type': 'few_values',
+                    'error': error_type,
+                    'column': col,
+                    'values': value_list[:5],
+                    'count': total_count,
+                    'confidence': 0.8,
+                    'description': (
+                        f"Only {len(value_list)} unique values in '{col}' "
+                        f"causing {total_count} errors"
+                    )
+                })
+
+            # Format pattern: detect common format issues
+            if _detect_format_pattern(value_list):
+                pattern_info = _detect_format_pattern(value_list)
+                patterns.append({
+                    'type': 'format_pattern',
+                    'error': error_type,
+                    'column': col,
+                    'pattern': pattern_info['pattern'],
+                    'examples': pattern_info['examples'],
+                    'count': total_count,
+                    'confidence': pattern_info['confidence'],
+                    'description': pattern_info['description']
+                })
+
+    # Sort by confidence descending
+    return sorted(patterns, key=lambda x: -x['confidence'])
+
+
+def _detect_format_pattern(values: List[str]) -> Optional[Dict]:
+    """Detect common format patterns in failing values.
+
+    Args:
+        values: List of failing values
+
+    Returns:
+        Pattern info dict or None
+    """
+    if not values:
+        return None
+
+    # Check for missing leading zeros (common FIPS issue)
+    single_digit_count = sum(1 for v in values if v.isdigit() and len(v) == 1)
+    if single_digit_count > len(values) * 0.5 and len(values) >= 3:
+        return {
+            'pattern': 'missing_leading_zeros',
+            'examples': [v for v in values[:3] if v.isdigit() and len(v) == 1],
+            'confidence': 0.9,
+            'description': (
+                "Values appear to be missing leading zeros "
+                "(e.g., '6' should be '06' for California)"
+            )
+        }
+
+    # Check for missing dcid: prefix
+    dcid_candidates = sum(
+        1 for v in values
+        if v and not v.startswith('dcid:') and (
+            v.startswith('geoId/') or
+            v.startswith('country/') or
+            v in ['Person', 'Household', 'HousingUnit', 'Establishment']
+        )
+    )
+    if dcid_candidates > len(values) * 0.5:
+        return {
+            'pattern': 'missing_dcid_prefix',
+            'examples': values[:3],
+            'confidence': 0.85,
+            'description': "Values appear to be missing 'dcid:' prefix"
+        }
+
+    return None
+
+
+def format_pattern_feedback(patterns: List[Dict]) -> str:
+    """Format detected patterns into actionable feedback.
+
+    Args:
+        patterns: List of pattern dicts from detect_systematic_patterns
+
+    Returns:
+        Formatted feedback string
+    """
+    if not patterns:
+        return "No systematic patterns detected - errors may be random data issues."
+
+    lines = ["## Systematic Error Patterns Detected", ""]
+
+    for i, p in enumerate(patterns[:5], 1):
+        lines.append(f"**Pattern {i}** (confidence: {p['confidence']:.0%})")
+        lines.append(f"  {p['description']}")
+
+        if p['type'] == 'single_value':
+            lines.append(
+                f"  **Action:** Check PVMAP mapping for column '{p['column']}' - "
+                f"value '{p['value']}' is causing all errors"
+            )
+        elif p['type'] == 'few_values':
+            lines.append(
+                f"  **Action:** Add specific mappings for values: {p['values']}"
+            )
+        elif p['type'] == 'format_pattern':
+            if p['pattern'] == 'missing_leading_zeros':
+                lines.append(
+                    "  **Action:** Add zero-padding to FIPS codes, e.g., "
+                    "dcid:geoId/{Number:02d} or dcid:geoId/0{Data}"
+                )
+            elif p['pattern'] == 'missing_dcid_prefix':
+                lines.append(
+                    "  **Action:** Add 'dcid:' prefix to Data Commons identifiers"
+                )
+
+        lines.append("")
+
+    return '\n'.join(lines)
+
+
+def generate_transformation_feedback(
+    error_contexts: Dict,
+    max_examples: int = 3
+) -> str:
+    """Generate feedback showing before/after transformations for failing rows.
+
+    This helps the LLM understand exactly what went wrong during transformation.
+
+    Args:
+        error_contexts: Dict mapping error_type -> context dict with
+            'sample_rows' containing transformation details
+        max_examples: Maximum examples per error type
+
+    Returns:
+        Formatted transformation analysis string
+    """
+    sections = []
+
+    for error_type, ctx in error_contexts.items():
+        sample_rows = ctx.get('sample_rows', [])
+        if not sample_rows:
+            continue
+
+        section_lines = [f"## {error_type} - Transformation Analysis"]
+        section_lines.append(f"Total occurrences: {ctx.get('total_count', len(sample_rows))}")
+
+        for sample in sample_rows[:max_examples]:
+            row_num = sample.get('row_number', '?')
+            section_lines.append(f"\n### Row {row_num}")
+            section_lines.append("```")
+
+            # Original values
+            original = sample.get('original_values', {})
+            if original:
+                section_lines.append("BEFORE (Original Data):")
+                for col, val in original.items():
+                    section_lines.append(f"  {col}: {val}")
+
+            # Transformed values
+            transformed = sample.get('transformed_values', {})
+            if transformed:
+                section_lines.append("\nAFTER (Transformation Attempted):")
+                for prop, val in transformed.items():
+                    section_lines.append(f"  {prop}: {val}")
+
+            # Error info
+            error_stage = sample.get('error_stage', 'unknown')
+            error_msg = sample.get('error_message', 'Unknown error')
+            section_lines.append(f"\nERROR at '{error_stage}':")
+            section_lines.append(f"  {error_msg}")
+            section_lines.append("```")
+
+        sections.append('\n'.join(section_lines))
+
+    return '\n\n---\n\n'.join(sections) if sections else ""
+
+
+def generate_enhanced_feedback(
+    counters: Dict[str, int],
+    error_context: Optional[Dict] = None,
+    log_output: Optional[str] = None,
+    attempt_number: int = 0,
+    include_transformation: bool = True,
+    include_patterns: bool = True
+) -> str:
+    """Generate comprehensive enhanced feedback with all Phase 9-10 features.
+
+    This is the main entry point for enhanced feedback generation, combining:
+    - Standard counter-based feedback
+    - Transformation analysis (before/after)
+    - Systematic pattern detection
+    - Iteration-specific advice
+
+    Args:
+        counters: Parsed counter dictionary
+        error_context: Enhanced error context dict (from EnhancedErrorContext.to_dict())
+        log_output: Optional log output for sample extraction
+        attempt_number: Current attempt number (0-indexed)
+        include_transformation: Whether to include transformation feedback
+        include_patterns: Whether to include pattern detection
+
+    Returns:
+        Comprehensive feedback string
+    """
+    sections = []
+
+    # 1. Standard counter-based feedback
+    base_feedback = generate_feedback(
+        counters=counters,
+        log_output=log_output,
+        include_coverage=True,
+        attempt_number=attempt_number
+    )
+    sections.append(base_feedback)
+
+    # 2. Transformation analysis (if error_context provided)
+    if include_transformation and error_context:
+        errors_dict = error_context.get('errors', {})
+        if errors_dict:
+            transformation_feedback = generate_transformation_feedback(errors_dict)
+            if transformation_feedback:
+                sections.append(transformation_feedback)
+
+    # 3. Pattern detection
+    if include_patterns and error_context:
+        errors_dict = error_context.get('errors', {})
+        if errors_dict:
+            patterns = detect_systematic_patterns(errors_dict)
+            if patterns:
+                pattern_feedback = format_pattern_feedback(patterns)
+                sections.append(pattern_feedback)
+
+    return '\n\n'.join(sections)

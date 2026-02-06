@@ -4,13 +4,19 @@ Backward compatibility for tools/ imports.
 This file provides re-exports from the new src/pipeline/ and src/processing/ locations
 to maintain backward compatibility during migration.
 
-Current Status: Week 9 Complete - All modules migrated
+For sampling, use the agentic sampling interface:
+    from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
 
-Usage (deprecated - update to new paths):
-    from src.compatibility.tools_compat import sample_csv_file, PropertyValueMapper
+    result = sample_dataset(
+        input_files=[Path(input_file)],
+        output_dir=Path(output_dir)
+    )
+    # result.sampled_file - Path to output
+    # result.skeleton_summary - Markdown for LLM prompts
+    # result.data_context - Structural analysis dict
 
 Recommended (new paths):
-    from src.pipeline.sampling.data_sampler import sample_csv_file
+    from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
     from src.processing.mapping.property_value_mapper import PropertyValueMapper
 """
 
@@ -20,43 +26,31 @@ import warnings
 warnings.warn(
     "The tools/ directory compatibility layer is active. "
     "Please update imports to use src/ paths. "
-    "Example: from src.pipeline.sampling.data_sampler import sample_csv_file",
+    "For sampling, use: from src.pipeline.sampling.sampling_interface import sample_dataset",
     DeprecationWarning,
     stacklevel=2
 )
 
-# Week 5: Pipeline layer re-exports
-from src.pipeline.sampling.data_sampler import sample_csv_file, DataSamplerConfig
-from src.pipeline.sampling.column_analyzer import ColumnAnalyzer, ColumnAnalysisResult
+# Pipeline layer re-exports (sampling via interface only)
+from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
 
-# Week 5: Processing mapping re-exports
-from src.processing.mapping.property_value_mapper import PropertyValueMapper
-from src.processing.mapping.property_value_utils import get_property_value_map
+# Processing mapping re-exports
+try:
+    from src.processing.mapping.property_value_mapper import PropertyValueMapper
+except ImportError:
+    PropertyValueMapper = None
 
-# Week 5: Processing evaluation re-exports
-from src.processing.evaluation.eval_functions import evaluate_expression
-
-# Week 6: Filtering re-exports
-from src.processing.filtering.filter_data_outliers import filter_outliers
-
-# Week 6: Transformation re-exports
-from src.processing.transformation.json_to_csv import json_to_csv
-
-# Week 6: Processing utils re-exports
-from src.processing.utils import get_column_values
+# Column analyzer
+try:
+    from src.pipeline.sampling.column_analyzer import ColumnAnalyzer, ColumnAnalysisResult
+except ImportError:
+    ColumnAnalyzer = None
+    ColumnAnalysisResult = None
 
 __all__ = [
-    # Pipeline - sampling
-    'sample_csv_file', 'DataSamplerConfig',
+    # Pipeline - sampling (agentic only)
+    'sample_dataset', 'SamplingResult',
     'ColumnAnalyzer', 'ColumnAnalysisResult',
     # Processing - mapping
-    'PropertyValueMapper', 'get_property_value_map',
-    # Processing - evaluation
-    'evaluate_expression',
-    # Processing - filtering
-    'filter_outliers',
-    # Processing - transformation
-    'json_to_csv',
-    # Processing - utils
-    'get_column_values',
+    'PropertyValueMapper',
 ]

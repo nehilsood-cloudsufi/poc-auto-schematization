@@ -4,26 +4,28 @@ Evaluation benchmark using diff-based comparison (from PR #1688).
 Compares LLM-generated pv_maps with human-created ground truth using mcf_diff.
 
 Usage:
-    python evaluate_pvmap_diff.py --dataset_path=<path_to_dataset_folder>
+    python -m src.pipeline.evaluation.evaluate_pvmap_diff --dataset_path=<path_to_dataset_folder>
 
 Example:
-    python evaluate_pvmap_diff.py --dataset_path=../statvar_imports/bis/bis_central_bank_policy_rate
+    python -m src.pipeline.evaluation.evaluate_pvmap_diff --dataset_path=../statvar_imports/bis/bis_central_bank_policy_rate
 """
 
 import os
 import sys
 import csv
 import json
+from pathlib import Path
 
 # Add paths for imports
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_DATA_DIR = os.path.dirname(_SCRIPT_DIR)
-# Use new src-based paths (primary)
-sys.path.insert(0, os.path.join(_SCRIPT_DIR, 'src'))
-# Legacy paths (fallback for tools that haven't been migrated)
-sys.path.append(os.path.join(_DATA_DIR, 'tools', 'statvar_importer'))
-sys.path.append(os.path.join(_DATA_DIR, 'tools', 'statvar_importer', 'schema'))
-sys.path.append(os.path.join(_DATA_DIR, 'util'))
+_SCRIPT_DIR = Path(__file__).parent.resolve()
+_SRC_DIR = _SCRIPT_DIR.parent.parent
+_PROJECT_ROOT = _SRC_DIR.parent
+
+# Ensure src is in path
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from absl import app
 from absl import flags
@@ -36,8 +38,8 @@ flags.DEFINE_string('auto_pvmap', '', 'Path to existing auto-generated pvmap (sk
 
 def load_env():
     """Load environment variables from .env file."""
-    env_file = os.path.join(_DATA_DIR, '.env')
-    if os.path.exists(env_file):
+    env_file = _PROJECT_ROOT / '.env'
+    if env_file.exists():
         with open(env_file, 'r') as f:
             for line in f:
                 line = line.strip()
@@ -195,24 +197,20 @@ def run_auto_schematization(input_keys, sample_data_path, output_path, output_di
     # Convert Excel to CSV if needed (LLM expects CSV)
     sample_data_csv = convert_to_csv_if_needed(sample_data_path, output_dir)
 
-    try:
-        from src.infrastructure.config.config_map import ConfigMap
-        from src.infrastructure.metrics.counters import Counters
-    except ImportError:
-        from config_map import ConfigMap
-        from counters import Counters
+    from src.infrastructure.config.config_map import ConfigMap
+    from src.infrastructure.metrics.counters import Counters
     import llm_pvmap_generator
 
     input_pvmap = {key: {} for key in input_keys}
 
-    schema_dir = os.path.join(_DATA_DIR, 'tools', 'statvar_importer', 'schema')
+    schema_dir = _PROJECT_ROOT / 'tools' / 'statvar_importer' / 'schema'
     config = ConfigMap({
         'google_api_key': api_key,
         'llm_model': 'gemini-flash-latest',
         'sample_data': sample_data_csv,
-        'sample_pvmap': os.path.join(schema_dir, 'sample_pvmap.csv'),
-        'sample_statvars': os.path.join(schema_dir, 'sample_statvars.mcf'),
-        'llm_pvmap_prompt': os.path.join(schema_dir, 'llm_pvmap_prompt.txt'),
+        'sample_pvmap': str(schema_dir / 'sample_pvmap.csv'),
+        'sample_statvars': str(schema_dir / 'sample_statvars.mcf'),
+        'llm_pvmap_prompt': str(schema_dir / 'llm_pvmap_prompt.txt'),
     })
 
     print(f"  Calling LLM with {len(input_keys)} keys...")
@@ -225,10 +223,7 @@ def run_auto_schematization(input_keys, sample_data_path, output_path, output_di
 
 def load_pvmap_for_diff(pvmap_path, drop_ignored_props=True):
     """Load pv_map CSV into dict format for diff comparison."""
-    try:
-        from src.processing.mapping.property_value_mapper import load_pv_map
-    except ImportError:
-        from property_value_mapper import load_pv_map
+    from src.processing.mapping.property_value_mapper import load_pv_map
 
     pvmap = load_pv_map(pvmap_path)
     output_pvmap = {}
@@ -257,12 +252,8 @@ def load_pvmap_for_diff(pvmap_path, drop_ignored_props=True):
 
 def compare_pvmaps_diff(auto_pvmap_path, gt_pvmap_path, output_dir):
     """Compare pv_maps using diff-based method from mcf_diff."""
-    try:
-        from src.infrastructure.metrics.counters import Counters
-        from src.data_commons.mcf.mcf_diff import diff_mcf_nodes
-    except ImportError:
-        from counters import Counters
-        from mcf_diff import diff_mcf_nodes
+    from src.infrastructure.metrics.counters import Counters
+    from src.data_commons.mcf.mcf_diff import diff_mcf_nodes
 
     counters = Counters()
 
@@ -348,12 +339,12 @@ def print_diff_report(counters, name):
 
 def main(_):
     if not _FLAGS.dataset_path:
-        print("Usage: python evaluate_pvmap_diff.py --dataset_path=<path>")
+        print("Usage: python -m src.pipeline.evaluation.evaluate_pvmap_diff --dataset_path=<path>")
         return
 
     dataset_path = os.path.abspath(_FLAGS.dataset_path)
     dataset_name = os.path.basename(dataset_path)
-    base_output_dir = _FLAGS.output_dir or os.path.join(_SCRIPT_DIR, 'results')
+    base_output_dir = _FLAGS.output_dir or str(_PROJECT_ROOT / 'results')
     output_dir = os.path.join(base_output_dir, dataset_name)
     os.makedirs(output_dir, exist_ok=True)
 

@@ -1,0 +1,448 @@
+"""
+Unit tests for the enhanced PVMAP retry loop with quality-based retries.
+
+Tests the LoopAgent architecture, conditional agents, and state management.
+"""
+
+import pytest
+from unittest.mock import Mock, patch, AsyncMock
+from pathlib import Path
+import asyncio
+
+from src.agents.pvmap_retry_loop import (
+    create_pvmap_retry_loop,
+    StatePreparationAgent,
+    ConditionalFeedbackAgent,
+    MaxRetriesCheckAgent,
+)
+
+
+# ============================================================================
+# Test Fixtures
+# ============================================================================
+
+@pytest.fixture
+def mock_dataset():
+    """Create mock DatasetInfo object."""
+    dataset = Mock()
+    dataset.name = "test_dataset"
+    dataset.output_dir = Path("/tmp/test_output")
+    dataset.schema_examples = None
+    dataset.combined_sampled_data = None
+    dataset.combined_metadata = None
+    return dataset
+
+
+@pytest.fixture
+def mock_ctx():
+    """Create mock InvocationContext."""
+    ctx = Mock()
+    ctx.session = Mock()
+    ctx.session.state = {}
+    return ctx
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+async def collect_events(agent, ctx):
+    """Collect all events from agent's async generator."""
+    events = []
+    async for event in agent._run_async_impl(ctx):
+        events.append(event)
+    return events
+
+
+def run_agent(agent, ctx):
+    """Run agent synchronously for testing."""
+    return asyncio.get_event_loop().run_until_complete(collect_events(agent, ctx))
+
+
+# ============================================================================
+# Test create_pvmap_retry_loop
+# ============================================================================
+
+class TestCreatePvmapRetryLoop:
+    """Tests for the create_pvmap_retry_loop factory function."""
+
+    def test_creates_loop_agent(self):
+        """Should create a LoopAgent instance."""
+        loop = create_pvmap_retry_loop()
+        assert loop.name == "PVMAPRetryLoop"
+
+    def test_default_max_retries_is_3(self):
+        """Default should be 3 retries (4 total attempts)."""
+        loop = create_pvmap_retry_loop()
+        assert loop.max_iterations == 4  # 3 retries + 1 initial
+
+    def test_custom_max_retries(self):
+        """Should accept custom max_retries."""
+        loop = create_pvmap_retry_loop(max_retries=2)
+        assert loop.max_iterations == 3  # 2 retries + 1 initial
+
+    def test_has_seven_sub_agents(self):
+        """Should have 7 sub-agents in the loop."""
+        loop = create_pvmap_retry_loop()
+        assert len(loop.sub_agents) == 7
+
+    def test_sub_agent_order(self):
+        """Sub-agents should be in correct order."""
+        loop = create_pvmap_retry_loop()
+        agent_names = [a.name for a in loop.sub_agents]
+
+        expected_order = [
+            "StatePrep",
+            "Generator",
+            "Validator",
+            "QualityEvaluator",
+            "QualityFeedback",
+            "ErrorFeedback",
+            "MaxRetriesCheck",
+        ]
+
+        assert agent_names == expected_order
+
+
+# ============================================================================
+# Test StatePreparationAgent
+# ============================================================================
+
+class TestStatePreparationAgent:
+    """Tests for StatePreparationAgent."""
+
+    def test_increments_attempt_number(self, mock_ctx, mock_dataset):
+        """Should increment attempt_number starting from 0."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,  # Initial value
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        assert mock_ctx.session.state["attempt_number"] == 0
+
+    def test_initializes_quality_metrics_history_on_first_attempt(self, mock_ctx, mock_dataset):
+        """Should initialize quality_metrics_history on first attempt."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        assert mock_ctx.session.state["quality_metrics_history"] == []
+        assert mock_ctx.session.state["error_feedback"] == ""
+        assert mock_ctx.session.state["quality_feedback"] == ""
+
+    def test_resets_per_iteration_flags(self, mock_ctx, mock_dataset):
+        """Should reset per-iteration flags on each iteration."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "validation_passed": True,  # From previous iteration
+            "quality_acceptable": True,
+            "quality_stagnant": True,
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Flags should be reset
+        assert mock_ctx.session.state["validation_passed"] is False
+        assert mock_ctx.session.state["quality_acceptable"] is False
+        assert mock_ctx.session.state["quality_stagnant"] is False
+
+    def test_preserves_feedback_on_retries(self, mock_ctx, mock_dataset):
+        """Should preserve feedback from previous iteration on retries."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 0,  # Will become 1
+            "quality_metrics_history": [],
+            "error_feedback": "Previous error feedback",
+            "quality_feedback": "Previous quality feedback",
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Feedback should be preserved
+        assert mock_ctx.session.state["error_feedback"] == "Previous error feedback"
+        assert mock_ctx.session.state["quality_feedback"] == "Previous quality feedback"
+
+    def test_handles_missing_dataset(self, mock_ctx):
+        """Should handle missing current_dataset gracefully."""
+        mock_ctx.session.state = {}
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Should set error state
+        assert "state_prep_error" in mock_ctx.session.state
+
+    def test_ensures_optional_state_defaults(self, mock_ctx, mock_dataset):
+        """Should ensure optional state variables have defaults."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Optional variables should have defaults
+        assert mock_ctx.session.state.get("skeleton_summary") == ""
+        assert mock_ctx.session.state.get("statvar_summary") == ""
+        assert mock_ctx.session.state.get("structure_warnings") == ""
+        assert mock_ctx.session.state.get("quality_diff_summary") == ""
+
+
+# ============================================================================
+# Test ConditionalFeedbackAgent
+# ============================================================================
+
+class TestConditionalFeedbackAgent:
+    """Tests for ConditionalFeedbackAgent (error feedback)."""
+
+    def test_runs_when_validation_failed(self, mock_ctx):
+        """Should run feedback agent when validation failed."""
+        mock_ctx.session.state = {
+            "validation_passed": False,
+            "validation_error": "Some error",
+            "pvmap_csv": "key,prop,value",
+            "sampled_data": "col1,col2",
+        }
+
+        agent = ConditionalFeedbackAgent()
+
+        # Mock the inner feedback agent with async generator
+        async def mock_run_async(ctx):
+            if False:  # Empty generator
+                yield
+
+        mock_inner = Mock()
+        mock_inner.run_async = mock_run_async
+        agent.feedback_agent = mock_inner
+
+        events = run_agent(agent, mock_ctx)
+
+        # Should have yielded "generating error feedback" message
+        assert any("error feedback" in str(e.content.parts[0].text).lower() for e in events)
+
+    def test_skips_when_validation_passed(self, mock_ctx):
+        """Should skip when validation passed."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+        }
+
+        agent = ConditionalFeedbackAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Should skip
+        assert len(events) == 1
+        assert "skipping" in events[0].content.parts[0].text.lower()
+
+    def test_clears_quality_feedback_when_running(self, mock_ctx):
+        """Should clear quality_feedback when generating error feedback."""
+        mock_ctx.session.state = {
+            "validation_passed": False,
+            "quality_feedback": "Old quality feedback",
+        }
+
+        agent = ConditionalFeedbackAgent()
+
+        # Mock the inner feedback agent with async generator
+        async def mock_run_async(ctx):
+            if False:  # Empty generator
+                yield
+
+        mock_inner = Mock()
+        mock_inner.run_async = mock_run_async
+        agent.feedback_agent = mock_inner
+
+        events = run_agent(agent, mock_ctx)
+
+        # Quality feedback should be cleared
+        assert mock_ctx.session.state["quality_feedback"] == ""
+
+
+# ============================================================================
+# Test MaxRetriesCheckAgent
+# ============================================================================
+
+class TestMaxRetriesCheckAgent:
+    """Tests for MaxRetriesCheckAgent."""
+
+    def test_escalates_when_max_reached(self, mock_ctx, mock_dataset):
+        """Should escalate when max retries reached."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,  # Max reached (0, 1, 2, 3 = 4 attempts)
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Should escalate
+        assert any(e.actions and e.actions.escalate for e in events)
+        assert mock_ctx.session.state["exit_reason"] == "max_retries"
+        assert mock_ctx.session.state["generation_success"] is False
+
+    def test_continues_when_retries_available(self, mock_ctx, mock_dataset):
+        """Should continue when retries still available."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 1,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Should NOT escalate
+        final_event = events[-1]
+        assert final_event.actions.escalate is False
+
+    def test_skips_when_quality_already_handled_exit(self, mock_ctx, mock_dataset):
+        """Should skip if quality already handled exit."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": True,  # Already accepted
+            "quality_stagnant": False,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Should skip without escalating
+        assert len(events) == 1
+        # exit_reason should not be overwritten
+        assert mock_ctx.session.state.get("exit_reason") != "max_retries"
+
+    def test_error_message_includes_error_feedback(self, mock_ctx, mock_dataset):
+        """Error message should include error_feedback when available."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "error_feedback": "Key 'year' not found",
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        error = mock_ctx.session.state["error"]
+        assert "validation error" in error.lower()
+        assert "Key 'year' not found" in error
+
+    def test_error_message_includes_quality_score(self, mock_ctx, mock_dataset):
+        """Error message should include quality score when available."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "quality_feedback": "Need to fix keys",
+            "quality_metrics": {"pv_accuracy": 25.0},
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        error = mock_ctx.session.state["error"]
+        assert "25.0%" in error
+
+
+# ============================================================================
+# Test Full Loop Flow (Integration-style)
+# ============================================================================
+
+class TestLoopFlow:
+    """Integration-style tests for the full loop flow."""
+
+    def test_max_attempts_is_four(self):
+        """Loop should allow max 4 attempts by default."""
+        loop = create_pvmap_retry_loop()
+        assert loop.max_iterations == 4
+
+    def test_loop_structure_supports_quality_retries(self):
+        """Loop should have agents for quality-based retries."""
+        loop = create_pvmap_retry_loop()
+        agent_names = [a.name for a in loop.sub_agents]
+
+        # Must have quality evaluator
+        assert "QualityEvaluator" in agent_names
+
+        # Must have quality feedback
+        assert "QualityFeedback" in agent_names
+
+        # Must have error feedback
+        assert "ErrorFeedback" in agent_names
+
+    def test_state_outputs_documented(self):
+        """Loop docstring should document all state outputs."""
+        loop = create_pvmap_retry_loop()
+        # The factory function has a docstring
+        docstring = create_pvmap_retry_loop.__doc__
+
+        expected_outputs = [
+            "generation_success",
+            "pvmap_path",
+            "pvmap_csv",
+            "exit_reason",
+            "quality_metrics",
+            "quality_metrics_history",
+        ]
+
+        for output in expected_outputs:
+            assert output in docstring
+
+
+# ============================================================================
+# Test Edge Cases
+# ============================================================================
+
+class TestEdgeCases:
+    """Tests for edge cases and error handling."""
+
+    def test_handles_zero_max_retries(self):
+        """Should handle max_retries=0 (single attempt only)."""
+        loop = create_pvmap_retry_loop(max_retries=0)
+        assert loop.max_iterations == 1
+
+    @patch.dict('os.environ', {'PVMAP_GENERATOR_MODEL': 'gemini-1.5-pro'})
+    def test_respects_model_environment_override(self):
+        """Should use model from environment if set."""
+        loop = create_pvmap_retry_loop()
+        # Generator should use environment model
+        generator = loop.sub_agents[1]  # Generator is second
+        assert generator.model == "gemini-1.5-pro"
+
+    def test_state_prep_with_file_read_errors(self, mock_ctx):
+        """Should handle file read errors gracefully."""
+        mock_dataset = Mock()
+        mock_dataset.name = "test"
+        mock_dataset.output_dir = Path("/tmp/test")
+        mock_dataset.schema_examples = "/nonexistent/path.txt"
+        mock_dataset.combined_sampled_data = "/nonexistent/data.csv"
+        mock_dataset.combined_metadata = "/nonexistent/meta.csv"
+
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Should complete without crashing
+        # Schema examples should have fallback message
+        assert "schema_examples" in mock_ctx.session.state

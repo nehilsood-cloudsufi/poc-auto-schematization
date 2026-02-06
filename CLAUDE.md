@@ -13,13 +13,11 @@ This is an **automated PVMAP (Property-Value Map) generation pipeline** that tra
 ### Environment Setup
 
 ```bash
-# Install dependencies (choose one)
-uv sync                          # Recommended
-pip install -r requirements.txt  # Alternative
+# Install dependencies
+uv sync
 
 # Activate virtual environment
-source .venv/bin/activate        # uv
-source venv/bin/activate         # pip
+source .venv/bin/activate
 
 # Set required environment variables
 export PYTHONPATH="$(pwd):$(pwd)/src"
@@ -33,28 +31,41 @@ export GROUND_TRUTH_REPO=/path/to/ground_truth
 
 ### Running the Pipeline
 
+**Primary Entry Point:** `src/run_pipeline.py` (ADK-based pipeline)
+
 ```bash
-# Process all datasets
-python3 run_pvmap_pipeline.py
+# Process specific dataset (recommended)
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 
-# Process specific dataset
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+# Process with structured output (deterministic CSV)
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --structured-output
 
-# Test with test directories
-python3 run_pvmap_pipeline.py --input-dir=test_input --output-dir=test_output
+# Skip sampling phase (use existing sampled files)
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-sampling
 
-# Force regenerate samples
-python3 run_pvmap_pipeline.py --force-resample
+# Skip schema selection phase
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-schema-selection
 
-# Skip phases
-python3 run_pvmap_pipeline.py --skip-schema-selection --skip-evaluation
+# Skip evaluation phase (no ground truth comparison)
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-evaluation
 
-# Resume from specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+# Use explicit ground truth file
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate \
+  --ground-truth-pvmap=ground_truth/bis_bis_central_bank_policy_rate/pvmap.csv
 
 # Dry run (preview without execution)
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --dry-run
+
+# Force resample data
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --force-resample
+
+# Use different model
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --model=gemini-2.5-pro
+
+# Enable MCP integration for StatVar discovery
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --enable-mcp
 ```
+
 
 ### Running Tests
 
@@ -186,7 +197,7 @@ Phase 1: Discovery → Phase 2: Sampling → Phase 2.5: Schema Selection
   → Phase 3: PVMAP Generation → Phase 4: Validation → Phase 5: Evaluation
 ```
 
-**Main Entry Point:** `run_pvmap_pipeline.py` (stays at project root)
+**Main Entry Point:** `src/run_pipeline.py` (ADK-based pipeline)
 
 #### Phase 1: Discovery
 - Scans `input/` directory for datasets
@@ -302,7 +313,7 @@ Error logs can be 10KB+, so they're sampled before feedback:
 
 #### 4. Environment & Path Management
 
-**CRITICAL ORDER** (lines 19-37 of run_pvmap_pipeline.py):
+**CRITICAL ORDER** (in src/run_pipeline.py):
 1. Load `.env` FIRST before any imports
 2. Set BASE_DIR constant
 3. Parse PYTHONPATH environment variable
@@ -316,14 +327,14 @@ This ensures:
 
 ### Key Components
 
-#### Core Pipeline (`run_pvmap_pipeline.py`)
+#### Core Pipeline (`src/run_pipeline.py`)
 
 | Component | Purpose |
 |-----------|---------|
 | `DatasetInfo` class | Typed object tracking file paths for a dataset |
 | `discover_datasets()` | Scan input directory, return list of DatasetInfo objects |
 | `prepare_dataset()` | Orchestrate sampling & schema selection |
-| `sample_dataset_files()` | Wrapper around data_sampler.py |
+| `sample_dataset_files()` | Run agentic sampling via sampling_interface |
 | `select_schema_for_dataset()` | Wrapper around schema_selector.py with Gemini |
 | `populate_prompt()` | Replace template placeholders with dataset content |
 | `generate_pvmap()` | Call Gemini API, save response |
@@ -333,26 +344,28 @@ This ensures:
 | `evaluate_generated_pvmap()` | Compare vs ground truth, calculate metrics |
 | `run_dataset()` | Main retry loop with inline validation |
 
-#### Data Sampler (`src/pipeline/sampling/data_sampler.py`)
+#### Agentic Data Sampler (`src/pipeline/sampling/sampling_interface.py`)
 
-**Purpose:** Generate representative data samples from large CSV files
+**Purpose:** LLM-driven data sampling with skeleton_summary generation
 
 **Key features:**
-- Smart column analysis (detects constant/derived columns)
-- Categorical detection (ensures all values covered)
-- Numeric coverage (samples across quartiles)
-- Aggregation detection (limits total/summary rows)
-- Target: 40-80 rows by default
-- Highly configurable (50+ config flags)
+- LLM-driven column classification (place, time, dimension, value)
+- Generates skeleton_summary for downstream PVMAP prompt
+- Generates data_context.json with structural analysis
+- Caches results for fast subsequent runs
+- Target: 60-100 rows with intelligent sampling strategies
 
 **Public API:**
 ```python
-from src.pipeline.sampling.data_sampler import sample_csv_file
+from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
 
-sample_csv_file(
-    input_path="input/dataset/test_data/input_data.csv",
-    output_path="input/dataset/test_data/input_data_sampled_data.csv"
+result = sample_dataset(
+    input_files=[Path("input/dataset/test_data/input_data.csv")],
+    output_dir=Path("output/dataset")
 )
+# result.sampled_file - Path to agentic_sampled.csv
+# result.skeleton_summary - Markdown for PVMAP prompts
+# result.data_context - Structural analysis dict
 ```
 
 #### Schema Selector (`tools/schema_selector.py`)
@@ -503,7 +516,7 @@ PipelineCoordinator (LlmAgent)
 - ✅ Week 7: Evaluation scripts moved to `src/pipeline/evaluation/scripts/`
 - ⏳ Week 8-10: Test suite reorganization, documentation, cleanup
 
-**Critical requirement:** Preserve exact retry loop logic from lines 1374-1415 of run_pvmap_pipeline.py
+**Critical requirement:** Retry loop logic is implemented in `src/agents/pvmap_retry_loop.py`
 
 ## Important Patterns & Best Practices
 
@@ -673,11 +686,20 @@ After the refactoring migration, use these new import paths:
 | `from util.file_util import ...` | `from src.infrastructure.io.file_util import ...` |
 | `from util.config_map import ConfigMap` | `from src.infrastructure.config.config_map import ConfigMap` |
 | `from util.counters import Counters` | `from src.infrastructure.metrics.counters import Counters` |
-| `from tools.data_sampler import sample_csv_file` | `from src.pipeline.sampling.data_sampler import sample_csv_file` |
 | `from tools import schema_selector` | `from src.pipeline.schema_selection import schema_selector` |
 | `from tools.property_value_mapper import ...` | `from src.processing.mapping.property_value_mapper import ...` |
 
-**Note:** Legacy imports via `util/` and `tools/` still work during the transition period via the compatibility layer.
+**Sampling (Agentic-only):**
+```python
+from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
+
+result = sample_dataset(
+    input_files=[Path("input.csv")],
+    output_dir=Path("output/")
+)
+```
+
+**Note:** Legacy imports via `util/` still work via the compatibility layer. Legacy heuristic-based sampling has been removed in favor of agentic (LLM-driven) sampling.
 
 ## Project Context
 

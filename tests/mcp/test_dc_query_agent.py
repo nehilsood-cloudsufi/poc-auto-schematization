@@ -61,7 +61,7 @@ class MCPServerContext:
         env = os.environ.copy()
 
         # Find datacommons-mcp executable
-        venv_executable = PROJECT_ROOT / "venv" / "bin" / "datacommons-mcp"
+        venv_executable = PROJECT_ROOT / ".venv" / "bin" / "datacommons-mcp"
         if venv_executable.exists():
             dc_mcp_cmd = str(venv_executable)
         else:

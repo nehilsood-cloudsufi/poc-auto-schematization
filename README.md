@@ -62,15 +62,11 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 git clone <repository-url> poc-auto-schematization
 cd poc-auto-schematization
 
-# Install dependencies (choose one)
-uv sync                          # Using uv (recommended)
-# OR
-pip install -r requirements.txt  # Using pip
+# Install dependencies
+uv sync
 
 # Activate virtual environment
-source .venv/bin/activate        # uv
-# OR
-source venv/bin/activate         # pip
+source .venv/bin/activate
 
 # Set environment variables
 # NOTE: ANTHROPIC_API_KEY is only required if you don't have an active Claude Code subscription
@@ -81,11 +77,16 @@ export PYTHONPATH="$(pwd):$(pwd)/src"
 ### Run Your First Pipeline
 
 ```bash
-# Test with a single dataset
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+# Test with a single dataset (ADK pipeline - recommended)
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 
 # Check results
 ls output/bis_bis_central_bank_policy_rate/
+
+# Common options
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-sampling    # Use existing samples
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-evaluation  # Skip GT comparison
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --dry-run          # Preview only
 ```
 
 **See [USAGE.md](docs/USAGE.md) for complete usage instructions.**
@@ -157,7 +158,7 @@ poc-auto-schematization/
 ├── tools/                        # Legacy processing tools (compatibility layer)
 ├── util/                         # Legacy utility modules (compatibility layer)
 ├── logs/                         # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py         # Main pipeline script
+├── src/run_pipeline.py           # Main pipeline script (ADK-based)
 ├── docs/                         # Documentation
 │   ├── SETUP.md                  # Installation guide
 │   ├── INPUT_GUIDE.md            # Input structure guide
@@ -245,16 +246,16 @@ The pipeline includes **automated schema selection** that intelligently analyzes
 
 ```bash
 # Automatic schema selection (default)
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Skip schema selection (use existing schema files)
-python3 run_pvmap_pipeline.py --skip-schema-selection
+python src/run_pipeline.py --skip-schema-selection
 
 # Force re-selection even if schema files exist
-python3 run_pvmap_pipeline.py --force-schema-selection
+python src/run_pipeline.py --force-schema-selection
 
 # Use custom schema directory
-python3 run_pvmap_pipeline.py --schema-base-dir=/path/to/schemas
+python src/run_pipeline.py --schema-base-dir=/path/to/schemas
 ```
 
 ### Standalone Usage
@@ -330,23 +331,23 @@ source ~/.zshrc
 
 ```bash
 # Use explicit PVMAP file for single dataset
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Search directory for ground truth files (matches by dataset name)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-dir=ground_truth/
 
 # Use custom ground truth repository
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-repo=/path/to/custom/ground_truth
 
 # Skip evaluation entirely
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 
 # Multiple datasets with single ground truth file
 # (Warning: uses file for first dataset only, skips rest)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/to/reference.csv
 ```
 
@@ -356,7 +357,7 @@ When multiple ground truth arguments are provided, the system follows strict pre
 
 ```bash
 # This will use the explicit file (highest precedence)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/to/file.csv \
     --ground-truth-dir=/path/to/dir/ \
     --ground-truth-repo=/path/to/repo/
@@ -387,7 +388,7 @@ When using `--ground-truth-pvmap` without the `--dataset` flag:
 
 ```bash
 # Warning: This will only evaluate the FIRST dataset
-python3 run_pvmap_pipeline.py --ground-truth-pvmap=/path/file.csv
+python src/run_pipeline.py --ground-truth-pvmap=/path/file.csv
 ```
 
 **Behavior:**
@@ -430,40 +431,40 @@ Evaluation Metrics:
 
 ```bash
 # Process all datasets
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Process specific dataset
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 
 # Test with test directories
-python3 run_pvmap_pipeline.py --input-dir=test_input --output-dir=test_output
+python src/run_pipeline.py --input-dir=test_input --output-dir=test_output
 
 # Force regenerate samples
-python3 run_pvmap_pipeline.py --force-resample
+python src/run_pipeline.py --force-resample
 
 # Skip schema selection (use existing schema files)
-python3 run_pvmap_pipeline.py --skip-schema-selection
+python src/run_pipeline.py --skip-schema-selection
 
 # Force re-selection of schema files
-python3 run_pvmap_pipeline.py --force-schema-selection
+python src/run_pipeline.py --force-schema-selection
 
 # Skip evaluation
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 
 # Use explicit ground truth PVMAP file
-python3 run_pvmap_pipeline.py --dataset=bis --ground-truth-pvmap=/path/to/bis_pvmap.csv
+python src/run_pipeline.py --dataset=bis --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Use ground truth directory (searches by dataset name)
-python3 run_pvmap_pipeline.py --ground-truth-dir=ground_truth/
+python src/run_pipeline.py --ground-truth-dir=ground_truth/
 
 # Use custom ground truth repository
-python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
+python src/run_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
 
 # Resume from specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 
 # Dry run (preview without execution)
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dry-run
 ```
 
 **See [USAGE.md](USAGE.md#command-line-options) for complete options.**
@@ -541,7 +542,7 @@ claude --version
 ```bash
 # Solution: Delete and regenerate
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 **See [APPENDIX.md](docs/APPENDIX.md#a-detailed-troubleshooting-guide) for complete troubleshooting.**

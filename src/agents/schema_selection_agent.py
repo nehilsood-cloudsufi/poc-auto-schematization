@@ -33,8 +33,7 @@ def create_schema_selection_agent(
     No custom class needed - LlmAgent handles _run_async_impl automatically!
 
     ADK State Inputs:
-        - current_dataset: DatasetInfo - Current dataset being processed
-        - combined_sampled_data: Path - Combined sample data for analysis
+        - current_dataset: DatasetInfo - Current dataset being processed (includes combined_sampled_data path)
         - skip_schema_selection: bool - Whether to skip schema selection
         - force_schema_selection: bool - Whether to force new selection
         - data_context: Dict - Data context from SamplingAgent (column_roles, dimensions)
@@ -64,7 +63,7 @@ Your task is to:
 6. Copy the selected schema files to the dataset directory (if they exist)
 
 **Current Dataset:** {current_dataset.name}
-**Sample Data Path:** {combined_sampled_data}
+**Sample Data Path:** {current_dataset.combined_sampled_data}
 **Skip Schema Selection:** {skip_schema_selection}
 **Force Schema Selection:** {force_schema_selection}
 

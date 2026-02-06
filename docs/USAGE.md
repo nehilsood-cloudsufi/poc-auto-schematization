@@ -24,10 +24,10 @@ cd poc-auto-schematization
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Step 3: Activate virtual environment (if not already active)
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Step 4: Run pipeline on a single dataset (BIS Central Bank Policy Rate)
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 ```
 
 ### Check Results
@@ -58,13 +58,13 @@ cat output/bis_bis_central_bank_policy_rate/generation_notes.md
 
 ```bash
 # Process all datasets
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Process specific dataset (partial name match)
-python3 run_pvmap_pipeline.py --dataset=bis
+python src/run_pipeline.py --dataset=bis
 
 # Preview what will be processed (dry run)
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dry-run
 ```
 
 ### Command-Line Options
@@ -105,12 +105,12 @@ The pipeline runs five automated phases:
 
 **Skip this phase:**
 ```bash
-python3 run_pvmap_pipeline.py --skip-sampling
+python src/run_pipeline.py --skip-sampling
 ```
 
 **Force regenerate samples:**
 ```bash
-python3 run_pvmap_pipeline.py --force-resample
+python src/run_pipeline.py --force-resample
 ```
 
 ### Phase 1.5: Schema Selection (Optional)
@@ -124,17 +124,17 @@ python3 run_pvmap_pipeline.py --force-resample
 
 **Skip this phase:**
 ```bash
-python3 run_pvmap_pipeline.py --skip-schema-selection
+python src/run_pipeline.py --skip-schema-selection
 ```
 
 **Force re-selection:**
 ```bash
-python3 run_pvmap_pipeline.py --force-schema-selection
+python src/run_pipeline.py --force-schema-selection
 ```
 
 **Use custom schema directory:**
 ```bash
-python3 run_pvmap_pipeline.py --schema-base-dir=/path/to/schemas
+python src/run_pipeline.py --schema-base-dir=/path/to/schemas
 ```
 
 **Run schema selector standalone:**
@@ -194,18 +194,18 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 
 ```bash
 # Skip evaluation entirely
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 
 # Use explicit ground truth file (single dataset)
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Search directory for ground truth files (multiple datasets)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-dir=ground_truth/
 
 # Use custom ground truth repository
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-repo=/path/to/custom/ground_truth
 ```
 
@@ -228,7 +228,7 @@ Use `test_input/` and `test_output/` directories for testing without affecting p
 cp -r input/bis_bis_central_bank_policy_rate test_input/
 
 # Run pipeline with test directories
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --input-dir=test_input \
     --output-dir=test_output
 
@@ -240,13 +240,13 @@ ls test_output/bis_bis_central_bank_policy_rate/
 
 ```bash
 # Process all datasets
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Process datasets matching a pattern
-python3 run_pvmap_pipeline.py --dataset=census
+python src/run_pipeline.py --dataset=census
 
 # Process all Economy category datasets
-python3 run_pvmap_pipeline.py --dataset=bis  # Example: BIS datasets
+python src/run_pipeline.py --dataset=bis  # Example: BIS datasets
 ```
 
 ### Resume Interrupted Pipeline
@@ -255,7 +255,7 @@ If the pipeline was interrupted:
 
 ```bash
 # Resume from specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 
 # The pipeline will skip all datasets before this one
 ```
@@ -269,14 +269,14 @@ The pipeline skips datasets with existing output. To regenerate:
 rm -rf output/your_dataset_name
 
 # Run pipeline for that dataset
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 ### Combine Multiple Options
 
 ```bash
 # Example: Test with forced resampling and no evaluation
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --dataset=bis \
     --input-dir=test_input \
     --output-dir=test_output \
@@ -284,13 +284,13 @@ python3 run_pvmap_pipeline.py \
     --skip-evaluation
 
 # Example: Force schema re-selection and skip sampling
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --dataset=india_nfhs \
     --force-schema-selection \
     --skip-sampling
 
 # Example: Use custom schema directory
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --schema-base-dir=/custom/path/to/schemas \
     --force-schema-selection
 ```
@@ -391,7 +391,7 @@ Log file: logs/pipeline_20260115_134545.log
 
 Configuration is defined in:
 - **Sampling:** `*_metadata.csv` (see [INPUT_GUIDE.md](INPUT_GUIDE.md#optional-parameters-sampling-configuration))
-- **Pipeline:** `run_pvmap_pipeline.py` (edit script directly)
+- **Pipeline:** `src/run_pipeline.py` (edit script directly)
 
 ---
 
@@ -428,7 +428,7 @@ ls output/ | wc -l
 Preview what will be processed:
 
 ```bash
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dry-run
 ```
 
 Output:
@@ -444,12 +444,12 @@ Found 39 datasets:
 
 ```bash
 # Process datasets with "bis" in name (Economy category)
-python3 run_pvmap_pipeline.py --dataset=bis
+python src/run_pipeline.py --dataset=bis
 
 # Or process datasets one by one
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
-python3 run_pvmap_pipeline.py --dataset=commerce_eda
-python3 run_pvmap_pipeline.py --dataset=commodity_market
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+python src/run_pipeline.py --dataset=commerce_eda
+python src/run_pipeline.py --dataset=commodity_market
 ```
 
 ### Task: Regenerate Failed Datasets
@@ -462,7 +462,7 @@ grep "FAILED" logs/pipeline_*.log
 
 # Regenerate specific failed dataset
 rm -rf output/failed_dataset_name
-python3 run_pvmap_pipeline.py --dataset=failed_dataset_name
+python src/run_pipeline.py --dataset=failed_dataset_name
 ```
 
 ### Task: Compare Against Ground Truth
@@ -473,7 +473,7 @@ Best for testing one specific dataset with a known reference:
 
 ```bash
 # Run pipeline with explicit ground truth file
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_reference_pvmap.csv
 
 # View evaluation results
@@ -492,7 +492,7 @@ Best when you have organized ground truth files by dataset name:
 # └── finland_census_pvmap.csv
 
 # Run pipeline with ground truth directory
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-dir=ground_truth/
 
 # View evaluation results for each dataset
@@ -506,10 +506,10 @@ The repository includes 81 ground truth datasets in `ground_truth//`:
 
 ```bash
 # Run pipeline with bundled ground truth (default)
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Or specify custom ground truth repository path
-python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
+python src/run_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
 
 # View evaluation results
 cat output/your_dataset/eval_results/diff.txt
@@ -549,7 +549,7 @@ After running the pipeline:
 ```bash
 # Delete existing output to regenerate
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 ### Issue: Validation Failed After Max Retries
@@ -594,12 +594,12 @@ ls /path/to/explicit/file.csv
 
 1. **Skip evaluation** if you don't have ground truth:
    ```bash
-   python3 run_pvmap_pipeline.py --skip-evaluation
+   python src/run_pipeline.py --skip-evaluation
    ```
 
 2. **Provide explicit ground truth file** if you have it elsewhere:
    ```bash
-   python3 run_pvmap_pipeline.py --dataset=bis \
+   python src/run_pipeline.py --dataset=bis \
        --ground-truth-pvmap=/path/to/known/reference.csv
    ```
 

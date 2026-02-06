@@ -18,6 +18,10 @@ from src.pipeline.validation.counter_feedback import (
     extract_log_samples_for_error,
     generate_feedback,
     diagnose_validation_failure,
+    prioritize_errors,
+    extract_debug_examples,
+    ERROR_PRIORITY,
+    ITERATION_ADVICE,
 )
 
 
@@ -288,12 +292,12 @@ class TestGenerateFeedback:
 
         # Check coverage section
         assert 'Coverage Analysis' in feedback
-        assert '1250' in feedback  # input rows
+        assert '1,250' in feedback or '1250' in feedback  # input rows (may be formatted)
         assert '45' in feedback  # output rows
         assert 'WARNING' in feedback  # Low coverage warning
 
-        # Check error section
-        assert 'Error Summary' in feedback
+        # Check error section (changed from "Error Summary" to "Prioritized Errors" in enhanced version)
+        assert 'Prioritized Errors' in feedback or 'Error Summary' in feedback
         assert 'error-unresolved-place' in feedback
         assert '1,205' in feedback  # Formatted count
 
@@ -373,6 +377,200 @@ output-svobs-csv-rows,45
         assert result['error_count'] == 0
 
 
+class TestPrioritizeErrors:
+    """Tests for prioritize_errors function (Phase 9 enhancement)."""
+
+    def test_prioritize_by_error_priority_order(self):
+        """Errors should be sorted by ERROR_PRIORITY order, then by count."""
+        errors = {
+            'error-unresolved-place': 100,
+            'error-pvmap-dropped-undefined-property': 10,  # Higher priority
+            'error-mismatched-svobs': 50,
+        }
+
+        sorted_errors = prioritize_errors(errors)
+
+        # pvmap-dropped should come first (priority 0)
+        assert sorted_errors[0][0] == 'error-pvmap-dropped-undefined-property'
+        # unresolved-place should come second (priority 1)
+        assert sorted_errors[1][0] == 'error-unresolved-place'
+        # mismatched-svobs should come third (priority 4)
+        assert sorted_errors[2][0] == 'error-mismatched-svobs'
+
+    def test_prioritize_unknown_errors_last(self):
+        """Unknown errors should be sorted to the end by count."""
+        errors = {
+            'error-unresolved-place': 100,
+            'error-unknown-custom': 500,  # Unknown, high count
+        }
+
+        sorted_errors = prioritize_errors(errors)
+
+        # Known error should come first
+        assert sorted_errors[0][0] == 'error-unresolved-place'
+        # Unknown error should come last
+        assert sorted_errors[1][0] == 'error-unknown-custom'
+
+    def test_prioritize_same_priority_by_count(self):
+        """Errors with same priority should be sorted by count descending."""
+        errors = {
+            'error-unresolved-place': 100,
+            # Both unknown, should sort by count
+            'error-custom-a': 500,
+            'error-custom-b': 200,
+        }
+
+        sorted_errors = prioritize_errors(errors)
+
+        # Known error first
+        assert sorted_errors[0][0] == 'error-unresolved-place'
+        # Then unknown by count
+        assert sorted_errors[1][0] == 'error-custom-a'
+        assert sorted_errors[2][0] == 'error-custom-b'
+
+
+class TestExtractDebugExamples:
+    """Tests for extract_debug_examples function (Phase 9 enhancement)."""
+
+    def test_extract_debug_examples_from_counters(self):
+        """Should extract specific failing values from debug counters."""
+        counters = {
+            'error-unresolved-place': 1205,
+            'error-unresolved-place_geoId/6': 500,
+            'error-unresolved-place_geoId/12': 300,
+            'error-unresolved-place_geoId/48': 200,
+            'other-counter': 100,
+        }
+
+        examples = extract_debug_examples(counters, 'error-unresolved-place')
+
+        assert len(examples) == 3
+        # Should be sorted by count (descending)
+        assert examples[0] == 'geoId/6'
+        assert examples[1] == 'geoId/12'
+        assert examples[2] == 'geoId/48'
+
+    def test_extract_debug_examples_max_limit(self):
+        """Should respect max_examples limit."""
+        counters = {
+            'error-unresolved-place_a': 10,
+            'error-unresolved-place_b': 9,
+            'error-unresolved-place_c': 8,
+            'error-unresolved-place_d': 7,
+            'error-unresolved-place_e': 6,
+            'error-unresolved-place_f': 5,
+        }
+
+        examples = extract_debug_examples(counters, 'error-unresolved-place', max_examples=3)
+
+        assert len(examples) == 3
+
+    def test_extract_debug_examples_empty_when_no_match(self):
+        """Should return empty list when no debug counters match."""
+        counters = {
+            'error-unresolved-place': 100,
+            'other-counter': 50,
+        }
+
+        examples = extract_debug_examples(counters, 'error-unresolved-place')
+
+        assert examples == []
+
+    def test_extract_debug_examples_ignores_zero_counts(self):
+        """Should ignore debug counters with zero count."""
+        counters = {
+            'error-unresolved-place_a': 10,
+            'error-unresolved-place_b': 0,
+        }
+
+        examples = extract_debug_examples(counters, 'error-unresolved-place')
+
+        assert len(examples) == 1
+        assert examples[0] == 'a'
+
+
+class TestIterationAdvice:
+    """Tests for iteration-specific advice (Phase 9 enhancement)."""
+
+    def test_iteration_advice_exists_for_attempts_1_to_3(self):
+        """ITERATION_ADVICE should have entries for attempts 1, 2, and 3."""
+        assert 1 in ITERATION_ADVICE
+        assert 2 in ITERATION_ADVICE
+        assert 3 in ITERATION_ADVICE
+
+    def test_iteration_advice_includes_in_feedback(self):
+        """generate_feedback should include iteration advice when attempt_number > 0."""
+        counters = {
+            'error-unresolved-place': 100,
+            'input-rows-processed': 1000,
+            'output-svobs-csv-rows': 100,
+        }
+
+        # Attempt 1 (second try)
+        feedback = generate_feedback(counters, attempt_number=1)
+        assert 'Retry Strategy (Attempt 1 → 2)' in feedback
+
+        # Attempt 2 (third try)
+        feedback = generate_feedback(counters, attempt_number=2)
+        assert 'Retry Strategy (Attempt 2 → 3)' in feedback
+
+        # Attempt 3 (final try)
+        feedback = generate_feedback(counters, attempt_number=3)
+        assert 'Retry Strategy (Attempt 3 → 4)' in feedback
+
+    def test_no_iteration_advice_for_first_attempt(self):
+        """generate_feedback should not include iteration advice on first attempt."""
+        counters = {
+            'error-unresolved-place': 100,
+            'input-rows-processed': 1000,
+            'output-svobs-csv-rows': 100,
+        }
+
+        feedback = generate_feedback(counters, attempt_number=0)
+
+        assert 'Retry Strategy' not in feedback
+
+
+class TestEnhancedFeedbackWithDebugContext:
+    """Tests for generate_feedback with debug context (Phase 9 enhancement)."""
+
+    def test_feedback_includes_specific_failing_examples(self):
+        """Feedback should include specific failing examples from debug counters."""
+        counters = {
+            'error-unresolved-place': 1000,
+            'error-unresolved-place_6': 500,  # California without leading zero
+            'error-unresolved-place_12': 300,  # Florida without leading zero
+            'input-rows-processed': 1000,
+            'output-svobs-csv-rows': 0,
+        }
+
+        feedback = generate_feedback(counters)
+
+        # Should include the specific failing examples
+        assert 'Specific Failing Examples' in feedback
+        assert '`6`' in feedback or '6' in feedback
+        assert '`12`' in feedback or '12' in feedback
+
+    def test_feedback_uses_prioritized_error_order(self):
+        """Feedback should list errors in priority order."""
+        counters = {
+            'error-unresolved-place': 100,
+            'error-pvmap-dropped-undefined-property': 10,
+            'input-rows-processed': 1000,
+            'output-svobs-csv-rows': 100,
+        }
+
+        feedback = generate_feedback(counters)
+
+        # Should mention prioritized errors
+        assert 'Prioritized Errors' in feedback or 'Error Summary' in feedback
+        # pvmap-dropped should appear before unresolved-place in listing
+        pvmap_pos = feedback.find('error-pvmap-dropped-undefined-property')
+        place_pos = feedback.find('error-unresolved-place')
+        if pvmap_pos != -1 and place_pos != -1:
+            assert pvmap_pos < place_pos
+
+
 class TestIntegration:
     """Integration tests for the full feedback generation pipeline."""
 
@@ -404,8 +602,31 @@ ERROR: Missing statvar properties ['populationType'] in {...}
 
         # Verify complete feedback
         assert 'Coverage Analysis' in feedback
-        assert 'Error Summary' in feedback
+        assert 'Prioritized Errors' in feedback or 'Error Summary' in feedback
         assert 'Primary Issue' in feedback
         assert 'Place Resolution' in feedback
         assert 'Sample Error Messages' in feedback
         assert 'Generation Statistics' in feedback
+
+    def test_full_pipeline_with_debug_counters_and_iteration(self, tmp_path):
+        """Test complete pipeline with debug counters and iteration advice."""
+        counters_content = """key,value
+input-rows-processed,1000
+output-svobs-csv-rows,100
+error-unresolved-place,800
+error-unresolved-place_geoId/6,400
+error-unresolved-place_geoId/12,300
+error-unresolved-place_geoId/48,100
+generated-statvars,5
+"""
+        counters_file = tmp_path / "processed_counters.txt"
+        counters_file.write_text(counters_content)
+
+        counters = parse_counters_file(counters_file)
+        feedback = generate_feedback(counters, log_output=None, attempt_number=2)
+
+        # Should have all enhanced features
+        assert 'Coverage Analysis' in feedback
+        assert 'Specific Failing Examples' in feedback
+        assert 'geoId/6' in feedback
+        assert 'Retry Strategy (Attempt 2 → 3)' in feedback

@@ -205,3 +205,13 @@ currently all the code is centric around src/ folder but there are few more pyth
 important and are in util and tools folder
 help me accomodate those scripts in src/ folder properly 
 help me prepare a proper plan for refactoring them
+
+I have to create a document to explain my project manager about this architecture and new approach I implemented using google    
+ADK and MCP server 
+refer the branch feature/nehil/google-adk-integration for google ADK Implementation
+and current branch for MCP integration (with google integration also)
+help me to create a whole workflow flowchart architecture and the summary of each component like a high level diagram emphasising 
+how this architecture is very helpful
+write it in a tone that this architecture need to be implemented and can show better results
+prepare a proper plan on how you will be creating this document (docx) using docs-js.md skill
+ask the clarifying questions

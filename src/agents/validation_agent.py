@@ -5,11 +5,13 @@ This BaseAgent handles:
 1. Converting structured JSON (from PVMAPGeneratorAgent) to CSV
 2. Running stat_var_processor subprocess for validation
 3. Using EventActions(escalate=True) on success to exit the LoopAgent
+4. Tracking feedback effectiveness across retry attempts
 
 Key ADK features used:
 - BaseAgent for custom async logic
 - EventActions.escalate to exit LoopAgent early on success
 - Session state for passing data between agents
+- Feedback tracker for effectiveness analysis
 """
 
 import sys
@@ -35,17 +37,18 @@ from src.agents.pvmap_generation.helpers import (
     update_generation_notes,
 )
 from src.tools.validation_tool import run_validation
+from src.pipeline.validation.feedback_tracker import FeedbackEffectivenessTracker
 
 
 class ValidationAgent(BaseAgent):
     """
-    Agent for validating PVMAP output and escalating on success.
+    Agent for validating PVMAP output.
 
     This agent:
     1. Reads pvmap_output (JSON dict) from session state
     2. Converts it to CSV using deterministic conversion
     3. Runs stat_var_processor subprocess to validate
-    4. On SUCCESS: Sets escalate=True to exit LoopAgent immediately
+    4. On SUCCESS: Sets validation_passed=True, continues to QualityEvaluationAgent
     5. On FAILURE: Sets validation_error in state for FeedbackAgent
 
     ADK State Inputs:
@@ -55,6 +58,7 @@ class ValidationAgent(BaseAgent):
 
     ADK State Outputs:
         - validation_success: bool - Whether validation passed
+        - validation_passed: bool - Flag for QualityEvaluationAgent
         - validation_error: str - Error message if failed
         - validation_data_rows: int - Number of data rows in output
         - pvmap_csv: str - CSV content
@@ -62,8 +66,9 @@ class ValidationAgent(BaseAgent):
         - processed_output_path: str - Path to processed output
 
     Escalation:
-        - On validation SUCCESS: Returns Event with escalate=True
-        - This causes the LoopAgent to exit immediately
+        - On validation SUCCESS: Returns Event with escalate=False (continue to quality eval)
+        - On validation FAILURE: Returns Event with escalate=False (continue to feedback)
+        - NOTE: QualityEvaluationAgent handles escalation when quality is acceptable
     """
 
     def __init__(self, name: str = "Validator"):
@@ -213,13 +218,14 @@ class ValidationAgent(BaseAgent):
             )
             return
 
-        # Run validation
+        # Run validation (pass attempt_number for iteration-specific feedback)
         result = run_validation(
             input_data=input_file,
             pvmap_path=str(pvmap_path),
             metadata_file=metadata_file,
             output_dir=str(current_dataset.output_dir),
-            timeout=300  # 5 minute timeout
+            timeout=300,  # 5 minute timeout
+            attempt_number=attempt_number  # For iteration-specific advice in feedback
         )
 
         # Store validation results
@@ -266,33 +272,36 @@ class ValidationAgent(BaseAgent):
             )
 
         # =====================================================================
-        # Step 4: Handle success or failure
+        # Step 4: Record attempt with feedback tracker
+        # =====================================================================
+        self._record_attempt_with_tracker(
+            ctx=ctx,
+            attempt_number=attempt_number,
+            result=result,
+            pvmap_csv=pvmap_csv
+        )
+
+        # =====================================================================
+        # Step 5: Handle success or failure
         # =====================================================================
         if result["success"]:
-            # Update generation notes with success
-            update_generation_notes(
-                output_dir=Path(current_dataset.output_dir),
-                dataset_name=current_dataset.name,
-                attempt=attempt_number,
-                llm_result=llm_result,
-                pvmap_csv=pvmap_csv,
-                validation_result=result,
-                final_status=f"SUCCESS on attempt {attempt_number + 1}"
-            )
+            # Validation passed - set flag for QualityEvaluationAgent
+            # NOTE: Do NOT update generation_notes here - QualityEvaluationAgent handles final status
+            # NOTE: Do NOT set generation_success here - QualityEvaluationAgent handles that
 
-            ctx.session.state["generation_success"] = True
+            ctx.session.state["validation_passed"] = True
             ctx.session.state["error"] = None
-            ctx.session.state["retry_count"] = attempt_number
 
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Validation PASSED! {result['data_rows']} data rows generated. ESCALATING to exit loop.")
+                    types.Part(text=f"Validation PASSED! {result['data_rows']} data rows generated. Proceeding to quality evaluation.")
                 ]),
-                actions=EventActions(escalate=True)  # EXIT LOOP!
+                actions=EventActions(escalate=False)  # Continue to QualityEvaluationAgent
             )
         else:
             # Validation failed - prepare error for FeedbackAgent
+            ctx.session.state["validation_passed"] = False
             error_msg = result.get("error", "Validation failed with unknown error")
             ctx.session.state["validation_error"] = error_msg
 
@@ -306,6 +315,10 @@ class ValidationAgent(BaseAgent):
                 validation_result=result,
                 final_status=None  # FeedbackAgent or loop exit will set final status
             )
+
+            # Add feedback effectiveness analysis for retry attempts
+            if attempt_number > 0:
+                self._add_effectiveness_analysis(ctx)
 
             # Truncate error for display
             error_preview = error_msg[:300] + "..." if len(error_msg) > 300 else error_msg
@@ -361,6 +374,105 @@ class ValidationAgent(BaseAgent):
 
         except Exception as e:
             raise ValueError(f"Failed to parse pvmap_output: {e}") from e
+
+    def _record_attempt_with_tracker(
+        self,
+        ctx: InvocationContext,
+        attempt_number: int,
+        result: dict,
+        pvmap_csv: str
+    ) -> None:
+        """Record this attempt with the feedback effectiveness tracker.
+
+        Creates tracker on first attempt, then records each attempt's
+        errors, feedback, and quality for effectiveness analysis.
+
+        Args:
+            ctx: Invocation context with session state
+            attempt_number: Current attempt number (0-indexed)
+            result: Validation result dict
+            pvmap_csv: PVMAP CSV content
+        """
+        try:
+            current_dataset = ctx.session.state.get("current_dataset")
+            if not current_dataset:
+                return
+
+            # Get or create feedback tracker
+            tracker = ctx.session.state.get("feedback_tracker")
+            if not tracker:
+                tracker = FeedbackEffectivenessTracker(
+                    dataset_name=current_dataset.name
+                )
+                ctx.session.state["feedback_tracker"] = tracker
+
+            # Get feedback that was given before this attempt
+            error_feedback = ctx.session.state.get("error_feedback", "")
+            quality_feedback = ctx.session.state.get("quality_feedback", "")
+            feedback_given = error_feedback or quality_feedback
+
+            # Get errors from counters
+            errors = result.get("counters", {})
+            error_counters = {
+                k: v for k, v in errors.items()
+                if k.startswith('error-') and isinstance(v, (int, float)) and v > 0
+            }
+
+            # Get quality score (may not be set yet, defaults to 0)
+            quality_score = ctx.session.state.get("quality_metrics", {}).get(
+                "pv_accuracy",
+                ctx.session.state.get("quality_metrics", {}).get("heuristic_score", 0)
+            )
+
+            # Record the attempt
+            tracker.record_attempt(
+                attempt_number=attempt_number,
+                errors=error_counters,
+                feedback_given=feedback_given,
+                pvmap_csv=pvmap_csv,
+                quality_score=quality_score,
+                validation_passed=result.get("success", False)
+            )
+
+        except Exception:
+            # Don't fail validation due to tracker errors
+            pass
+
+    def _add_effectiveness_analysis(self, ctx: InvocationContext) -> None:
+        """Add feedback effectiveness analysis to session state.
+
+        Analyzes whether previous feedback was addressed and adds
+        alternative strategy suggestions if the loop is not making progress.
+
+        Args:
+            ctx: Invocation context with session state
+        """
+        try:
+            tracker = ctx.session.state.get("feedback_tracker")
+            if not tracker or len(tracker.attempts) < 2:
+                return
+
+            # Analyze effectiveness
+            effectiveness = tracker.analyze_effectiveness()
+            ctx.session.state["feedback_effectiveness"] = effectiveness
+
+            # Check if we need an alternative strategy
+            error_changes = effectiveness.get('error_changes', {})
+            net_change = error_changes.get('net_change', -1)
+
+            if net_change >= 0:
+                # Not making progress - add alternative strategy
+                alt_strategy = tracker.get_alternative_strategy()
+                if alt_strategy:
+                    ctx.session.state["alternative_strategy"] = alt_strategy
+
+            # Add effectiveness report to state for feedback agent
+            effectiveness_report = tracker.format_effectiveness_report()
+            ctx.session.state["effectiveness_report"] = effectiveness_report
+
+        except Exception:
+            # Don't fail on analysis errors
+            pass
 
 
 # ============================================================================

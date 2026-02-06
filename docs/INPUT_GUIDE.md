@@ -139,19 +139,19 @@ The pipeline can automatically select the best schema category for your dataset 
 
 ```bash
 # Just run the pipeline - schema selection happens automatically
-python3 run_pvmap_pipeline.py --dataset=your_dataset
+python src/run_pipeline.py --dataset=your_dataset
 ```
 
 **Forcing re-selection:**
 ```bash
 # If schema files exist but you want to re-select
-python3 run_pvmap_pipeline.py --dataset=your_dataset --force-schema-selection
+python src/run_pipeline.py --dataset=your_dataset --force-schema-selection
 ```
 
 **Skipping schema selection:**
 ```bash
 # Use existing schema files (skip Phase 1.5)
-python3 run_pvmap_pipeline.py --dataset=your_dataset --skip-schema-selection
+python src/run_pipeline.py --dataset=your_dataset --skip-schema-selection
 ```
 
 #### Option B: Manual Schema Selection
@@ -243,7 +243,7 @@ input/bis_bis_central_bank_policy_rate/
 
 If you want to regenerate samples:
 ```bash
-python3 run_pvmap_pipeline.py --force-resample
+python src/run_pipeline.py --force-resample
 ```
 
 ---
@@ -402,7 +402,7 @@ Once your input structure is ready:
 
 ```bash
 # Let the pipeline auto-select schema files for you
-python3 run_pvmap_pipeline.py --dataset=your_dataset
+python src/run_pipeline.py --dataset=your_dataset
 
 # Or run schema selector standalone
 python3 tools/schema_selector.py --input_dir=input/your_dataset/
@@ -422,7 +422,7 @@ cp schema_example_files/Economy/scripts_statvar_llm_config_schema_examples_dc_to
 **Solution:** Force regenerate sampled data
 
 ```bash
-python3 run_pvmap_pipeline.py --force-resample --dataset=your_dataset
+python src/run_pipeline.py --force-resample --dataset=your_dataset
 ```
 
 For more troubleshooting, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide).

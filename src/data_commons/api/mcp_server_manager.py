@@ -98,10 +98,10 @@ class MCPServerManager:
             env["DC_INSTANCE_URL"] = self._dc_instance_url
 
         # Find datacommons-mcp executable
-        # First check venv, then fall back to PATH
+        # First check .venv, then fall back to PATH
         from pathlib import Path
         project_root = Path(__file__).parent.parent.parent.parent.resolve()
-        venv_executable = project_root / "venv" / "bin" / "datacommons-mcp"
+        venv_executable = project_root / ".venv" / "bin" / "datacommons-mcp"
 
         if venv_executable.exists():
             dc_mcp_cmd = str(venv_executable)

@@ -84,8 +84,8 @@ def test_mcp_server_lifecycle() -> bool:
         # Try to start MCP server
         print(f"\nStarting MCP server on port {port}...")
 
-        # Find datacommons-mcp executable in venv or PATH
-        venv_executable = PROJECT_ROOT / "venv" / "bin" / "datacommons-mcp"
+        # Find datacommons-mcp executable in .venv or PATH
+        venv_executable = PROJECT_ROOT / ".venv" / "bin" / "datacommons-mcp"
         if venv_executable.exists():
             dc_mcp_cmd = str(venv_executable)
         else:

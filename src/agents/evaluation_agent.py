@@ -118,20 +118,40 @@ class EvaluationAgent(BaseAgent):
             )
             return
 
-        # 3. Find ground truth PVMAPs
-        # Look in ground_truth directory (default location) and also search_dir
+        # 3. Find ground truth PVMAPs using precedence tiers:
+        #    Tier 1: explicit_pvmap (highest priority)
+        #    Tier 2: ground_truth_dir (search directory)
+        #    Tier 3: ground_truth_repo (default)
         import os
+        ground_truth_pvmap = ctx.session.state.get("ground_truth_pvmap")
+        ground_truth_dir = ctx.session.state.get("ground_truth_dir")
         ground_truth_repo = ctx.session.state.get(
             "ground_truth_repo",
             os.getenv("GROUND_TRUTH_REPO", str(PROJECT_ROOT / "ground_truth"))
         )
 
         dataset_name = current_dataset.name
-        gt_result = find_ground_truth_pvmaps(
-            dataset_name=dataset_name,
-            source_repo=ground_truth_repo,
-            search_dir=current_dataset.path
-        )
+
+        # Apply precedence tiers
+        if ground_truth_pvmap and Path(ground_truth_pvmap).exists():
+            # Tier 1: Explicit file (highest priority)
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                explicit_pvmap=ground_truth_pvmap
+            )
+        elif ground_truth_dir and Path(ground_truth_dir).exists():
+            # Tier 2: Directory search
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                search_dir=ground_truth_dir
+            )
+        else:
+            # Tier 3: Repository (default)
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                source_repo=ground_truth_repo,
+                search_dir=str(current_dataset.path) if current_dataset.path else ""
+            )
 
         if not gt_result["success"] or gt_result["count"] == 0:
             ctx.session.state["error"] = gt_result.get("error", "No ground truth PVMAPs found")

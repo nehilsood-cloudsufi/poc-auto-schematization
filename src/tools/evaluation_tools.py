@@ -23,7 +23,7 @@ for _path in [_src_path, _tools_path]:
         sys.path.insert(0, _path)
 
 # Import evaluation function
-from evaluate_pvmap_diff import compare_pvmaps_diff as _compare_pvmaps_diff
+from src.pipeline.evaluation.evaluate_pvmap_diff import compare_pvmaps_diff as _compare_pvmaps_diff
 
 
 def is_pvmap_filename(filename: str) -> bool:

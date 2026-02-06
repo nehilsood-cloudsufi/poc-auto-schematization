@@ -37,12 +37,8 @@ cd poc-auto-schematization
 
 ### 2. Install Python Dependencies
 
-Choose one of the following methods:
-
-#### Option A: Using uv (Recommended - Faster)
-
 ```bash
-# Install uv package manager
+# Install uv package manager (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Create virtual environment and install dependencies
@@ -51,20 +47,6 @@ uv sync
 # Activate the virtual environment
 source .venv/bin/activate  # On Unix/macOS
 .venv\Scripts\activate     # On Windows
-```
-
-#### Option B: Using pip (Traditional)
-
-```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate the virtual environment
-source venv/bin/activate   # On Unix/macOS
-venv\Scripts\activate      # On Windows
-
-# Install dependencies
-pip install -r requirements.txt
 ```
 
 ### 3. Verify Installation
@@ -152,7 +134,7 @@ poc-auto-schematization/
 ├── tools/                        # Legacy processing tools (compatibility layer)
 ├── util/                         # Legacy utility modules (compatibility layer)
 ├── logs/                         # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py         # Main pipeline script
+├── src/run_pipeline.py           # Main pipeline script (ADK-based)
 ├── requirements.txt              # Python dependencies
 └── README.md                     # Main documentation
 ```
@@ -176,7 +158,7 @@ poc-auto-schematization/
 Before running the pipeline, verify:
 
 - [ ] Python 3.12+ installed (`python3 --version`)
-- [ ] Virtual environment activated (`which python` shows venv path)
+- [ ] Virtual environment activated (`which python` shows .venv path)
 - [ ] Dependencies installed (`python -c "import pandas, datacommons"`)
 - [ ] Claude Code CLI installed (`claude --version`)
 - [ ] ANTHROPIC_API_KEY set (`echo $ANTHROPIC_API_KEY | head -c 10`)
@@ -218,13 +200,13 @@ which claude
 
 ```bash
 # Solution: Verify virtual environment is activated
-which python  # Should show venv path
+which python  # Should show .venv path
 
 # Activate if needed
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Reinstall dependencies
-pip install -r requirements.txt
+uv sync
 ```
 
 For more troubleshooting, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide).

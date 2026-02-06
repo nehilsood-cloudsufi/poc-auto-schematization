@@ -2,6 +2,11 @@
 Validation tool wrapper for ADK agents.
 
 Wraps stat_var_processor.py subprocess execution for PVMAP validation.
+
+Enhanced Features:
+- Smart log filtering: Uses log_filter.py for value pattern detection
+- Concise feedback: Produces ~50-80 line feedback instead of 500+ lines
+- Value pattern analysis: Identifies failing columns from unmapped value types
 """
 
 import os
@@ -14,6 +19,13 @@ from typing import Dict, Any, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 SRC_DIR = PROJECT_ROOT / "src"
 VALIDATION_DIR = SRC_DIR / "pipeline" / "validation"
+
+# Import smart log filter module (replaces counter_feedback)
+from src.pipeline.validation.log_filter import (
+    filter_counters,
+    generate_concise_feedback,
+    extract_sample_errors,
+)
 
 
 def extract_log_samples(
@@ -74,7 +86,8 @@ def build_validation_command(
     input_data: Path,
     pvmap_path: Path,
     metadata_file: Path,
-    output_dir: Path
+    output_dir: Path,
+    debug: bool = True
 ) -> Tuple[list, dict]:
     """
     Build subprocess command and environment for stat_var_processor.
@@ -86,6 +99,7 @@ def build_validation_command(
         pvmap_path: Path to PVMAP CSV file
         metadata_file: Path to metadata config CSV
         output_dir: Output directory for processed file
+        debug: Enable debug counters for detailed error context (default: True)
 
     Returns:
         Tuple of (command_list, environment_dict)
@@ -99,8 +113,8 @@ def build_validation_command(
     ]
     env['PYTHONPATH'] = ':'.join(filter(None, pythonpath_parts))
 
-    # Build command - use venv python if available
-    venv_python = PROJECT_ROOT / 'venv' / 'bin' / 'python3'
+    # Build command - use .venv python if available
+    venv_python = PROJECT_ROOT / '.venv' / 'bin' / 'python3'
     python_cmd = str(venv_python) if venv_python.exists() else 'python3'
 
     cmd = [
@@ -112,6 +126,10 @@ def build_validation_command(
         '--generate_statvar_name=True',
         f'--output_path={output_dir}/processed'
     ]
+
+    # Add debug flag to capture specific failing values in counters
+    if debug:
+        cmd.append('--debug=True')
 
     return cmd, env
 
@@ -153,12 +171,14 @@ def run_validation(
     pvmap_path: str,
     metadata_file: str,
     output_dir: str,
-    timeout: int = 300
+    timeout: int = 300,
+    attempt_number: int = 0
 ) -> Dict[str, Any]:
     """
     Run stat_var_processor validation subprocess.
 
     Wraps the entire validation flow from run_pvmap_pipeline.py:874-975.
+    Enhanced with counter-based feedback for more actionable error diagnosis.
 
     Args:
         input_data: Path to input data CSV (as string)
@@ -166,13 +186,16 @@ def run_validation(
         metadata_file: Path to metadata config CSV (as string)
         output_dir: Output directory for processed file (as string)
         timeout: Subprocess timeout in seconds (default: 300 = 5 minutes)
+        attempt_number: Current retry attempt (0-indexed) for iteration-specific advice
 
     Returns:
         Dictionary with:
             - success: bool indicating validation passed
             - output_file: str path to processed output file (if exists)
             - data_rows: Number of data rows in output
-            - error_logs: Sampled error logs (if failed)
+            - error_logs: Sampled error logs (if failed) - DEPRECATED, use structured_feedback
+            - structured_feedback: Counter-based structured feedback (preferred)
+            - counters: Parsed counter dictionary
             - error: Error message (if failed)
             - stdout: Process stdout
             - stderr: Process stderr
@@ -206,15 +229,17 @@ def run_validation(
             "data_rows": 0
         }
 
-    # Build command and environment
+    # Build command and environment (with debug=True for detailed error context)
     cmd, env = build_validation_command(
         input_data=Path(input_data),
         pvmap_path=Path(pvmap_path),
         metadata_file=Path(metadata_file),
-        output_dir=Path(output_dir)
+        output_dir=Path(output_dir),
+        debug=True
     )
 
     output_file = Path(output_dir) / "processed.csv"
+    counters_file = Path(output_dir) / "processed_counters.txt"
 
     try:
         # Run subprocess
@@ -227,32 +252,55 @@ def run_validation(
             env=env
         )
 
+        # Parse counters file using smart log filter (for structured feedback)
+        filtered_logs = filter_counters(counters_file) if counters_file.exists() else None
+        counters = {}  # Keep for backward compatibility
+
         # Check return code
         if result.returncode == 0:
             # Validate output file has data
             has_data, error_msg, data_rows = validate_output_file(output_file)
 
             if not has_data:
-                # Extract error logs for debugging
+                # Use smart log filter for concise, actionable feedback
                 processor_output = result.stderr or result.stdout or ""
-                sampled_logs = extract_log_samples(
-                    processor_output,
-                    tail_lines=50,
-                    sample_count=10,
-                    sample_size=5
-                )
 
-                full_error = (
-                    f"{error_msg}. "
-                    f"The PVMAP may have incorrect column mappings or key names "
-                    f"that don't match the input data.\n\n"
-                    f"Processor logs:\n{sampled_logs}"
-                )
+                if filtered_logs:
+                    # Use concise feedback with value pattern analysis
+                    structured_feedback = generate_concise_feedback(
+                        counters_path=counters_file,
+                        stderr=processor_output,
+                        max_error_samples=5
+                    )
+                    full_error = (
+                        f"{error_msg}. "
+                        f"The PVMAP may have incorrect column mappings or key names "
+                        f"that don't match the input data.\n\n"
+                        f"{structured_feedback}"
+                    )
+                    sampled_logs = None
+                else:
+                    # Fall back to random sampling if no counters
+                    sampled_logs = extract_log_samples(
+                        processor_output,
+                        tail_lines=50,
+                        sample_count=10,
+                        sample_size=5
+                    )
+                    structured_feedback = None
+                    full_error = (
+                        f"{error_msg}. "
+                        f"The PVMAP may have incorrect column mappings or key names "
+                        f"that don't match the input data.\n\n"
+                        f"Processor logs:\n{sampled_logs}"
+                    )
 
                 return {
                     "success": False,
                     "error": full_error,
                     "error_logs": sampled_logs,
+                    "structured_feedback": structured_feedback,
+                    "counters": counters,
                     "output_file": str(output_file) if output_file.exists() else None,
                     "data_rows": 0,
                     "stdout": result.stdout,
@@ -265,6 +313,8 @@ def run_validation(
                 "success": True,
                 "error": None,
                 "error_logs": None,
+                "structured_feedback": None,
+                "counters": counters,
                 "output_file": str(output_file),
                 "data_rows": data_rows,
                 "stdout": result.stdout,
@@ -273,24 +323,41 @@ def run_validation(
             }
 
         else:
-            # Non-zero exit code
+            # Non-zero exit code - use smart log filter for feedback
             raw_error = result.stderr or result.stdout or "Unknown validation error"
-            sampled_logs = extract_log_samples(
-                raw_error,
-                tail_lines=50,
-                sample_count=10,
-                sample_size=5
-            )
 
-            error_msg = (
-                f"Validation FAILED (exit code {result.returncode}).\n\n"
-                f"Processor logs:\n{sampled_logs}"
-            )
+            if filtered_logs:
+                # Use concise feedback with value pattern analysis
+                structured_feedback = generate_concise_feedback(
+                    counters_path=counters_file,
+                    stderr=raw_error,
+                    max_error_samples=5
+                )
+                error_msg = (
+                    f"Validation FAILED (exit code {result.returncode}).\n\n"
+                    f"{structured_feedback}"
+                )
+                sampled_logs = None
+            else:
+                # Fall back to random sampling if no counters
+                sampled_logs = extract_log_samples(
+                    raw_error,
+                    tail_lines=50,
+                    sample_count=10,
+                    sample_size=5
+                )
+                structured_feedback = None
+                error_msg = (
+                    f"Validation FAILED (exit code {result.returncode}).\n\n"
+                    f"Processor logs:\n{sampled_logs}"
+                )
 
             return {
                 "success": False,
                 "error": error_msg,
                 "error_logs": sampled_logs,
+                "structured_feedback": structured_feedback,
+                "counters": counters,
                 "output_file": str(output_file) if output_file.exists() else None,
                 "data_rows": 0,
                 "stdout": result.stdout,
@@ -303,6 +370,8 @@ def run_validation(
             "success": False,
             "error": f"Validation timed out after {timeout} seconds",
             "error_logs": None,
+            "structured_feedback": None,
+            "counters": {},
             "output_file": None,
             "data_rows": 0,
             "returncode": -1
@@ -312,6 +381,8 @@ def run_validation(
             "success": False,
             "error": f"Validation error: {str(e)}",
             "error_logs": None,
+            "structured_feedback": None,
+            "counters": {},
             "output_file": None,
             "data_rows": 0,
             "returncode": -1

@@ -32,7 +32,7 @@ export PYTHONPATH="$(pwd):$(pwd)/src"
 pwd  # Should show: /path/to/poc-auto-schematization
 
 # Run pipeline again
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 ```
 
 **Permanent fix:** Add to your shell profile:
@@ -103,11 +103,11 @@ Output already exists for dataset_name, skipping...
 ```bash
 # To regenerate output for a specific dataset
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 
 # To regenerate all outputs (CAUTION: deletes all results)
 rm -rf output/*
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 ```
 
 ---
@@ -147,7 +147,7 @@ cat output/your_dataset/generated_pvmap.csv
 
 3. **Force regenerate samples**:
    ```bash
-   python3 run_pvmap_pipeline.py --force-resample --dataset=your_dataset
+   python src/run_pipeline.py --force-resample --dataset=your_dataset
    ```
 
 4. **Manually edit PVMAP** and re-run validation:
@@ -176,7 +176,7 @@ chmod -R u+w output/
 
 # Or remove and recreate
 rm -rf output/problematic_dataset
-python3 run_pvmap_pipeline.py --dataset=problematic_dataset
+python src/run_pipeline.py --dataset=problematic_dataset
 ```
 
 ---
@@ -221,25 +221,25 @@ ls /path/to/explicit/file.csv
 
 **Option 1: Skip evaluation entirely**
 ```bash
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 ```
 
 **Option 2: Provide explicit ground truth file (single dataset)**
 ```bash
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_reference.csv
 ```
 
 **Option 3: Use bundled ground truth (default)**
 ```bash
 # Uses bundled ground truth in ground_truth//
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 ```
 
 **Option 4: Custom ground truth location**
 ```bash
 # For custom ground truth structure
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-repo=/path/to/custom/ground_truth
 ```
 
@@ -249,7 +249,7 @@ If multiple arguments are provided, check which one takes precedence:
 
 ```bash
 # This will use explicit file (Tier 1, highest)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/file.csv \
     --ground-truth-dir=/path/dir/ \
     --ground-truth-repo=/path/repo/
@@ -281,10 +281,10 @@ python3 run_pvmap_pipeline.py \
 **Solution:**
 ```bash
 # Resume from the last incomplete dataset
-python3 run_pvmap_pipeline.py --resume-from=last_dataset_name
+python src/run_pipeline.py --resume-from=last_dataset_name
 
 # Or resume from a specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 ```
 
 **Find last processed dataset:**
@@ -307,13 +307,13 @@ ModuleNotFoundError: No module named 'pandas'
 **Solution:**
 ```bash
 # Verify virtual environment is activated
-which python  # Should show venv path
+which python  # Should show .venv path
 
 # If not activated
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Reinstall dependencies
-pip install -r requirements.txt
+uv sync
 
 # Verify installation
 python -c "import pandas, datacommons; print('Success!')"
@@ -334,7 +334,7 @@ KeyError: 'column_name' not found in sampled data
 
 1. **Force regenerate sampled data:**
    ```bash
-   python3 run_pvmap_pipeline.py --force-resample --dataset=your_dataset
+   python src/run_pipeline.py --force-resample --dataset=your_dataset
    ```
 
 2. **Check sampler output:**
@@ -395,7 +395,7 @@ TimeoutError: Command timed out after 900 seconds
    sampler_output_rows,50
    ```
 
-2. **Increase timeout** (edit `run_pvmap_pipeline.py`):
+2. **Increase timeout** (edit `src/run_pipeline.py`):
    ```python
    GENERATION_TIMEOUT = 1800  # 30 minutes instead of 15
    ```
@@ -447,12 +447,12 @@ ERROR: Schema base directory not found: schema_example_files/
    cp src/resources/schema_examples/Health/*.mcf input/your_dataset/
 
    # Run pipeline with schema selection skipped
-   python3 run_pvmap_pipeline.py --dataset=your_dataset --skip-schema-selection
+   python src/run_pipeline.py --dataset=your_dataset --skip-schema-selection
    ```
 
 6. **Force schema re-selection:**
    ```bash
-   python3 run_pvmap_pipeline.py --dataset=your_dataset --force-schema-selection
+   python src/run_pipeline.py --dataset=your_dataset --force-schema-selection
    ```
 
 ---
@@ -578,7 +578,7 @@ Controlled via metadata CSV:
 
 **Goal:** Automatically select the most appropriate schema category for each dataset
 
-**Script:** `src/pipeline/schema_selection/schema_selector.py` (integrated into pipeline via `run_pvmap_pipeline.py`)
+**Script:** `src/pipeline/schema_selection/schema_selector.py` (integrated into pipeline via `src/run_pipeline.py`)
 
 ### How It Works
 
