@@ -263,3 +263,26 @@ if user have schema file: it will give with a argparser argument else autoselect
  │   └── *.csv
  ── pvmap/ 
  └── pvmap.csv              (existing ground truth)
+
+----------------------------------------
+ Critical	skeleton_summary	PVMAPGenerationAgent, PVMAPRetryLoop	Injected directly into generation prompt
+ I want to improve this skeleton_summary because it is the most important one for pv_map generation
+
+ about data_context and dimensions_columns
+ are they LLM generated or hardcoded ones?
+ and I guess I can provide skeleton_summary to SchemaSelection thru which it can decide schema pretty easily
+ how are both data_context and dimensions_columns supporting evaluation
+ I guess both data_context and dimensions_columns and column_roles are not too usefull and redundant and can be done with improved skeleton_summary
+
+
+----------------------
+understand the Schema selection agent process and prepare a plan to help me implement the changes
+0. align the schema selection according to new upstream and downstream changes
+1. only use skeleton_summary to decide the schema needed to be used
+2. keep the schema selection optional, set an argparser argument which will decide whether to feed sample schema or not
+3. provide changes or improvements in schema selection, currently we are picking whole .txt file and feeding it, it consumes a lot of tokens
+ask gemini the relevant questions about it so we can make it token efficient /Users/nehilsood/work/poc-auto-schematization/claude_tools/gemini_query_tool.py
+
+I want to improve the Impact of MCP server getting used,
+  understand what kind of output we receive from MCP server
+  how can we use it as a subagent or a tool for PVMAP generation agent, where agent can retrieve relevant information whenever it needs it 

@@ -33,11 +33,13 @@ def test_schema_selection_agent_has_tools():
     assert hasattr(agent, 'tools')
     assert len(agent.tools) == 3
 
-    # Verify tool names
+    # Verify tool names (updated: generate_data_preview removed, read_schema_vocab added)
     tool_names = [tool.__name__ for tool in agent.tools]
     assert "get_schema_categories" in tool_names
-    assert "generate_data_preview" in tool_names
     assert "copy_schema_files" in tool_names
+    assert "read_schema_vocab" in tool_names
+    # generate_data_preview should NOT be present
+    assert "generate_data_preview" not in tool_names
 
 
 def test_schema_selection_agent_has_instruction():
@@ -46,8 +48,15 @@ def test_schema_selection_agent_has_instruction():
     assert hasattr(agent, 'instruction')
     assert "schema selection" in agent.instruction.lower()
     assert "get_schema_categories" in agent.instruction
-    assert "generate_data_preview" in agent.instruction
     assert "copy_schema_files" in agent.instruction
+    assert "read_schema_vocab" in agent.instruction
+
+
+def test_schema_selection_agent_instruction_uses_skeleton_summary():
+    """Test that instruction references skeleton_summary as primary data source."""
+    agent = create_schema_selection_agent()
+    assert "skeleton_summary" in agent.instruction
+    assert "Do NOT request data previews" in agent.instruction
 
 
 def test_schema_selection_agent_has_output_key():
@@ -69,7 +78,6 @@ async def test_schema_selection_agent_instruction_has_flags(mock_invocation_cont
 
     # Verify instruction has template placeholders
     assert "{current_dataset.name}" in agent.instruction or "{current_dataset}" in agent.instruction
-    assert "{current_dataset.combined_sampled_data}" in agent.instruction
     assert "{skip_schema_selection}" in agent.instruction
     assert "{force_schema_selection}" in agent.instruction
 
@@ -89,8 +97,8 @@ def test_schema_selection_agent_instruction_includes_categories():
 # Note: Full integration tests with LLM execution would require:
 # 1. Mocking the Gemini API responses
 # 2. Setting up complete dataset structures with real data
-# 3. Verifying tool calls sequence (get_schema_categories → generate_data_preview → copy_schema_files)
-# 4. Verifying state updates (schema_category, schema_examples_file, schema_mcf_file)
+# 3. Verifying tool calls sequence (get_schema_categories → copy_schema_files)
+# 4. Verifying state updates (schema_category, schema_vocab_content)
 #
 # These are better suited for end-to-end integration tests
 # where we test the full pipeline with real or mocked LLM responses.

@@ -142,15 +142,53 @@ class PVMAPGenerationAgent(BaseAgent):
                 try:
                     error_feedback = ctx.session.state.get("error_feedback")
 
-                    # Read schema content
+                    # Read schema content (respects use_schema_examples flag)
                     schema_content = None
-                    if current_dataset.schema_examples and current_dataset.schema_examples.exists():
-                        schema_content = read_file_content(current_dataset.schema_examples)
+                    use_schema_examples = ctx.session.state.get("use_schema_examples", True)
+                    if use_schema_examples:
+                        # 1. Prefer compressed vocab from state (set by SchemaSelectionAgent)
+                        schema_content = ctx.session.state.get("schema_vocab_content")
+                        # 2. Fallback: read vocab JSON from resource dir using selected category
+                        if not schema_content:
+                            schema_category = ctx.session.state.get("schema_category", "")
+                            # Extract clean category name from LLM output
+                            for cat in ["Health", "Demographics", "Economy", "Education", "Employment", "Energy", "School"]:
+                                if cat.lower() in schema_category.lower():
+                                    schema_category = cat
+                                    break
+                            schema_base = ctx.session.state.get("schema_base_dir", "")
+                            if schema_category and schema_base:
+                                vocab_path = Path(schema_base) / schema_category / "schema_vocab.json"
+                                if vocab_path.exists():
+                                    try:
+                                        import json
+                                        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+                                        vocab = json.loads(vocab_path.read_text(encoding="utf-8"))
+                                        schema_content = format_schema_vocab_for_prompt(vocab)
+                                    except Exception:
+                                        pass
+                        # 3. Fallback: file on disk (for --schema-file override or legacy files)
+                        if not schema_content and current_dataset.schema_examples and current_dataset.schema_examples.exists():
+                            schema_content = read_file_content(current_dataset.schema_examples)
 
-                    # Read sampled data
-                    if not current_dataset.combined_sampled_data or not current_dataset.combined_sampled_data.exists():
+                    # Read sampled data — resolve from multiple sources:
+                    # 1. current_dataset.combined_sampled_data (set by DiscoveryAgent)
+                    # 2. session state sampled_data_path (set by SamplingAgentWrapper)
+                    # 3. output_dir/agentic_sampled.csv (written by sampling agent)
+                    sampled_data_path = None
+                    if current_dataset.combined_sampled_data and current_dataset.combined_sampled_data.exists():
+                        sampled_data_path = current_dataset.combined_sampled_data
+                    elif ctx.session.state.get("sampled_data_path") and Path(ctx.session.state["sampled_data_path"]).exists():
+                        sampled_data_path = Path(ctx.session.state["sampled_data_path"])
+                    else:
+                        # Fallback: check output_dir for agentic_sampled.csv
+                        fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
+                        if fallback.exists():
+                            sampled_data_path = fallback
+
+                    if not sampled_data_path:
                         raise ValueError("No sampled data available")
-                    sampled_data_content = read_file_content(current_dataset.combined_sampled_data)
+                    sampled_data_content = read_file_content(sampled_data_path)
 
                     # Read metadata (optional)
                     metadata_content = "(No metadata provided)"
@@ -395,10 +433,19 @@ Return your response as a JSON object with this exact structure:
                 if not input_file:
                     raise ValueError("No input data files available for validation")
 
+                # Resolve metadata: prefer ground_truth, then combined_metadata
+                metadata_file = None
+                if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
+                    gt_meta_files = sorted(Path(current_dataset.ground_truth_metadata).glob("*.csv"))
+                    if gt_meta_files:
+                        metadata_file = str(gt_meta_files[0])
+                if not metadata_file and current_dataset.combined_metadata and Path(current_dataset.combined_metadata).exists():
+                    metadata_file = str(current_dataset.combined_metadata)
+
                 validation_result = run_validation(
                     input_data=str(input_file),
                     pvmap_path=str(pvmap_path),
-                    metadata_file=str(current_dataset.combined_metadata),
+                    metadata_file=metadata_file,
                     output_dir=str(current_dataset.output_dir)
                 )
 

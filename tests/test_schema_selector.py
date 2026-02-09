@@ -550,3 +550,119 @@ class TestSchemaCategories:
         assert 'Energy' in SCHEMA_CATEGORIES
         assert 'Health' in SCHEMA_CATEGORIES
         assert 'School' in SCHEMA_CATEGORIES
+
+
+class TestReadSchemaVocab:
+    """Tests for read_schema_vocab function."""
+
+    def test_read_schema_vocab_success(self, temp_dir):
+        """Test reading a valid schema vocab file."""
+        import json
+        from src.pipeline.schema_selection.schema_selector import read_schema_vocab
+
+        # Create vocab file
+        cat_dir = temp_dir / "Health"
+        cat_dir.mkdir()
+        vocab = {
+            "category": "Health",
+            "stat_var_skeletons": {"MortalityEvent": ["causeOfDeath"]},
+            "property_vocabulary": {"causeOfDeath": ["Diabetes"]},
+            "examples": [{"label": "Test", "mapping": "populationType:MortalityEvent"}]
+        }
+        with open(cat_dir / "schema_vocab.json", 'w') as f:
+            json.dump(vocab, f)
+
+        result = read_schema_vocab("Health", temp_dir)
+
+        assert result is not None
+        assert result["category"] == "Health"
+        assert "MortalityEvent" in result["stat_var_skeletons"]
+
+    def test_read_schema_vocab_missing_file(self, temp_dir):
+        """Test reading when vocab file doesn't exist."""
+        from src.pipeline.schema_selection.schema_selector import read_schema_vocab
+
+        result = read_schema_vocab("NonExistent", temp_dir)
+
+        assert result is None
+
+    def test_read_schema_vocab_default_base_dir(self):
+        """Test reading with default base dir (uses actual project files)."""
+        from src.pipeline.schema_selection.schema_selector import read_schema_vocab
+
+        result = read_schema_vocab("Health")
+
+        assert result is not None
+        assert result["category"] == "Health"
+        assert len(result["stat_var_skeletons"]) > 0
+        assert len(result["examples"]) > 0
+
+
+class TestFormatSchemaVocabForPrompt:
+    """Tests for format_schema_vocab_for_prompt function."""
+
+    def test_format_basic_vocab(self):
+        """Test formatting a basic vocab dict."""
+        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+
+        vocab = {
+            "category": "Health",
+            "stat_var_skeletons": {
+                "MortalityEvent": ["causeOfDeath", "gender"],
+                "Person": ["healthOutcome", "measuredProperty"]
+            },
+            "property_vocabulary": {
+                "causeOfDeath": ["Diabetes", "HeartDisease"],
+                "gender": ["Male", "Female"],
+                "healthOutcome": ["Asthma"],
+                "measuredProperty": ["count", "percent"]
+            },
+            "examples": [
+                {"label": "Heart Disease Deaths", "mapping": "causeOfDeath:HeartDisease, populationType:MortalityEvent"},
+                {"label": "Asthma Prevalence", "mapping": "healthOutcome:Asthma, measuredProperty:percent"}
+            ]
+        }
+
+        formatted = format_schema_vocab_for_prompt(vocab)
+
+        assert "### Schema Vocabulary: Health" in formatted
+        assert "StatVar Skeletons" in formatted
+        assert "MortalityEvent: causeOfDeath, gender" in formatted
+        assert "Person: healthOutcome, measuredProperty" in formatted
+        assert "Properties and valid values" in formatted
+        assert "causeOfDeath: Diabetes, HeartDisease" in formatted
+        assert "Representative examples" in formatted
+        assert "Heart Disease Deaths" in formatted
+        assert "Asthma Prevalence" in formatted
+
+    def test_format_empty_vocab(self):
+        """Test formatting an empty vocab."""
+        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+
+        vocab = {
+            "category": "Empty",
+            "stat_var_skeletons": {},
+            "property_vocabulary": {},
+            "examples": []
+        }
+
+        formatted = format_schema_vocab_for_prompt(vocab)
+
+        assert "### Schema Vocabulary: Empty" in formatted
+
+    def test_format_truncates_long_value_lists(self):
+        """Test that property values are truncated at 10 items."""
+        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+
+        vocab = {
+            "category": "Test",
+            "stat_var_skeletons": {},
+            "property_vocabulary": {
+                "prop": [f"val{i}" for i in range(15)]
+            },
+            "examples": []
+        }
+
+        formatted = format_schema_vocab_for_prompt(vocab)
+
+        assert "..." in formatted

@@ -114,14 +114,38 @@ class StatePreparationAgent(BaseAgent):
         # =====================================================================
 
         # Read schema_examples if not already in state
+        # Respects use_schema_examples flag and prefers compressed vocab
         if "schema_examples" not in ctx.session.state or not ctx.session.state["schema_examples"]:
+            use_schema_examples = ctx.session.state.get("use_schema_examples", True)
             schema_content = ""
-            if current_dataset.schema_examples and Path(current_dataset.schema_examples).exists():
-                try:
-                    schema_content = Path(current_dataset.schema_examples).read_text(encoding='utf-8')
-                except Exception as e:
-                    schema_content = f"(Error reading schema: {e})"
-            else:
+            if use_schema_examples:
+                # 1. Prefer compressed vocab from state
+                schema_content = ctx.session.state.get("schema_vocab_content", "")
+                # 2. Fallback: read vocab JSON from resource dir using selected category
+                if not schema_content:
+                    schema_category = ctx.session.state.get("schema_category", "")
+                    for cat in ["Health", "Demographics", "Economy", "Education", "Employment", "Energy", "School"]:
+                        if cat.lower() in schema_category.lower():
+                            schema_category = cat
+                            break
+                    schema_base = ctx.session.state.get("schema_base_dir", "")
+                    if schema_category and schema_base:
+                        vocab_path = Path(schema_base) / schema_category / "schema_vocab.json"
+                        if vocab_path.exists():
+                            try:
+                                import json
+                                from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+                                vocab = json.loads(vocab_path.read_text(encoding="utf-8"))
+                                schema_content = format_schema_vocab_for_prompt(vocab)
+                            except Exception:
+                                pass
+                # 3. Fallback: file on disk (for --schema-file override or legacy files)
+                if not schema_content and current_dataset.schema_examples and Path(current_dataset.schema_examples).exists():
+                    try:
+                        schema_content = Path(current_dataset.schema_examples).read_text(encoding='utf-8')
+                    except Exception as e:
+                        schema_content = f"(Error reading schema: {e})"
+            if not schema_content:
                 schema_content = (
                     "No schema example files found. Generate PVMAP based on "
                     "data structure and Data Commons conventions."
@@ -131,7 +155,14 @@ class StatePreparationAgent(BaseAgent):
         # Read sampled_data if not already in state
         if "sampled_data" not in ctx.session.state or not ctx.session.state["sampled_data"]:
             sampled_data = ""
+            # Resolve sampled data path from multiple sources
             sampled_path = current_dataset.combined_sampled_data
+            if not sampled_path or not Path(sampled_path).exists():
+                sampled_path = ctx.session.state.get("sampled_data_path")
+            if not sampled_path or not Path(sampled_path).exists():
+                fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
+                if fallback.exists():
+                    sampled_path = str(fallback)
             if sampled_path and Path(sampled_path).exists():
                 try:
                     sampled_data = Path(sampled_path).read_text(encoding='utf-8')

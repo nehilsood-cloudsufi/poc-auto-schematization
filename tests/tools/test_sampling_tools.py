@@ -463,3 +463,76 @@ def test_get_sample_values():
     assert 'a' in samples
     # Should have at most 5 values
     assert len(samples) <= 5
+
+
+# ============================================================================
+# Enriched Context Tests
+# ============================================================================
+
+def test_generate_context_enriched_columns(population_csv):
+    """Test that enriched context includes all column headers."""
+    import json
+    result = generate_context(
+        population_csv,
+        column_roles_json=json.dumps({
+            'StateFIPS': 'place',
+            'Year': 'time',
+            'Gender': 'dimension',
+            'AgeGroup': 'dimension',
+            'Population': 'value'
+        }),
+        dimension_columns=['Gender', 'AgeGroup'],
+        metadata_json=""
+    )
+
+    assert result['success'] is True
+    summary = result['skeleton_summary']
+
+    # Enriched skeleton should have section headers
+    assert "## 1. TOPOLOGY" in summary or "TOPOLOGY" in summary
+    # Should list all column headers
+    assert "StateFIPS" in summary
+    assert "Gender" in summary
+    assert "Population" in summary
+
+
+def test_generate_context_enriched_preformatted(dc_formatted_csv):
+    """Test enriched context detects pre-formatted DC data."""
+    import json
+    result = generate_context(
+        dc_formatted_csv,
+        column_roles_json=json.dumps({
+            'observationAbout': 'place',
+            'observationDate': 'time',
+            'variableMeasured': 'dimension',
+            'value': 'value'
+        }),
+        dimension_columns=['variableMeasured'],
+        metadata_json=""
+    )
+
+    assert result['success'] is True
+    data_ctx = result['data_context']
+    assert data_ctx.get('is_preformatted_dc') is True
+
+
+def test_generate_context_enriched_ignored_columns(population_csv):
+    """Test that metadata columns appear as ignored in enriched context."""
+    import json
+    result = generate_context(
+        population_csv,
+        column_roles_json=json.dumps({
+            'StateFIPS': 'place',
+            'Year': 'time',
+            'Gender': 'dimension',
+            'AgeGroup': 'dimension',
+            'Population': 'value'
+        }),
+        dimension_columns=['Gender', 'AgeGroup'],
+        metadata_json=""
+    )
+
+    assert result['success'] is True
+    data_ctx = result['data_context']
+    # ignored_columns should be a list
+    assert isinstance(data_ctx.get('ignored_columns', []), list)

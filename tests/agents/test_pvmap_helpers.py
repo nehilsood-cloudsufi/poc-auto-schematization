@@ -261,8 +261,57 @@ Col2,prop2,{Number}
 Col3,prop3,{Data}
 ```
 """
-    
+
     csv = extract_csv(output)
     assert csv is not None
     # Should extract the longer (second) CSV
     assert "Col3,prop3,{Data}" in csv
+
+
+def test_build_prompt_data_context_placeholder(temp_dir):
+    """Verify {{DATA_CONTEXT}} is replaced in template."""
+    template_path = temp_dir / "template.txt"
+    template_path.write_text(
+        "Before\n"
+        "{{DATA_CONTEXT}}\n"
+        "After\n"
+        "Schema: {{SCHEMA_EXAMPLES}}\n"
+        "Data: {{SAMPLED_DATA}}\n"
+        "Metadata: {{METADATA_CONFIG}}"
+    )
+
+    data_context = "## 1. TOPOLOGY\n- This is enriched context"
+
+    prompt = build_prompt_with_feedback(
+        template_path=template_path,
+        schema_content="schema",
+        sampled_data_content="data",
+        metadata_content="metadata",
+        data_context=data_context,
+    )
+
+    assert "## 1. TOPOLOGY" in prompt
+    assert "This is enriched context" in prompt
+    assert "{{DATA_CONTEXT}}" not in prompt
+
+
+def test_build_prompt_data_context_default(temp_dir):
+    """Verify {{DATA_CONTEXT}} gets default fallback when not provided."""
+    template_path = temp_dir / "template.txt"
+    template_path.write_text(
+        "Context: {{DATA_CONTEXT}}\n"
+        "Schema: {{SCHEMA_EXAMPLES}}\n"
+        "Data: {{SAMPLED_DATA}}\n"
+        "Metadata: {{METADATA_CONFIG}}"
+    )
+
+    prompt = build_prompt_with_feedback(
+        template_path=template_path,
+        schema_content="schema",
+        sampled_data_content="data",
+        metadata_content="metadata",
+        data_context=None,
+    )
+
+    assert "{{DATA_CONTEXT}}" not in prompt
+    assert "Data context analysis not available" in prompt

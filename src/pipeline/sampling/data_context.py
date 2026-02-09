@@ -119,87 +119,172 @@ class DataContext:
     total_rows: int = 0
     total_columns: int = 0
 
+    # === ENRICHED FIELDS (for improved PVMAP generation) ===
+    all_columns: List[str] = field(default_factory=list)
+    ignored_columns: List[str] = field(default_factory=list)
+    aggregate_values: Dict[str, List[str]] = field(default_factory=dict)
+    place_resolution_hints: List[Dict[str, str]] = field(default_factory=list)
+    is_preformatted_dc: bool = False
+    one_shot_example: str = ""
+
     def to_skeleton_summary(self) -> str:
         """
-        Generate UNIVERSAL markdown summary for LLM prompts.
-        Works for ANY domain: demographics, economy, health, energy, etc.
-        """
-        lines = [
-            "## DATA SKELETON SUMMARY",
-            "",
-            "### Dataset Context",
-            f"- **Name:** {self.name}",
-            f"- **Topology:** {self.topology}",
-            f"- **Population Type:** {self.population_type}",
-            "",
-        ]
+        Generate enriched markdown summary for LLM prompts.
 
-        # Anchors section
-        lines.append("### Anchors (Required)")
+        9-section format designed to prevent the top PVMAP validation errors:
+        1. Topology & Structure (all column headers)
+        2. Column Classifications (role table)
+        3. Anchor Analysis (geo + time with DCID hints)
+        4. Dimension Deep Dive (up to 15 values + aggregate flags)
+        5. Measurement & Units
+        6. StatVar Pattern (P+M+C formula)
+        7. One-Shot PVMAP Example
+        8. Pre-Formatted DC Detection
+        9. Coverage & generate-all reminder
+        """
+        lines = []
+
+        # === Section 1: Topology & Structure ===
+        lines.append("## 1. TOPOLOGY & STRUCTURE")
+        lines.append("")
+        lines.append(f"- **Dataset:** {self.name}")
+        lines.append(f"- **Format:** {self.topology}")
+        lines.append(f"- **Rows:** {self.total_rows}  |  **Columns:** {self.total_columns}")
+        lines.append("")
+        cols = self.all_columns if self.all_columns else list(self.column_roles.keys())
+        if cols:
+            lines.append(f"**ALL column headers (exact, case-sensitive):** `{'`, `'.join(cols)}`")
+        lines.append("")
+
+        # === Section 2: Column Classifications ===
+        lines.append("## 2. COLUMN CLASSIFICATIONS")
+        lines.append("")
+        if self.column_roles:
+            lines.append("| Column | Role |")
+            lines.append("|--------|------|")
+            for col, role in self.column_roles.items():
+                lines.append(f"| `{col}` | {role} |")
+        if self.ignored_columns:
+            lines.append("")
+            lines.append(f"**Ignored columns** (metadata/constant — do NOT map): `{'`, `'.join(self.ignored_columns)}`")
+        lines.append("")
+
+        # === Section 3: Anchor Analysis ===
+        lines.append("## 3. ANCHOR ANALYSIS")
+        lines.append("")
+        # Geography
         if self.geography:
             geo_col = self.geography.get('column', 'Unknown')
             geo_fmt = self.geography.get('format', 'Unknown')
-            lines.append(f"- **Geography:** Column `{geo_col}` (Format: {geo_fmt})")
+            geo_samples = self.geography.get('sample_values', [])
+            lines.append(f"**Geography:** Column `{geo_col}` — Format: {geo_fmt}")
+            if geo_samples:
+                lines.append(f"  Sample values: {', '.join(str(v) for v in geo_samples[:5])}")
+            if self.place_resolution_hints:
+                lines.append("  **Place → DCID resolution hints:**")
+                for hint in self.place_resolution_hints[:5]:
+                    lines.append(f"  - `{hint.get('raw_value', '?')}` → `{hint.get('suggested_dcid', '?')}`")
         else:
-            lines.append("- **Geography:** Not detected (CRITICAL: must identify)")
+            lines.append("**Geography:** Not detected (CRITICAL: must identify)")
+        lines.append("")
 
+        # Time
         if self.time:
             time_col = self.time.get('column', 'Unknown')
             time_fmt = self.time.get('format', 'Unknown')
-            lines.append(f"- **Time:** Column `{time_col}` (Format: {time_fmt})")
+            time_samples = self.time.get('sample_values', [])
+            lines.append(f"**Time:** Column `{time_col}` — Format: {time_fmt}")
+            if time_samples:
+                lines.append(f"  Sample values: {', '.join(str(v) for v in time_samples[:5])}")
         else:
-            lines.append("- **Time:** Not detected")
-
+            lines.append("**Time:** Not detected")
         lines.append("")
 
-        # Skeleton dimensions section
-        lines.append("### Skeleton Dimensions (Define StatVar)")
+        # === Section 4: Dimension Deep Dive ===
+        lines.append("## 4. DIMENSION DEEP DIVE")
+        lines.append("")
         if self.dimension_columns:
             for dim in self.dimension_columns:
                 values = self.dimension_domains.get(dim, [])
-                values_preview = values[:5] if len(values) > 5 else values
+                # Show up to 15 values (enriched from original 5)
+                values_preview = values[:15] if len(values) > 15 else values
                 values_str = ", ".join(str(v) for v in values_preview)
-                if len(values) > 5:
+                if len(values) > 15:
                     values_str += f", ... ({len(values)} total)"
-                lines.append(f"- `{dim}`: [{values_str}]")
+                lines.append(f"- **`{dim}`** ({len(values)} values): [{values_str}]")
+                # Flag aggregate values
+                agg_vals = self.aggregate_values.get(dim, [])
+                if agg_vals:
+                    lines.append(f"  ⚠ Aggregate values detected: {', '.join(agg_vals)} — consider dropping constraint or mapping to empty value")
         else:
             lines.append("- No dimension columns detected")
 
         if self.hidden_constraints:
             lines.append("")
-            lines.append("### Hidden Constraints (Implicit in all StatVars)")
+            lines.append("**Hidden Constraints (implicit in all StatVars):**")
             for hc in self.hidden_constraints:
                 lines.append(f"- {hc.get('property', 'Unknown')}: {hc.get('value', 'Unknown')} ({hc.get('reason', '')})")
-
         lines.append("")
 
-        # Measurement logic section
-        lines.append("### Measurement Logic")
+        # === Section 5: Measurement & Units ===
+        lines.append("## 5. MEASUREMENT & UNITS")
+        lines.append("")
         if self.value_columns:
             for vc in self.value_columns:
                 vc_name = vc.get('name', 'Unknown')
                 vc_type = vc.get('stat_type', self.measurement_type)
                 vc_unit = vc.get('unit', '')
                 unit_str = f", Unit: {vc_unit}" if vc_unit else ""
-                lines.append(f"- Value Column: `{vc_name}` (Type: {vc_type}{unit_str})")
+                lines.append(f"- Value Column: `{vc_name}` (StatType: {vc_type}{unit_str})")
         else:
             lines.append("- No value columns detected")
-
+        lines.append(f"- **Population Type:** {self.population_type}")
+        lines.append(f"- **Measurement Type:** {self.measurement_type}")
         lines.append("")
 
-        # StatVar pattern section
-        lines.append("### StatVar Pattern (P+M+C Formula)")
+        # === Section 6: StatVar Pattern ===
+        lines.append("## 6. STATVAR PATTERN (P+M+C Formula)")
+        lines.append("")
         if self.statvar_pattern:
             lines.append(f"`{self.statvar_pattern}`")
         else:
             lines.append("- Pattern not yet determined")
-
         lines.append("")
 
-        # Coverage section
-        lines.append("### Coverage")
+        # === Section 7: One-Shot PVMAP Example ===
+        lines.append("## 7. ONE-SHOT PVMAP EXAMPLE")
+        lines.append("")
+        if self.one_shot_example:
+            lines.append("```csv")
+            lines.append(self.one_shot_example)
+            lines.append("```")
+        else:
+            lines.append("_No one-shot example available._")
+        lines.append("")
+
+        # === Section 8: Pre-Formatted DC Detection ===
+        lines.append("## 8. PRE-FORMATTED DATA COMMONS DETECTION")
+        lines.append("")
+        if self.is_preformatted_dc:
+            lines.append("**YES — This data is already in Data Commons format.**")
+            lines.append("Use passthrough mapping:")
+            lines.append("```csv")
+            lines.append("key,property,value")
+            lines.append("observationAbout,observationAbout,{Data}")
+            lines.append("observationDate,observationDate,{Data}")
+            lines.append("variableMeasured,variableMeasured,{Data}")
+            lines.append("value,value,{Number}")
+            lines.append("```")
+        else:
+            lines.append("Not pre-formatted. Generate PVMAP from scratch.")
+        lines.append("")
+
+        # === Section 9: Coverage ===
+        lines.append("## 9. COVERAGE")
+        lines.append("")
         lines.append(f"- Total Dimension Combinations: {self.total_combinations}")
-        lines.append(f"- Sample Covers: {self.sample_combinations} ({self.coverage_percent:.1f}%)")
+        if self.sample_combinations > 0:
+            lines.append(f"- Sample Covers: {self.sample_combinations} ({self.coverage_percent:.1f}%)")
         lines.append("")
         lines.append("**IMPORTANT:** Generate PVMAP for ALL dimension combinations, not just those in sample.")
 
@@ -228,6 +313,11 @@ class DataContext:
             'coverage_percent': self.coverage_percent,
             'total_rows': self.total_rows,
             'total_columns': self.total_columns,
+            'all_columns': self.all_columns,
+            'ignored_columns': self.ignored_columns,
+            'aggregate_values': self.aggregate_values,
+            'place_resolution_hints': self.place_resolution_hints,
+            'is_preformatted_dc': self.is_preformatted_dc,
         }
 
     def to_mcp_query_context(self) -> Dict[str, Any]:
@@ -356,7 +446,193 @@ class DataContextGenerator:
         # Step 9: Generate description
         context.description = self._generate_description(df, metadata, context)
 
+        # Step 10: Populate enriched fields
+        context.all_columns = list(df.columns)
+        context.ignored_columns = [
+            col for col, role in context.column_roles.items()
+            if role == 'metadata'
+        ]
+        context.aggregate_values = self._detect_aggregate_values(
+            df, context.dimension_columns
+        )
+        context.place_resolution_hints = self._generate_place_resolution_hints(
+            context.geography, df
+        )
+        context.is_preformatted_dc = self._detect_preformatted_dc(df)
+        context.one_shot_example = self._generate_one_shot_example(context, df)
+
         return context
+
+    # === GEO FORMAT → DCID PREFIX LOOKUP ===
+    GEO_FORMAT_DCID_MAP = {
+        'FIPS_STATE': ('geoId/{val:0>2}', 'geoId/'),
+        'FIPS_COUNTY': ('geoId/{val:0>5}', 'geoId/'),
+        'FIPS': ('geoId/{val}', 'geoId/'),
+        'ISO_2': ('country/{val}', 'country/'),
+        'ISO_3': ('country/{val}', 'country/'),
+        'DC_DCID': ('{val}', ''),
+        'NAME': ('wikidataId/{val}', 'wikidataId/'),
+        'NUMERIC_CODE': ('geoId/{val}', 'geoId/'),
+    }
+
+    def _detect_aggregate_values(self, df, dimension_columns: List[str]) -> Dict[str, List[str]]:
+        """Scan each dimension for values matching total_keywords config.
+
+        Args:
+            df: pandas DataFrame
+            dimension_columns: List of dimension column names
+
+        Returns:
+            Dict mapping dimension name to list of aggregate value strings found
+        """
+        total_keywords = self._config.get('total_keywords', [])
+        aggregate_values = {}
+
+        for col in dimension_columns:
+            if col not in df.columns:
+                continue
+            col_aggs = []
+            unique_vals = df[col].dropna().unique()
+            for val in unique_vals:
+                val_lower = str(val).strip().lower()
+                for kw in total_keywords:
+                    if val_lower == kw or val_lower.startswith(kw + ' ') or val_lower.endswith(' ' + kw):
+                        col_aggs.append(str(val))
+                        break
+            if col_aggs:
+                aggregate_values[col] = col_aggs
+
+        return aggregate_values
+
+    def _generate_place_resolution_hints(
+        self, geo_info: Dict[str, Any], df
+    ) -> List[Dict[str, str]]:
+        """Map detected geo format to DCID pattern with sample values.
+
+        Args:
+            geo_info: Geography dict from _detect_geography
+            df: pandas DataFrame
+
+        Returns:
+            List of 3-5 sample {raw_value, suggested_dcid} dicts
+        """
+        if not geo_info:
+            return []
+
+        geo_col = geo_info.get('column')
+        geo_format = geo_info.get('format', 'NAME')
+
+        if not geo_col or geo_col not in df.columns:
+            return []
+
+        format_info = self.GEO_FORMAT_DCID_MAP.get(geo_format)
+        if not format_info:
+            return []
+
+        pattern, prefix = format_info
+        sample_values = df[geo_col].dropna().unique()[:5]
+        hints = []
+
+        for raw in sample_values:
+            raw_str = str(raw).strip()
+            if geo_format in ('FIPS_STATE',):
+                try:
+                    suggested = f"geoId/{int(raw_str):02d}"
+                except (ValueError, TypeError):
+                    suggested = f"geoId/{raw_str}"
+            elif geo_format in ('FIPS_COUNTY',):
+                try:
+                    suggested = f"geoId/{int(raw_str):05d}"
+                except (ValueError, TypeError):
+                    suggested = f"geoId/{raw_str}"
+            elif geo_format == 'DC_DCID':
+                suggested = raw_str
+            elif prefix:
+                suggested = f"{prefix}{raw_str}"
+            else:
+                suggested = raw_str
+
+            hints.append({
+                'raw_value': raw_str,
+                'suggested_dcid': suggested,
+            })
+
+        return hints
+
+    def _generate_one_shot_example(self, context: 'DataContext', df) -> str:
+        """Generate a deterministic template-based mini PVMAP example.
+
+        Args:
+            context: Partially-filled DataContext
+            df: pandas DataFrame
+
+        Returns:
+            String containing a small PVMAP CSV example (3-8 rows)
+        """
+        lines = ["key,property,value"]
+
+        # Place anchor
+        if context.geography:
+            geo_col = context.geography.get('column', '')
+            geo_format = context.geography.get('format', 'NAME')
+            format_info = self.GEO_FORMAT_DCID_MAP.get(geo_format)
+            if format_info:
+                _, prefix = format_info
+                if geo_format == 'FIPS_STATE':
+                    lines.append(f'{geo_col},#Format,observationAbout=geoId/{{Number:0>2}}')
+                elif geo_format == 'FIPS_COUNTY':
+                    lines.append(f'{geo_col},#Format,observationAbout=geoId/{{Number:0>5}}')
+                elif geo_format == 'DC_DCID':
+                    lines.append(f'{geo_col},observationAbout,{{Data}}')
+                elif prefix:
+                    lines.append(f'{geo_col},observationAbout,{prefix}{{Data}}')
+                else:
+                    lines.append(f'{geo_col},observationAbout,{{Data}}')
+            else:
+                lines.append(f'{geo_col},observationAbout,{{Data}}')
+
+        # Time anchor
+        if context.time:
+            time_col = context.time.get('column', '')
+            lines.append(f'{time_col},observationDate,{{Data}}')
+
+        # Dimension values (for dims with <=10 values, enumerate)
+        for dim in context.dimension_columns:
+            values = context.dimension_domains.get(dim, [])
+            if 0 < len(values) <= 10:
+                for val in values:
+                    val_str = str(val)
+                    # Use COLUMN:VALUE syntax
+                    dim_prop = dim.lower().replace(' ', '')
+                    lines.append(f'{dim}:{val_str},{dim_prop},{val_str}')
+
+        # Value column with full StatVar properties
+        if context.value_columns:
+            vc = context.value_columns[0]
+            vc_name = vc.get('name', 'Value')
+            pop_type = context.population_type
+            meas_type = context.measurement_type.lower()
+            lines.append(
+                f'{vc_name},value,{{Number}},populationType,{pop_type},'
+                f'measuredProperty,{meas_type},statType,measuredValue'
+            )
+
+        return "\n".join(lines)
+
+    def _detect_preformatted_dc(self, df) -> bool:
+        """Check if data is already in Data Commons format.
+
+        Detection: columns include variableMeasured + observationAbout + value.
+
+        Args:
+            df: pandas DataFrame
+
+        Returns:
+            True if data appears to be pre-formatted DC data
+        """
+        col_set = set(c.lower().strip() for c in df.columns)
+        required = {'variablemeasured', 'observationabout', 'value'}
+        return required.issubset(col_set)
 
     def _classify_columns(self, df) -> Dict[str, str]:
         """Classify columns into: place, time, dimension, value, metadata.

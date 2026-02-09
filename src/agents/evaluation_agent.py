@@ -221,6 +221,10 @@ class EvaluationAgent(BaseAgent):
                 eval_metrics['expected_pattern'] = expected_pattern
                 eval_metrics['dimension_columns'] = dimension_columns
                 eval_metrics['sample_coverage_percent'] = coverage_percent
+                # Include aggregate value flags for debugging visibility
+                aggregate_values = data_context.get('aggregate_values', {}) if data_context else {}
+                if aggregate_values:
+                    eval_metrics['aggregate_values_detected'] = aggregate_values
 
             ctx.session.state["eval_metrics"] = eval_metrics
             ctx.session.state["best_ground_truth_pvmap"] = str(best_gt_pvmap)

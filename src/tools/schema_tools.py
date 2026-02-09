@@ -20,6 +20,8 @@ from src.pipeline.schema_selection.schema_selector import (
     invoke_gemini as _invoke_gemini,
     copy_schema_files as _copy_schema_files,
     generate_schema_previews as _generate_schema_previews,
+    read_schema_vocab as _read_schema_vocab,
+    format_schema_vocab_for_prompt as _format_schema_vocab_for_prompt,
     SCHEMA_CATEGORIES
 )
 
@@ -178,6 +180,8 @@ def copy_schema_files(
     """
     Copy schema files to input directory.
 
+    Also reads and returns compressed schema vocab if available.
+
     Args:
         category: Selected schema category name
         schema_base_dir: Path to schema files directory (as string)
@@ -188,6 +192,7 @@ def copy_schema_files(
         Dictionary with:
             - success: bool indicating success
             - files_copied: List[str] of copied file paths
+            - schema_vocab_content: str with formatted vocab for PVMAP prompt (or None)
             - error: str with error message if failed
     """
     try:
@@ -197,6 +202,7 @@ def copy_schema_files(
             return {
                 "success": False,
                 "files_copied": [],
+                "schema_vocab_content": None,
                 "error": f"Input directory not found: {input_dir}"
             }
 
@@ -210,16 +216,24 @@ def copy_schema_files(
         # Convert Path objects to strings
         copied_files_str = [str(f) for f in copied_files]
 
+        # Read and format compressed vocab for downstream prompt injection
+        schema_vocab_content = None
+        vocab = _read_schema_vocab(category, Path(schema_base_dir))
+        if vocab:
+            schema_vocab_content = _format_schema_vocab_for_prompt(vocab)
+
         if not success:
             return {
                 "success": False,
-                "files_copied": copied_files_str,  # May be partial list
+                "files_copied": copied_files_str,
+                "schema_vocab_content": schema_vocab_content,
                 "error": "File copy operation failed"
             }
 
         return {
             "success": True,
             "files_copied": copied_files_str,
+            "schema_vocab_content": schema_vocab_content,
             "error": None
         }
 
@@ -227,7 +241,56 @@ def copy_schema_files(
         return {
             "success": False,
             "files_copied": [],
+            "schema_vocab_content": None,
             "error": f"Failed to copy schema files: {str(e)}"
+        }
+
+
+def read_schema_vocab(
+    category: str,
+    schema_base_dir: str = ""
+) -> Dict[str, Any]:
+    """
+    Read compressed schema vocabulary JSON for a category.
+
+    Args:
+        category: Schema category name (e.g., 'Health', 'Economy')
+        schema_base_dir: Path to schema files directory (as string, optional)
+
+    Returns:
+        Dictionary with:
+            - success: bool indicating success
+            - vocab: dict with parsed vocab JSON
+            - formatted: str with human-readable prompt section
+            - error: str with error message if failed
+    """
+    try:
+        base_dir = Path(schema_base_dir) if schema_base_dir else None
+        vocab = _read_schema_vocab(category, base_dir)
+
+        if vocab is None:
+            return {
+                "success": False,
+                "vocab": None,
+                "formatted": None,
+                "error": f"Schema vocab not found for category: {category}"
+            }
+
+        formatted = _format_schema_vocab_for_prompt(vocab)
+
+        return {
+            "success": True,
+            "vocab": vocab,
+            "formatted": formatted,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "vocab": None,
+            "formatted": None,
+            "error": f"Failed to read schema vocab: {str(e)}"
         }
 
 

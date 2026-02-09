@@ -494,18 +494,35 @@ The generate_context tool will write the results to a JSON file.
         data_context: dict,
         context_file_path: str
     ):
-        """Populate session state from data context dict."""
+        """Populate session state from data context dict.
+
+        State Keys (2 keys, ordered by importance):
+
+        1. skeleton_summary (str) — PRIMARY output. Enriched 9-section markdown
+           injected directly into the PVMAP generation prompt via {{DATA_CONTEXT}}.
+           All downstream LLM consumers should prefer this key.
+
+        2. data_context (dict) — SECONDARY output. Full structured dict for
+           programmatic access (evaluation agent, MCP queries, debugging).
+           Contains column_roles and dimension_columns for any agent that
+           needs them (e.g. data_context.get("column_roles")).
+        """
         ctx.session.state["skeleton_summary"] = data_context.get("skeleton_summary", "")
         ctx.session.state["data_context"] = data_context.get("data_context", data_context)
-        ctx.session.state["column_roles"] = data_context.get("column_roles", {})
-        ctx.session.state["dimension_columns"] = data_context.get("dimension_columns", [])
         ctx.session.state["sampling_success"] = data_context.get("success", True)
         ctx.session.state["context_file_path"] = context_file_path
 
-        # Also update combined_sampled_data if available
-        if data_context.get("data_context", {}).get("sampled_file"):
-            sampled_path = data_context["data_context"]["sampled_file"]
+        # Set sampled_data_path in state for downstream agents
+        sampled_path = data_context.get("data_context", {}).get("sampled_file")
+        if sampled_path:
             ctx.session.state["sampled_data_path"] = sampled_path
+        else:
+            # Fallback: derive from output_dir (where agentic_sampled.csv is written)
+            current_dataset = ctx.session.state.get("current_dataset")
+            if current_dataset and hasattr(current_dataset, 'output_dir'):
+                fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
+                if fallback.exists():
+                    ctx.session.state["sampled_data_path"] = str(fallback)
 
     def _create_event(self, text: str) -> Event:
         """Create an event with text content."""

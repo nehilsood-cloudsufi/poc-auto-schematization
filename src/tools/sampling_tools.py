@@ -935,15 +935,24 @@ def generate_context(
             # Override column roles with LLM's classification
             if column_roles:
                 context.column_roles = column_roles
+                # Rebuild ignored_columns from LLM's classifications
+                context.ignored_columns = [
+                    col for col, role in column_roles.items()
+                    if role == 'metadata'
+                ]
 
             # Override dimension columns with LLM's identification
             if dimension_columns:
                 context.dimension_columns = dimension_columns
                 # Rebuild dimension domains
                 context.dimension_domains = {
-                    col: df[col].dropna().unique().tolist()
+                    col: sorted([str(v) for v in df[col].dropna().unique()])
                     for col in dimension_columns if col in df.columns
                 }
+                # Rebuild aggregate values for new dimensions
+                context.aggregate_values = generator._detect_aggregate_values(
+                    df, dimension_columns
+                )
 
             # Regenerate skeleton summary with LLM's classifications
             skeleton_summary = context.to_skeleton_summary()
@@ -1007,11 +1016,16 @@ def _generate_context_manual(
     metadata: Dict[str, Any],
     dataset_name: str
 ) -> tuple:
-    """Generate context without DataContextGenerator class."""
+    """Generate context without DataContextGenerator class.
+
+    Produces enriched format with graceful degradation (no one-shot example
+    or aggregate detection in fallback).
+    """
     # Extract place and time columns from roles
     place_col = None
     time_col = None
     value_cols = []
+    ignored_cols = []
 
     for col, role in column_roles.items():
         if role == 'place' and place_col is None:
@@ -1020,6 +1034,8 @@ def _generate_context_manual(
             time_col = col
         elif role == 'value':
             value_cols.append(col)
+        elif role == 'metadata':
+            ignored_cols.append(col)
 
     # Build dimension domains
     dimension_domains = {}
@@ -1047,10 +1063,15 @@ def _generate_context_manual(
     for vals in dimension_domains.values():
         total_combinations *= max(1, len(vals))
 
+    # Detect pre-formatted DC data
+    col_set = set(c.lower().strip() for c in df.columns)
+    is_preformatted = {'variablemeasured', 'observationabout', 'value'}.issubset(col_set)
+
     # Build data context dict
+    topology = "TIDY_LONG" if len(value_cols) <= 2 else "PIVOTED_WIDE"
     data_context = {
         "dataset_name": dataset_name,
-        "topology": "TIDY_LONG" if len(value_cols) <= 2 else "PIVOTED_WIDE",
+        "topology": topology,
         "population_type": "Person",
         "geography": {"column": place_col} if place_col else {},
         "time": {"column": time_col} if time_col else {},
@@ -1063,56 +1084,101 @@ def _generate_context_manual(
         "total_combinations": total_combinations,
         "total_rows": len(df),
         "total_columns": len(df.columns),
+        "all_columns": list(df.columns),
+        "ignored_columns": ignored_cols,
+        "aggregate_values": {},
+        "place_resolution_hints": [],
+        "is_preformatted_dc": is_preformatted,
     }
 
-    # Build skeleton summary
+    # Build enriched skeleton summary (graceful degradation)
     lines = [
-        "## DATA SKELETON SUMMARY",
+        "## 1. TOPOLOGY & STRUCTURE",
         "",
-        "### Dataset Context",
-        f"- **Name:** {dataset_name}",
-        f"- **Topology:** {data_context['topology']}",
+        f"- **Dataset:** {dataset_name}",
+        f"- **Format:** {topology}",
+        f"- **Rows:** {len(df)}  |  **Columns:** {len(df.columns)}",
         "",
-        "### Anchors (Required)",
+        f"**ALL column headers (exact, case-sensitive):** `{'`, `'.join(df.columns)}`",
+        "",
+        "## 2. COLUMN CLASSIFICATIONS",
+        "",
     ]
 
+    if column_roles:
+        lines.append("| Column | Role |")
+        lines.append("|--------|------|")
+        for col, role in column_roles.items():
+            lines.append(f"| `{col}` | {role} |")
+
+    if ignored_cols:
+        lines.append("")
+        lines.append(f"**Ignored columns** (metadata/constant — do NOT map): `{'`, `'.join(ignored_cols)}`")
+    lines.append("")
+
+    lines.append("## 3. ANCHOR ANALYSIS")
+    lines.append("")
     if place_col:
-        lines.append(f"- **Geography:** Column `{place_col}`")
+        lines.append(f"**Geography:** Column `{place_col}`")
     else:
-        lines.append("- **Geography:** Not detected")
-
+        lines.append("**Geography:** Not detected (CRITICAL: must identify)")
     if time_col:
-        lines.append(f"- **Time:** Column `{time_col}`")
+        lines.append(f"**Time:** Column `{time_col}`")
     else:
-        lines.append("- **Time:** Not detected")
+        lines.append("**Time:** Not detected")
+    lines.append("")
 
-    lines.extend(["", "### Skeleton Dimensions (Define StatVar)"])
+    lines.append("## 4. DIMENSION DEEP DIVE")
+    lines.append("")
     if dimension_columns:
         for dim in dimension_columns:
             vals = dimension_domains.get(dim, [])
-            vals_preview = vals[:5]
+            vals_preview = vals[:15]
             vals_str = ", ".join(vals_preview)
-            if len(vals) > 5:
+            if len(vals) > 15:
                 vals_str += f", ... ({len(vals)} total)"
-            lines.append(f"- `{dim}`: [{vals_str}]")
+            lines.append(f"- **`{dim}`** ({len(vals)} values): [{vals_str}]")
     else:
         lines.append("- No dimension columns detected")
+    lines.append("")
 
-    lines.extend(["", "### Measurement Logic"])
+    lines.append("## 5. MEASUREMENT & UNITS")
+    lines.append("")
     if value_cols:
         for vc in value_cols:
             lines.append(f"- Value Column: `{vc}`")
     else:
         lines.append("- No value columns detected")
+    lines.append(f"- **Population Type:** Person")
+    lines.append(f"- **Measurement Type:** {measurement_type}")
+    lines.append("")
 
-    lines.extend([
-        "",
-        "### StatVar Pattern",
-        f"`{statvar_pattern}`",
-        "",
-        "### Coverage",
-        f"- Total Dimension Combinations: {total_combinations}",
-    ])
+    lines.append("## 6. STATVAR PATTERN (P+M+C Formula)")
+    lines.append("")
+    lines.append(f"`{statvar_pattern}`")
+    lines.append("")
+
+    lines.append("## 7. ONE-SHOT PVMAP EXAMPLE")
+    lines.append("")
+    lines.append("_Simplified analysis. One-shot example not available in fallback mode._")
+    lines.append("")
+
+    lines.append("## 8. PRE-FORMATTED DATA COMMONS DETECTION")
+    lines.append("")
+    if is_preformatted:
+        lines.append("**YES — This data is already in Data Commons format.**")
+        lines.append("Use passthrough mapping.")
+    else:
+        lines.append("Not pre-formatted. Generate PVMAP from scratch.")
+    lines.append("")
+
+    lines.append("## 9. COVERAGE")
+    lines.append("")
+    lines.append(f"- Total Dimension Combinations: {total_combinations}")
+    lines.append("")
+    lines.append("**IMPORTANT:** Generate PVMAP for ALL dimension combinations, not just those in sample.")
+    lines.append("")
+    lines.append("_Simplified analysis. Full context generation not available._")
 
     skeleton_summary = "\n".join(lines)
 

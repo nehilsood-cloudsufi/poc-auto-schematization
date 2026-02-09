@@ -139,13 +139,20 @@ def create_runner(
     return runner
 
 
-def run_discovery(input_dir: Path, output_dir: Path) -> dict:
+def run_discovery(
+    input_dir: Path,
+    output_dir: Path,
+    use_metadata: bool = False,
+    ground_truth_repo: Optional[str] = None,
+) -> dict:
     """
     Run discovery phase with logging.
 
     Args:
         input_dir: Input directory containing datasets
         output_dir: Output directory for logs
+        use_metadata: Whether to use metadata files
+        ground_truth_repo: Path to ground truth repository
 
     Returns:
         Result dictionary with discovered datasets
@@ -179,6 +186,8 @@ def run_discovery(input_dir: Path, output_dir: Path) -> dict:
         )
         if session:
             session.state["input_dir"] = str(input_dir)
+            session.state["use_metadata"] = use_metadata
+            session.state["ground_truth_repo"] = ground_truth_repo
             return True
         return False
 
@@ -220,6 +229,7 @@ def run_dataset_pipeline(
     use_metadata: bool = False,
     metadata_file_path: Optional[str] = None,
     schema_file: Optional[str] = None,
+    use_schema_examples: bool = True,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -245,6 +255,7 @@ def run_dataset_pipeline(
         use_metadata: Whether to use metadata for prompt building
         metadata_file_path: Explicit metadata file path (auto-enables use_metadata)
         schema_file: Explicit schema file override
+        use_schema_examples: If True (default), inject schema examples into PVMAP prompt
 
     Returns:
         Final state dictionary
@@ -402,10 +413,18 @@ def run_dataset_pipeline(
         "data_context": {},
         # New discovery flags
         "use_metadata": use_metadata,
+        "input_file": input_file,
+        "metadata_file_path": metadata_file_path,
+        "schema_file": schema_file,
+        # Schema examples control
+        "use_schema_examples": use_schema_examples,
     }
 
+    # Always set schema_base_dir in state (agents need it for tool calls)
     if schema_base_dir:
         initial_state["schema_base_dir"] = str(schema_base_dir)
+    else:
+        initial_state["schema_base_dir"] = str(PROJECT_ROOT / "src" / "resources" / "schema_examples")
 
     # Add MCP state if enabled
     if enable_mcp and mcp_url:
@@ -572,6 +591,11 @@ if __name__ == "__main__":
     # Schema file override
     parser.add_argument("--schema-file", type=str, default=None,
                         help="Path to explicit schema file override")
+    # Schema examples control
+    parser.add_argument("--no-schema-examples", action="store_true",
+                        help="Skip injecting schema examples into PVMAP generation prompt")
+    parser.add_argument("--schema-base-dir", type=str, default=None,
+                        help="Override schema examples base directory")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
@@ -617,7 +641,11 @@ if __name__ == "__main__":
     else:
         # Run discovery to find datasets
         print("Running discovery...")
-        discovery_result = run_discovery(input_dir, output_dir)
+        discovery_result = run_discovery(
+            input_dir, output_dir,
+            use_metadata=args.use_metadata,
+            ground_truth_repo=args.ground_truth_repo,
+        )
         datasets = discovery_result.get("datasets", [])
 
         if not datasets:
@@ -710,6 +738,8 @@ if __name__ == "__main__":
             use_metadata=args.use_metadata,
             metadata_file_path=args.metadata_file_path,
             schema_file=args.schema_file,
+            use_schema_examples=not args.no_schema_examples,
+            schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
         )
 
         print("\n" + "=" * 60)

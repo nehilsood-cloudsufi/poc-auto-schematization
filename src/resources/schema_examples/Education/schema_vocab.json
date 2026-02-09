@@ -1,0 +1,92 @@
+{
+  "category": "Education",
+  "stat_var_skeletons": {
+    "Faculty": [
+      "facultyType"
+    ],
+    "Person": [
+      "age",
+      "censusACSTableId",
+      "detailedLevelOfSchool",
+      "educationalAttainment",
+      "gender",
+      "race",
+      "schoolEnrollment"
+    ],
+    "Student": [
+      "gender"
+    ],
+    "Teacher": [
+      "facultyType"
+    ]
+  },
+  "property_vocabulary": {
+    "age": [
+      "Years25Onwards",
+      "Years3Onwards"
+    ],
+    "censusACSTableId": [
+      "B14007B",
+      "B14007D",
+      "B14007F",
+      "B14007G"
+    ],
+    "detailedLevelOfSchool": [
+      "EnrolledInKindergarten",
+      "HighSchool",
+      "MiddleSchool"
+    ],
+    "educationalAttainment": [
+      "9ThTo12ThGradeNoDiploma",
+      "AssociatesDegree",
+      "GraduateOrProfessionalDegree"
+    ],
+    "facultyType": [
+      "ElementarySchoolCounselor",
+      "ElementaryTeacher",
+      "LEAAdministrativeSupportStaff",
+      "SecondaryTeacher",
+      "TotalGuidanceCounselor",
+      "UniversityAndCollegeTeacher"
+    ],
+    "gender": [
+      "Female",
+      "Male"
+    ],
+    "race": [
+      "AsianAlone",
+      "BlackOrAfricanAmericanAlone",
+      "SomeOtherRaceAlone",
+      "TwoOrMoreRaces"
+    ],
+    "schoolEnrollment": [
+      "EnrolledInSchool"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Population: Associates Degree, Male",
+      "mapping": "age:Years25Onwards, educationalAttainment:AssociatesDegree, gender:Male"
+    },
+    {
+      "label": "Population: Middle School, Asian Alone",
+      "mapping": "age:Years3Onwards, censusACSTableId:B14007D, detailedLevelOfSchool:MiddleSchool, race:AsianAlone, schoolEnrollment:EnrolledInSchool"
+    },
+    {
+      "label": "Population: Graduate or Professional Degree",
+      "mapping": "age:Years25Onwards, educationalAttainment:GraduateOrProfessionalDegree"
+    },
+    {
+      "label": "Population Completed Between 9th to 12th Grade With No Diploma",
+      "mapping": "educationalAttainment:9ThTo12ThGradeNoDiploma"
+    },
+    {
+      "label": "Count of Teacher: Secondary Teacher",
+      "mapping": "facultyType:SecondaryTeacher, populationType:Teacher"
+    },
+    {
+      "label": "Count of Student: Male",
+      "mapping": "gender:Male, populationType:Student"
+    }
+  ]
+}

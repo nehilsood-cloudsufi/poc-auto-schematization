@@ -419,6 +419,12 @@ Check headers for keywords indicating unit/scale:
 
 ---
 
+# DATA UNDERSTANDING (from automated analysis)
+
+{{DATA_CONTEXT}}
+
+---
+
 # SCHEMA EXAMPLES
 
 {{SCHEMA_EXAMPLES}}

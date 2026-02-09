@@ -16,7 +16,8 @@ from src.tools.schema_tools import (
     build_prompt,
     select_schema_category,
     copy_schema_files,
-    get_available_categories
+    get_available_categories,
+    read_schema_vocab
 )
 
 
@@ -222,9 +223,9 @@ def test_copy_schema_files_success(temp_dir):
 
     assert result['success'] is True
     assert result['error'] is None
-    assert len(result['files_copied']) == 1
+    assert len(result['files_copied']) >= 1
 
-    # Verify file was actually copied (now goes to schema/ subfolder)
+    # Verify .txt file was actually copied (now goes to schema/ subfolder)
     copied_file = input_dir / "schema" / schema_file.name
     assert copied_file.exists()
 
@@ -320,3 +321,168 @@ def test_copy_schema_files_invalid_input_dir(temp_dir):
     # Should fail
     assert result['success'] is False
     assert result['error'] is not None
+
+
+def test_copy_schema_files_returns_vocab_content(temp_dir):
+    """Test that copy_schema_files returns formatted vocab content when available."""
+    import json
+
+    # Create schema source directory with both .txt and vocab.json
+    schema_dir = temp_dir / "schemas"
+    health_dir = schema_dir / "Health"
+    health_dir.mkdir(parents=True)
+
+    # Create .txt file
+    txt_file = health_dir / "scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt"
+    with open(txt_file, 'w') as f:
+        f.write("Example --> populationType:MortalityEvent, causeOfDeath:ICD10/A00\n")
+
+    # Create schema_vocab.json
+    vocab = {
+        "category": "Health",
+        "stat_var_skeletons": {"MortalityEvent": ["causeOfDeath", "gender"]},
+        "property_vocabulary": {"causeOfDeath": ["ICD10/A00"], "gender": ["Male", "Female"]},
+        "examples": [{"label": "Test", "mapping": "populationType:MortalityEvent"}]
+    }
+    vocab_file = health_dir / "schema_vocab.json"
+    with open(vocab_file, 'w') as f:
+        json.dump(vocab, f)
+
+    # Create target directory
+    input_dir = temp_dir / "dataset"
+    input_dir.mkdir()
+
+    result = copy_schema_files(
+        category='Health',
+        schema_base_dir=schema_dir,
+        input_dir=input_dir,
+        dry_run=False
+    )
+
+    assert result['success'] is True
+    assert result['schema_vocab_content'] is not None
+    assert 'Schema Vocabulary: Health' in result['schema_vocab_content']
+    assert 'MortalityEvent' in result['schema_vocab_content']
+
+
+def test_copy_schema_files_no_vocab_returns_none(temp_dir):
+    """Test that copy_schema_files returns None for vocab when no vocab file exists."""
+    schema_dir = temp_dir / "schemas"
+    demo_dir = schema_dir / "Demographics"
+    demo_dir.mkdir(parents=True)
+
+    # Create .txt file only (no vocab.json)
+    txt_file = demo_dir / "scripts_statvar_llm_config_schema_examples_dc_topic_Demographics.txt"
+    with open(txt_file, 'w') as f:
+        f.write("Example content\n")
+
+    input_dir = temp_dir / "dataset"
+    input_dir.mkdir()
+
+    result = copy_schema_files(
+        category='Demographics',
+        schema_base_dir=schema_dir,
+        input_dir=input_dir,
+        dry_run=False
+    )
+
+    assert result['success'] is True
+    assert result['schema_vocab_content'] is None
+
+
+def test_read_schema_vocab_success(temp_dir):
+    """Test reading schema vocab from file."""
+    import json
+
+    # Create vocab file
+    schema_dir = temp_dir / "schemas"
+    health_dir = schema_dir / "Health"
+    health_dir.mkdir(parents=True)
+
+    vocab = {
+        "category": "Health",
+        "stat_var_skeletons": {"MortalityEvent": ["causeOfDeath"]},
+        "property_vocabulary": {"causeOfDeath": ["ICD10/A00", "Diabetes"]},
+        "examples": [{"label": "Deaths", "mapping": "populationType:MortalityEvent"}]
+    }
+    with open(health_dir / "schema_vocab.json", 'w') as f:
+        json.dump(vocab, f)
+
+    result = read_schema_vocab(category='Health', schema_base_dir=str(schema_dir))
+
+    assert result['success'] is True
+    assert result['error'] is None
+    assert result['vocab'] is not None
+    assert result['vocab']['category'] == 'Health'
+    assert 'MortalityEvent' in result['vocab']['stat_var_skeletons']
+
+    # Check formatted output
+    assert result['formatted'] is not None
+    assert 'Schema Vocabulary: Health' in result['formatted']
+    assert 'MortalityEvent' in result['formatted']
+    assert 'causeOfDeath' in result['formatted']
+
+
+def test_read_schema_vocab_missing_file(temp_dir):
+    """Test reading vocab when file doesn't exist."""
+    schema_dir = temp_dir / "schemas"
+    schema_dir.mkdir()
+
+    result = read_schema_vocab(category='NonExistent', schema_base_dir=str(schema_dir))
+
+    assert result['success'] is False
+    assert result['vocab'] is None
+    assert result['formatted'] is None
+    assert result['error'] is not None
+
+
+def test_read_schema_vocab_default_base_dir():
+    """Test reading vocab with real schema files (from project's schema_examples)."""
+    # This tests against the actual generated vocab files
+    result = read_schema_vocab(category='Health')
+
+    assert result['success'] is True
+    assert result['vocab'] is not None
+    assert result['vocab']['category'] == 'Health'
+    assert 'MortalityEvent' in result['vocab']['stat_var_skeletons']
+    assert len(result['vocab']['examples']) > 0
+    assert result['formatted'] is not None
+
+
+def test_read_schema_vocab_formatted_output_structure(temp_dir):
+    """Test that formatted vocab output has expected sections."""
+    import json
+
+    schema_dir = temp_dir / "schemas"
+    eco_dir = schema_dir / "Economy"
+    eco_dir.mkdir(parents=True)
+
+    vocab = {
+        "category": "Economy",
+        "stat_var_skeletons": {
+            "BLSEstablishment": ["naics"],
+            "EconomicActivity": ["activitySource", "measuredProperty"]
+        },
+        "property_vocabulary": {
+            "naics": ["NAICS/23", "NAICS/42"],
+            "activitySource": ["GrossDomesticProduction"],
+            "measuredProperty": ["amount", "count"]
+        },
+        "examples": [
+            {"label": "Construction Establishments", "mapping": "naics:NAICS/23, populationType:BLSEstablishment"},
+            {"label": "GDP", "mapping": "activitySource:GrossDomesticProduction, populationType:EconomicActivity"}
+        ]
+    }
+    with open(eco_dir / "schema_vocab.json", 'w') as f:
+        json.dump(vocab, f)
+
+    result = read_schema_vocab(category='Economy', schema_base_dir=str(schema_dir))
+
+    formatted = result['formatted']
+    assert '### Schema Vocabulary: Economy' in formatted
+    assert 'StatVar Skeletons' in formatted
+    assert 'BLSEstablishment' in formatted
+    assert 'EconomicActivity' in formatted
+    assert 'Properties and valid values' in formatted
+    assert 'Representative examples' in formatted
+    assert 'Construction Establishments' in formatted

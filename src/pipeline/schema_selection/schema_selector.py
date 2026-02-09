@@ -467,6 +467,11 @@ def copy_schema_files(category: str, schema_base_dir: Path,
 
     files_to_copy = [txt_file]
 
+    # Also copy schema_vocab.json if it exists
+    vocab_file = (schema_base_dir / category / "schema_vocab.json")
+    if vocab_file.exists():
+        files_to_copy.append(vocab_file)
+
     # Copy files into schema/ subfolder
     schema_dir = input_dir / "schema"
 
@@ -501,6 +506,78 @@ def copy_schema_files(category: str, schema_base_dir: Path,
     except Exception as e:
         logging.error(f"Unexpected error during file copy: {str(e)}")
         return False, copied_files
+
+
+def read_schema_vocab(category: str, schema_base_dir: Optional[Path] = None) -> Optional[dict]:
+    """Read the compressed schema vocabulary JSON for a category.
+
+    Args:
+        category: Schema category name (e.g., 'Health', 'Economy')
+        schema_base_dir: Path to schema files directory (default: src/resources/schema_examples/)
+
+    Returns:
+        Parsed JSON dict or None if file not found
+    """
+    if schema_base_dir is None:
+        schema_base_dir = DEFAULT_SCHEMA_DIR
+
+    vocab_path = schema_base_dir / category / "schema_vocab.json"
+    if not vocab_path.exists():
+        logging.warning(f"Schema vocab not found: {vocab_path}")
+        return None
+
+    try:
+        import json
+        with open(vocab_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Error reading schema vocab {vocab_path}: {e}")
+        return None
+
+
+def format_schema_vocab_for_prompt(vocab: dict) -> str:
+    """Render a schema vocabulary dict as a human-readable prompt section.
+
+    Args:
+        vocab: Parsed schema_vocab.json dict
+
+    Returns:
+        Formatted string suitable for injection into PVMAP generation prompt
+    """
+    category = vocab.get("category", "Unknown")
+    lines = [f"### Schema Vocabulary: {category}", ""]
+
+    # StatVar skeletons
+    skeletons = vocab.get("stat_var_skeletons", {})
+    if skeletons:
+        lines.append("**StatVar Skeletons (which properties go with which populationType):**")
+        for pop_type, props in skeletons.items():
+            props_str = ", ".join(props)
+            lines.append(f"- {pop_type}: {props_str}")
+        lines.append("")
+
+    # Property vocabulary
+    prop_vocab = vocab.get("property_vocabulary", {})
+    if prop_vocab:
+        lines.append("**Properties and valid values:**")
+        for prop, values in prop_vocab.items():
+            vals_str = ", ".join(values[:10])
+            if len(values) > 10:
+                vals_str += ", ..."
+            lines.append(f"- {prop}: {vals_str}")
+        lines.append("")
+
+    # Examples
+    examples = vocab.get("examples", [])
+    if examples:
+        lines.append("**Representative examples (diverse patterns):**")
+        for i, ex in enumerate(examples, 1):
+            label = ex.get("label", "")
+            mapping = ex.get("mapping", "")
+            lines.append(f"{i}. \"{label}\" → {mapping}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def select_schema_for_directory(input_dir: Path,
