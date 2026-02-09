@@ -1,7 +1,8 @@
 """
 Unit tests for QualityEvaluationAgent.
 
-Tests the quality evaluation logic for ground truth and heuristic modes.
+Tests the quality evaluation logic using heuristic scoring with optional
+ground truth numeric scoring (scores only, never diff_text content).
 """
 
 import pytest
@@ -91,137 +92,20 @@ class TestValidationNotPassed:
 
 
 # ============================================================================
-# Test Ground Truth Mode
-# ============================================================================
-
-class TestGroundTruthMode:
-    """Tests for quality evaluation with ground truth."""
-
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
-    def test_quality_acceptable_with_gt_above_threshold(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
-    ):
-        """PV accuracy >= 30% should set quality_acceptable = True."""
-        mock_ctx.session.state = {
-            "validation_passed": True,
-            "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
-            "pvmap_csv": "key,prop,value\nYear,observationDate,{Data}",
-            "attempt_number": 0,
-            "quality_metrics_history": [],
-        }
-
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 35.0,  # Above threshold
-            "accuracy": 40.0,
-            "counters": {},
-            "diff_text": "diff output",
-        }
-
-        events = run_agent(quality_agent, mock_ctx)
-
-        # Should escalate (quality acceptable)
-        assert any(e.actions.escalate for e in events if e.actions)
-        assert mock_ctx.session.state["quality_acceptable"] is True
-        assert mock_ctx.session.state["exit_reason"] == "quality_met"
-
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
-    def test_quality_unacceptable_with_gt_below_threshold(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
-    ):
-        """PV accuracy < 30% should set quality_acceptable = False."""
-        mock_ctx.session.state = {
-            "validation_passed": True,
-            "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
-            "pvmap_csv": "key,prop,value",
-            "attempt_number": 0,
-            "quality_metrics_history": [],
-        }
-
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 20.0,  # Below threshold
-            "accuracy": 25.0,
-            "counters": {},
-            "diff_text": "diff output",
-        }
-
-        events = run_agent(quality_agent, mock_ctx)
-
-        # Should NOT escalate (quality low)
-        final_event = [e for e in events if e.actions][-1]
-        assert final_event.actions.escalate is False
-        assert mock_ctx.session.state["quality_acceptable"] is False
-
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
-    def test_escalate_on_quality_acceptable(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
-    ):
-        """Should escalate=True when quality is acceptable."""
-        mock_ctx.session.state = {
-            "validation_passed": True,
-            "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
-            "pvmap_csv": "key,prop,value",
-            "attempt_number": 0,
-            "quality_metrics_history": [],
-        }
-
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 50.0,  # Well above threshold
-            "accuracy": 60.0,
-            "counters": {},
-            "diff_text": "",
-        }
-
-        events = run_agent(quality_agent, mock_ctx)
-
-        # Last event with actions should have escalate=True
-        events_with_actions = [e for e in events if e.actions]
-        assert any(e.actions.escalate for e in events_with_actions)
-
-
-# ============================================================================
-# Test Heuristic Mode
+# Test Heuristic Mode (only mode now - no ground truth in retry loop)
 # ============================================================================
 
 class TestHeuristicMode:
     """Tests for quality evaluation with heuristic scoring."""
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
     @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
-    def test_uses_heuristics_when_no_gt(
-        self, mock_heuristic, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+    def test_always_uses_heuristics(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
-        """Should use heuristic scoring when no ground truth available."""
+        """Should always use heuristic scoring (no GT in retry loop)."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 0,
             "quality_metrics_history": [],
@@ -229,15 +113,8 @@ class TestHeuristicMode:
             "metadata": "",
         }
 
-        mock_find_gt.return_value = {
-            "success": False,
-            "pvmaps": [],
-            "count": 0,
-            "error": "No ground truth found",
-        }
-
         mock_heuristic.return_value = {
-            "total": 75.0,  # Above heuristic threshold
+            "total": 75.0,
             "row_coverage": 20.0,
             "prop_coverage": 20.0,
             "column_coverage": 20.0,
@@ -255,24 +132,20 @@ class TestHeuristicMode:
         assert metrics["mode"] == "heuristic"
         assert "heuristic_score" in metrics
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
     @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_heuristic_threshold_70(
-        self, mock_heuristic, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """Heuristic score >= 70 should be acceptable."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 0,
             "quality_metrics_history": [],
             "sampled_data": "",
             "metadata": "",
         }
-
-        mock_find_gt.return_value = {"success": False, "pvmaps": [], "count": 0}
 
         # Test boundary: exactly 70
         mock_heuristic.return_value = {
@@ -287,16 +160,14 @@ class TestHeuristicMode:
         events = run_agent(quality_agent, mock_ctx)
         assert mock_ctx.session.state["quality_acceptable"] is True
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
     @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_heuristic_below_threshold(
-        self, mock_heuristic, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """Heuristic score < 70 should not be acceptable."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 0,
             "quality_metrics_history": [],
@@ -304,10 +175,8 @@ class TestHeuristicMode:
             "metadata": "",
         }
 
-        mock_find_gt.return_value = {"success": False, "pvmaps": [], "count": 0}
-
         mock_heuristic.return_value = {
-            "total": 65.0,  # Below threshold
+            "total": 65.0,
             "row_coverage": 15.0,
             "prop_coverage": 15.0,
             "column_coverage": 20.0,
@@ -318,6 +187,66 @@ class TestHeuristicMode:
         events = run_agent(quality_agent, mock_ctx)
         assert mock_ctx.session.state["quality_acceptable"] is False
 
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_escalates_on_quality_acceptable(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Should escalate=True when quality is acceptable."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0,
+            "row_coverage": 20.0,
+            "prop_coverage": 20.0,
+            "column_coverage": 20.0,
+            "format_score": 20.0,
+            "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        events_with_actions = [e for e in events if e.actions]
+        assert any(e.actions.escalate for e in events_with_actions)
+        assert mock_ctx.session.state["exit_reason"] == "quality_met"
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_does_not_escalate_on_low_quality(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Should not escalate when quality is low."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 50.0,
+            "row_coverage": 10.0,
+            "prop_coverage": 15.0,
+            "column_coverage": 15.0,
+            "format_score": 10.0,
+            "issues": "Low coverage",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        final_event = [e for e in events if e.actions][-1]
+        assert final_event.actions.escalate is False
+        assert mock_ctx.session.state["quality_acceptable"] is False
+
 
 # ============================================================================
 # Test Stagnation Detection
@@ -326,35 +255,30 @@ class TestHeuristicMode:
 class TestStagnationDetection:
     """Tests for quality stagnation detection."""
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_stagnation_detected_no_improvement(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """Improvement < 5% should set quality_stagnant = True."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 1,  # Second attempt
             "quality_metrics_history": [
-                {"pv_accuracy": 20.0, "mode": "ground_truth", "attempt": 0}
+                {"heuristic_score": 55.0, "mode": "heuristic", "attempt": 0}
             ],
+            "sampled_data": "",
+            "metadata": "",
         }
 
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 22.0,  # Only 2% improvement (< 5%)
-            "accuracy": 25.0,
-            "counters": {},
-            "diff_text": "",
+        mock_heuristic.return_value = {
+            "total": 57.0,  # Only 2 point improvement (< 5)
+            "row_coverage": 14.0,
+            "prop_coverage": 14.0,
+            "column_coverage": 15.0,
+            "format_score": 14.0,
+            "issues": "",
         }
 
         events = run_agent(quality_agent, mock_ctx)
@@ -362,68 +286,58 @@ class TestStagnationDetection:
         assert mock_ctx.session.state["quality_stagnant"] is True
         assert mock_ctx.session.state["exit_reason"] == "stagnant"
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_stagnation_not_triggered_on_first_attempt(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """First attempt should never trigger stagnation."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 0,  # First attempt
             "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
         }
 
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 15.0,
-            "accuracy": 20.0,
-            "counters": {},
-            "diff_text": "",
+        mock_heuristic.return_value = {
+            "total": 45.0,
+            "row_coverage": 10.0,
+            "prop_coverage": 10.0,
+            "column_coverage": 15.0,
+            "format_score": 10.0,
+            "issues": "",
         }
 
         events = run_agent(quality_agent, mock_ctx)
 
         assert mock_ctx.session.state["quality_stagnant"] is False
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_good_improvement_not_stagnant(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """Improvement >= 5% should not be stagnant."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 1,
             "quality_metrics_history": [
-                {"pv_accuracy": 20.0, "mode": "ground_truth", "attempt": 0}
+                {"heuristic_score": 50.0, "mode": "heuristic", "attempt": 0}
             ],
+            "sampled_data": "",
+            "metadata": "",
         }
 
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 28.0,  # 8% improvement (>= 5%)
-            "accuracy": 30.0,
-            "counters": {},
-            "diff_text": "",
+        mock_heuristic.return_value = {
+            "total": 60.0,  # 10 point improvement (>= 5)
+            "row_coverage": 15.0,
+            "prop_coverage": 15.0,
+            "column_coverage": 15.0,
+            "format_score": 15.0,
+            "issues": "",
         }
 
         events = run_agent(quality_agent, mock_ctx)
@@ -438,36 +352,31 @@ class TestStagnationDetection:
 class TestMetricsHistory:
     """Tests for quality metrics history accumulation."""
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
-    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
     def test_metrics_history_accumulation(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
         """Metrics should accumulate across attempts."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
             "pvmap_csv": "key,prop,value",
             "attempt_number": 2,  # Third attempt
             "quality_metrics_history": [
-                {"pv_accuracy": 15.0, "attempt": 0},
-                {"pv_accuracy": 22.0, "attempt": 1},
+                {"heuristic_score": 45.0, "attempt": 0},
+                {"heuristic_score": 55.0, "attempt": 1},
             ],
+            "sampled_data": "",
+            "metadata": "",
         }
 
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
-        }
-
-        mock_compare.return_value = {
-            "success": True,
-            "pv_accuracy": 25.0,
-            "accuracy": 28.0,
-            "counters": {},
-            "diff_text": "",
+        mock_heuristic.return_value = {
+            "total": 65.0,
+            "row_coverage": 16.0,
+            "prop_coverage": 16.0,
+            "column_coverage": 17.0,
+            "format_score": 16.0,
+            "issues": "",
         }
 
         events = run_agent(quality_agent, mock_ctx)
@@ -496,36 +405,253 @@ class TestErrorHandling:
         assert mock_ctx.session.state["quality_acceptable"] is False
         assert "error" in mock_ctx.session.state.get("quality_metrics", {})
 
-    @patch('src.agents.quality_evaluation_agent.find_ground_truth_pvmaps')
+
+# ============================================================================
+# Test No Ground Truth Content Leakage
+# ============================================================================
+
+class TestNoGroundTruthContentLeakage:
+    """Verify that ground truth CONTENT (diff_text) never reaches state."""
+
+    def test_single_quality_threshold(self, quality_agent):
+        """Should have a single threshold (heuristic-based, not GT-based)."""
+        assert quality_agent.QUALITY_THRESHOLD == 70.0
+        assert not hasattr(quality_agent, 'HEURISTIC_THRESHOLD')
+
     @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
-    def test_comparison_failure_falls_back_to_heuristics(
-        self, mock_compare, mock_find_gt, quality_agent, mock_ctx, mock_dataset
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_diff_text_never_reaches_state(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
     ):
-        """Should fall back to heuristics if GT comparison fails."""
+        """diff_text from GT comparison must NEVER appear in any state key."""
+        # Create a real pvmap file so Path.exists() passes
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
-            "pvmap_path": "/tmp/test.csv",
-            "pvmap_csv": "key,prop,value\nYear,observationDate,{Data}",
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
             "attempt_number": 0,
             "quality_metrics_history": [],
-            "sampled_data": "Year,Value\n2020,100",
+            "sampled_data": "",
             "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
         }
 
-        mock_find_gt.return_value = {
-            "success": True,
-            "pvmaps": [Path("/tmp/gt.csv")],
-            "count": 1,
+        mock_heuristic.return_value = {
+            "total": 55.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 14.0, "format_score": 13.0, "issues": "Low coverage",
         }
-
         mock_compare.return_value = {
-            "success": False,
-            "error": "Comparison failed",
+            "success": True,
+            "accuracy": 40.0,
+            "pv_accuracy": 25.0,
+            "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
+                         "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
+                         "nodes-auto-generated": 6},
+            "diff_text": "LEAKED: - populationType: Person\n+ populationType: Household",
+            "error": None,
         }
 
         events = run_agent(quality_agent, mock_ctx)
 
-        # Should have fallen back to heuristics
+        # Verify diff_text never stored in any state key
+        for key, value in mock_ctx.session.state.items():
+            if isinstance(value, str):
+                assert "LEAKED" not in value, f"diff_text leaked into state key '{key}'"
+                assert "populationType: Person" not in value, f"GT content leaked into state key '{key}'"
+            if isinstance(value, dict):
+                assert "diff_text" not in value, f"diff_text key found in state key '{key}'"
+
+        # But GT numeric scores should be present
         metrics = mock_ctx.session.state["quality_metrics"]
-        assert metrics["mode"] == "heuristic"
+        assert metrics["gt_node_accuracy"] == 40.0
+        assert metrics["gt_pv_accuracy"] == 25.0
+
+
+# ============================================================================
+# Test GT Numeric Scoring
+# ============================================================================
+
+class TestGTNumericScoring:
+    """Tests for ground truth numeric scoring integration."""
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_gt_scores_merged_into_quality_metrics(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """GT numeric scores should be merged into quality_metrics dict."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 60.0, "row_coverage": 15.0, "prop_coverage": 15.0,
+            "column_coverage": 15.0, "format_score": 15.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 75.0, "pv_accuracy": 60.0,
+            "counters": {"nodes-matched": 3, "nodes-ground-truth": 4,
+                         "PVs-matched": 6, "pvs-modified": 2, "pvs-deleted": 1,
+                         "nodes-auto-generated": 5},
+            "diff_text": "some diff", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert metrics["gt_node_accuracy"] == 75.0
+        assert metrics["gt_pv_accuracy"] == 60.0
+        assert metrics["gt_counters_summary"]["nodes_matched"] == 3
+        assert metrics["gt_counters_summary"]["nodes_ground_truth"] == 4
+        assert metrics["gt_counters_summary"]["pvs_matched"] == 6
+        # Heuristic score also present
+        assert metrics["heuristic_score"] == 60.0
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_no_gt_when_cache_is_none(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Should not attempt GT comparison when gt_pvmap_path_cached is None."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": None,
+        }
+
+        mock_heuristic.return_value = {
+            "total": 55.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 14.0, "format_score": 13.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert "gt_node_accuracy" not in metrics
+        assert "gt_pv_accuracy" not in metrics
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_no_gt_when_cache_not_in_state(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Should work fine when gt_pvmap_path_cached key doesn't exist."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            # No gt_pvmap_path_cached key at all
+        }
+
+        mock_heuristic.return_value = {
+            "total": 55.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 14.0, "format_score": 13.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert "gt_node_accuracy" not in metrics
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_gt_comparison_failure_non_fatal(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """GT comparison failure should not crash the agent."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/nonexistent/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 55.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 14.0, "format_score": 13.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": False, "error": "File not found",
+            "counters": {}, "diff_text": None, "accuracy": 0.0, "pv_accuracy": 0.0,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Should still have heuristic scores, no GT scores
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert "heuristic_score" in metrics
+        assert "gt_node_accuracy" not in metrics
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_gt_scores_in_log_messages(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """Log messages should include GT scores when available."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 55.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 14.0, "format_score": 13.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 40.0, "pv_accuracy": 25.0,
+            "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
+                         "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
+                         "nodes-auto-generated": 6},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Find the GT scores event
+        event_texts = [e.content.parts[0].text for e in events]
+        assert any("GT scores" in t for t in event_texts)
+        assert any("Node Acc=40.0%" in t for t in event_texts)

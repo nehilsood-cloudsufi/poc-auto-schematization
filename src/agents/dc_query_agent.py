@@ -1,17 +1,14 @@
 """
 DC Query Agent for Data Commons MCP integration.
 
-This agent uses MCP tools to query the Data Commons knowledge graph
-for statistical variables and observations.
-
-Use Cases:
-1. Pre-generation StatVar discovery - find existing variables before PVMAP generation
-2. Place resolution - validate and resolve place names
-3. Schema validation - verify StatVar definitions against DC schema
-4. Live data comparison - compare generated observations with DC data
+This module centralizes ALL MCP query logic for the pipeline:
+1. Base query agent (generic DC queries)
+2. Enrichment agent (loop-aware StatVar discovery)
+3. Error resolver agent (post-validation error resolution)
+4. Shared helpers (run_mcp_query, parse_statvars)
 
 Usage:
-    from src.agents.dc_query_agent import create_dc_query_agent
+    from src.agents.dc_query_agent import create_dc_query_agent, create_enrichment_agent
     from src.data_commons.api.mcp_server_manager import MCPServerManager
 
     with MCPServerManager() as mcp:
@@ -23,9 +20,11 @@ Usage:
 """
 
 import logging
+import re
 import sys
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -37,6 +36,10 @@ from google.adk.agents import LlmAgent
 from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Instruction Templates
+# =============================================================================
 
 # Default instruction for DC Query Agent
 DC_QUERY_AGENT_INSTRUCTION = """You are a Data Commons expert assistant. Your role is to help
@@ -87,6 +90,129 @@ Then use get_observations to fetch the data.
 Report the value, date, and place for each observation.
 """
 
+# Enrichment: Broad discovery (attempt 0)
+ENRICHMENT_BROAD_INSTRUCTION = """You discover existing Data Commons statistical variables for a dataset.
+
+Your goal: Find StatVars that EXACTLY match what this dataset measures.
+
+{context_section}
+
+**Search Strategy (P+M+C formula):**
+1. Start broad: Search for "{{measurement}} {{population}}" (e.g., "Count Person")
+2. Narrow with dimensions: "{{measurement}} {{population}} {{constraint}}" (e.g., "Count Person Male")
+3. Use `places` parameter when the dataset has known place types (e.g., US states)
+4. Try `get_observations` for top matches to validate they return data for the dataset's places/dates
+
+**Output Format:**
+For each discovered variable:
+- DCID: <variable_dcid>
+  Name: <human readable name>
+  Description: <brief description>
+  Match confidence: HIGH/MEDIUM
+  Observation check: <CONFIRMED if get_observations returned data, UNCHECKED otherwise>
+
+List up to 10 most relevant matches. Be selective and concise.
+Only include HIGH or MEDIUM confidence matches."""
+
+# Enrichment: Error-driven refinement (attempt 1+)
+ENRICHMENT_REFINEMENT_INSTRUCTION = """You refine Data Commons StatVar discovery based on validation errors.
+
+The previous PVMAP generation attempt failed or had low quality.
+Use the error context below to make TARGETED MCP queries.
+
+{context_section}
+
+**Previous Validation Error:**
+{validation_error}
+
+**Previous Error Feedback:**
+{error_feedback}
+
+**Refinement Strategy:**
+1. Identify which StatVars were incorrectly mapped or missing
+2. Search for correct DCIDs using error context clues
+3. If "key not found" errors: search for variables matching those column names
+4. If "observationAbout" errors: search for place-related variables
+5. Use `get_observations` to CONFIRM found variables return data for known places
+6. If no better matches found, say so clearly - don't force incorrect matches
+
+**Output Format:**
+- DCID: <variable_dcid>
+  Name: <human readable name>
+  Description: <brief description>
+  Match confidence: HIGH/MEDIUM
+  Fixes: <which error this resolves>
+
+List only variables that ADDRESS the errors. Be precise."""
+
+# Error resolver: Post-validation targeted resolution
+ERROR_RESOLVER_INSTRUCTION = """You resolve PVMAP validation errors using Data Commons queries.
+
+A PVMAP was generated but validation failed. Classify the errors and make targeted queries.
+
+**Validation Error:**
+{validation_error}
+
+**Current PVMAP (that failed):**
+```csv
+{pvmap_csv}
+```
+
+**Error Classification & Resolution:**
+
+1. **StatVar naming errors** (wrong DCID format):
+   - Search for correct DCIDs using search_indicators
+   - Example: "Count_Person_Female" might need to be "dcid:Count_Person_Female"
+
+2. **Place resolution errors** (observationAbout mapping wrong):
+   - Search for place-related variables to understand expected DCID format
+   - Use get_observations with a sample place DCID to confirm data exists
+
+3. **Missing property errors** (required properties not mapped):
+   - Identify which properties are missing from error
+   - Search for similar StatVars to see their property patterns
+
+4. **Value format errors** (wrong data type):
+   - Check if numeric vs string handling is correct
+   - Verify observation format matches DC expectations
+
+**Output:**
+For each error resolved:
+- Error: <original error description>
+  Resolution: <what the correct mapping should be>
+  DCID: <correct DCID if applicable>
+  Evidence: <what MCP query confirmed this>
+
+Be specific and actionable. Only suggest fixes backed by MCP query results."""
+
+# MCP tools instruction for the generator (injected when MCP enabled)
+MCP_TOOLS_INSTRUCTION = """
+## Live Data Commons Tools
+
+You have DIRECT ACCESS to Data Commons MCP tools during generation:
+
+1. **search_indicators(query, places?, parent_place?)**: Search for StatVar DCIDs
+   - Use when you need to verify a StatVar DCID exists
+   - Use when you're unsure about the correct DCID naming convention
+
+2. **get_observations(variable_dcid, place_dcid, date?)**: Fetch real data
+   - Use to validate that a StatVar+Place combination returns data
+   - Use to check the expected data format
+
+**When to use these tools:**
+- Uncertain about a StatVar DCID: Call search_indicators
+- Want to verify your mapping: Call get_observations with a sample place
+- Error feedback mentions unknown DCIDs: Search for correct ones
+
+**When NOT to use:**
+- You're confident in standard DCIDs (Count_Person, etc.)
+- The dataset is pre-formatted Data Commons data (passthrough mapping)
+"""
+
+
+# =============================================================================
+# Base Agent Factory (unchanged)
+# =============================================================================
 
 def create_dc_query_agent(
     mcp_url: str = "http://localhost:3000/mcp",
@@ -112,19 +238,6 @@ def create_dc_query_agent(
 
     Returns:
         Configured LlmAgent with MCP tools
-
-    Example:
-        ```python
-        from src.agents.dc_query_agent import create_dc_query_agent
-        from google.adk import Runner
-
-        agent = create_dc_query_agent()
-        runner = Runner(agent=agent, ...)
-
-        result = runner.run(
-            user_message="Find unemployment rate variables for US states"
-        )
-        ```
     """
     logger.debug(f"Creating DC Query Agent with MCP URL: {mcp_url}")
 
@@ -146,6 +259,219 @@ def create_dc_query_agent(
     )
 
     return agent
+
+
+# =============================================================================
+# Enrichment Agent Factory (NEW - loop-aware discovery)
+# =============================================================================
+
+def create_enrichment_agent(
+    mcp_url: str,
+    model: str = "gemini-2.5-pro",
+    data_context: Optional[dict] = None,
+    attempt: int = 0,
+    error_feedback: str = "",
+    validation_error: str = "",
+) -> LlmAgent:
+    """
+    Create MCP agent with attempt-aware instruction.
+
+    - attempt 0: broad discovery using data_context P+M+C formula
+    - attempt 1+: error-driven refinement using validation errors
+
+    Args:
+        mcp_url: URL of the MCP server endpoint
+        model: Gemini model to use
+        data_context: Data context from SamplingAgent (column_roles, dimensions, etc.)
+        attempt: Current retry attempt number (0-based)
+        error_feedback: Error feedback from previous attempt
+        validation_error: Validation error from previous attempt
+
+    Returns:
+        Configured LlmAgent for enrichment queries
+    """
+    context_section = _build_context_section(data_context) if data_context else ""
+
+    if attempt == 0:
+        # Broad discovery
+        instruction = ENRICHMENT_BROAD_INSTRUCTION.replace(
+            "{context_section}", context_section
+        )
+        name = "EnrichmentBroad"
+    else:
+        # Error-driven refinement
+        instruction = ENRICHMENT_REFINEMENT_INSTRUCTION.replace(
+            "{context_section}", context_section
+        ).replace(
+            "{validation_error}", validation_error or "(no validation error)"
+        ).replace(
+            "{error_feedback}", error_feedback or "(no error feedback)"
+        )
+        name = f"EnrichmentRefine_{attempt}"
+
+    logger.info(f"Creating enrichment agent: {name} (attempt={attempt})")
+
+    mcp_toolset = create_dc_mcp_toolset(mcp_url=mcp_url)
+
+    return LlmAgent(
+        name=name,
+        model=model,
+        instruction=instruction,
+        tools=[mcp_toolset]
+    )
+
+
+# =============================================================================
+# Error Resolver Agent Factory (NEW - post-validation resolution)
+# =============================================================================
+
+def create_error_resolver_agent(
+    mcp_url: str,
+    model: str = "gemini-2.5-pro",
+    validation_error: str = "",
+    pvmap_csv: str = "",
+) -> LlmAgent:
+    """
+    Create MCP agent for post-validation error resolution.
+
+    Classifies errors and makes targeted MCP queries to resolve them.
+
+    Args:
+        mcp_url: URL of the MCP server endpoint
+        model: Gemini model to use
+        validation_error: The validation error to resolve
+        pvmap_csv: Current PVMAP CSV that failed validation
+
+    Returns:
+        Configured LlmAgent for error resolution
+    """
+    instruction = ERROR_RESOLVER_INSTRUCTION.replace(
+        "{validation_error}", validation_error or "(no validation error)"
+    ).replace(
+        "{pvmap_csv}", pvmap_csv or "(no PVMAP available)"
+    )
+
+    logger.info("Creating error resolver agent")
+
+    mcp_toolset = create_dc_mcp_toolset(mcp_url=mcp_url)
+
+    return LlmAgent(
+        name="ErrorResolver",
+        model=model,
+        instruction=instruction,
+        tools=[mcp_toolset]
+    )
+
+
+# =============================================================================
+# Shared Helpers
+# =============================================================================
+
+async def run_mcp_query(mcp_url: str, agent: LlmAgent, query: str) -> str:
+    """
+    Run an MCP agent query and collect text results.
+
+    Shared helper that creates a Runner, sends the query, and
+    collects all text output from events.
+
+    Args:
+        mcp_url: URL of the MCP server (for logging)
+        agent: Configured LlmAgent with MCP tools
+        query: User message to send to the agent
+
+    Returns:
+        Concatenated text from all response events
+    """
+    from google.adk import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    runner = Runner(
+        app_name="mcp_query",
+        agent=agent,
+        session_service=InMemorySessionService(),
+        auto_create_session=True
+    )
+
+    session_id = f"mcp_{uuid.uuid4().hex[:8]}"
+    user_message = types.Content(parts=[types.Part(text=query)])
+
+    result_text = ""
+    try:
+        for event in runner.run(
+            user_id="mcp_user",
+            session_id=session_id,
+            new_message=user_message
+        ):
+            if hasattr(event, 'content') and event.content:
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        result_text += part.text
+    except Exception as e:
+        logger.warning(f"MCP query failed: {e}")
+        result_text = f"(MCP query failed: {str(e)[:200]})"
+
+    return result_text
+
+
+def parse_statvars(text: str) -> List[Dict]:
+    """
+    Parse StatVar DCIDs from discovery output.
+
+    Handles multiple output formats:
+    - DCID: <value> / Description: <value> / Match confidence: HIGH/MEDIUM
+    - Bullet list format: - <dcid> - <description>
+
+    Args:
+        text: Raw text output from discovery agent
+
+    Returns:
+        List of dicts with keys: dcid, description, confidence
+    """
+    statvars = []
+    lines = text.split('\n')
+    current = {}
+
+    for line in lines:
+        line = line.strip()
+
+        # Match "DCID: <value>" or "- DCID: <value>"
+        dcid_match = re.match(r'^[-*]?\s*DCID:\s*(.+)', line, re.IGNORECASE)
+        if dcid_match:
+            if current.get('dcid'):
+                statvars.append(current)
+            current = {'dcid': dcid_match.group(1).strip(), 'description': '', 'confidence': 'MEDIUM'}
+            continue
+
+        # Match "Description: <value>" or "Name: <value>"
+        desc_match = re.match(r'^[-*]?\s*(?:Description|Name):\s*(.+)', line, re.IGNORECASE)
+        if desc_match and current.get('dcid'):
+            current['description'] = desc_match.group(1).strip()
+            continue
+
+        # Match "Match confidence: HIGH/MEDIUM"
+        conf_match = re.match(r'^[-*]?\s*Match confidence:\s*(HIGH|MEDIUM|LOW)', line, re.IGNORECASE)
+        if conf_match and current.get('dcid'):
+            current['confidence'] = conf_match.group(1).upper()
+            continue
+
+        # Match "Fixes: <value>"
+        fixes_match = re.match(r'^[-*]?\s*Fixes:\s*(.+)', line, re.IGNORECASE)
+        if fixes_match and current.get('dcid'):
+            current['fixes'] = fixes_match.group(1).strip()
+            continue
+
+        # Match "Observation check: <value>"
+        obs_match = re.match(r'^[-*]?\s*Observation check:\s*(.+)', line, re.IGNORECASE)
+        if obs_match and current.get('dcid'):
+            current['observation_check'] = obs_match.group(1).strip()
+            continue
+
+    # Don't forget last entry
+    if current.get('dcid'):
+        statvars.append(current)
+
+    return statvars
 
 
 def _build_context_section(data_context: dict) -> str:
@@ -185,23 +511,15 @@ Use this context to build more targeted queries.
     return section
 
 
+# =============================================================================
+# Legacy convenience factories (kept for backward compatibility)
+# =============================================================================
+
 def create_statvar_discovery_agent(
     mcp_url: str = "http://localhost:3000/mcp",
     model: str = "gemini-2.5-pro"
 ) -> LlmAgent:
-    """
-    Create an agent specialized for discovering StatVars.
-
-    This agent is optimized for finding existing Data Commons variables
-    that match dataset columns, useful before PVMAP generation.
-
-    Args:
-        mcp_url: URL of the MCP server endpoint
-        model: Gemini model to use
-
-    Returns:
-        LlmAgent configured for StatVar discovery
-    """
+    """Create an agent specialized for discovering StatVars."""
     return create_dc_query_agent(
         mcp_url=mcp_url,
         model=model,
@@ -214,19 +532,7 @@ def create_observation_fetch_agent(
     mcp_url: str = "http://localhost:3000/mcp",
     model: str = "gemini-2.5-pro"
 ) -> LlmAgent:
-    """
-    Create an agent specialized for fetching observations.
-
-    This agent is optimized for retrieving statistical data
-    for known variables and places.
-
-    Args:
-        mcp_url: URL of the MCP server endpoint
-        model: Gemini model to use
-
-    Returns:
-        LlmAgent configured for observation fetching
-    """
+    """Create an agent specialized for fetching observations."""
     return create_dc_query_agent(
         mcp_url=mcp_url,
         model=model,
@@ -235,7 +541,9 @@ def create_observation_fetch_agent(
     )
 
 
-# Helper functions for common queries
+# =============================================================================
+# Legacy helper (kept for backward compatibility)
+# =============================================================================
 
 async def discover_statvars_for_topic(
     topic: str,
@@ -248,20 +556,10 @@ async def discover_statvars_for_topic(
 
     Convenience function that creates an agent, runs a query,
     and returns the result.
-
-    Args:
-        topic: Topic to search for (e.g., "population", "unemployment", "GDP")
-        mcp_url: URL of the MCP server endpoint
-        model: Gemini model to use
-        data_context: Optional data context from SamplingAgent for enhanced queries
-
-    Returns:
-        String containing discovered StatVar DCIDs and descriptions
     """
     from google.adk import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
-    import uuid
 
     # Create agent with data_context if available
     if data_context:
@@ -311,3 +609,30 @@ async def discover_statvars_for_topic(
                     result_text += part.text
 
     return result_text
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Base
+    'create_dc_query_agent',
+    'DC_QUERY_AGENT_INSTRUCTION',
+    # Enrichment (loop-aware)
+    'create_enrichment_agent',
+    'ENRICHMENT_BROAD_INSTRUCTION',
+    'ENRICHMENT_REFINEMENT_INSTRUCTION',
+    # Error resolver
+    'create_error_resolver_agent',
+    'ERROR_RESOLVER_INSTRUCTION',
+    # Shared helpers
+    'run_mcp_query',
+    'parse_statvars',
+    # MCP tools instruction for generator
+    'MCP_TOOLS_INSTRUCTION',
+    # Legacy
+    'create_statvar_discovery_agent',
+    'create_observation_fetch_agent',
+    'discover_statvars_for_topic',
+]

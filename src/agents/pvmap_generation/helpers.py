@@ -81,9 +81,9 @@ def build_prompt_with_feedback(
     prompt = prompt.replace("{{SAMPLED_DATA}}", sampled_data_content)
     prompt = prompt.replace("{{METADATA_CONFIG}}", metadata_content)
 
-    # Inject discovered StatVars before OUTPUT section
+    # Inject discovered StatVars before OUTPUT section (confidence-weighted)
     if discovered_statvars and discovered_statvars.strip():
-        # Check if discovery found exact matches or just "related" variables
+        # Check if discovery found any matches at all
         lower_summary = discovered_statvars.lower()
         has_no_matches = (
             "no exact matches" in lower_summary or
@@ -91,19 +91,16 @@ def build_prompt_with_feedback(
             "were not found" in lower_summary
         )
 
-        if has_no_matches:
-            # Don't inject if only "related" variables were found - they can confuse the LLM
-            statvars_section = ""
-        else:
+        if not has_no_matches:
             statvars_section = (
                 "\n\n---\n\n"
-                "# EXISTING DATA COMMONS VARIABLES (Reference Only)\n\n"
-                "The following statistical variables exist in Data Commons. "
-                "**ONLY use these if your dataset measures the EXACT same thing**:\n\n"
+                "# DISCOVERED DATA COMMONS VARIABLES\n\n"
+                "The following variables were found via live Data Commons search.\n\n"
                 f"{discovered_statvars}\n\n"
-                "**IMPORTANT**: If these variables don't EXACTLY match your data, IGNORE them "
-                "and generate a new StatVar definition based on the schema examples above. "
-                "Do NOT let these influence your key formats or property choices.\n"
+                "**Usage guidance:**\n"
+                "- **HIGH confidence matches**: Use these DCIDs directly in your PVMAP\n"
+                "- **MEDIUM confidence**: Reference for property naming conventions\n"
+                "- **No good matches**: Generate StatVar definition from schema examples above\n"
             )
             # Insert before "# OUTPUT" section
             if "# OUTPUT" in prompt:

@@ -92,21 +92,28 @@ class TestQualityFeedbackInstruction:
         """Instruction should include all required state placeholders."""
         required_placeholders = [
             "{attempt_number}",
-            "{quality_mode}",
             "{quality_score}",
             "{quality_metrics}",
             "{quality_diff_summary}",
             "{pvmap_csv}",
             "{sampled_data}",
+            "{gt_score_section}",
         ]
         for placeholder in required_placeholders:
             assert placeholder in QUALITY_FEEDBACK_INSTRUCTION
 
     def test_includes_analysis_guidelines(self):
-        """Instruction should include analysis guidelines."""
+        """Instruction should include heuristic analysis guidelines."""
         assert "ANALYSIS GUIDELINES" in QUALITY_FEEDBACK_INSTRUCTION
-        assert "Ground Truth Mode" in QUALITY_FEEDBACK_INSTRUCTION
-        assert "Heuristic Mode" in QUALITY_FEEDBACK_INSTRUCTION
+        assert "heuristic" in QUALITY_FEEDBACK_INSTRUCTION.lower() or "coverage" in QUALITY_FEEDBACK_INSTRUCTION.lower()
+
+    def test_no_ground_truth_content_leakage(self):
+        """Instruction should not reference Ground Truth Mode or GT diffs."""
+        assert "Ground Truth Mode" not in QUALITY_FEEDBACK_INSTRUCTION
+        # "Ground Truth Accuracy" section header is OK (numeric scores only)
+        assert "Ground Truth Accuracy" in QUALITY_FEEDBACK_INSTRUCTION
+        # But should never mention GT diff analysis
+        assert "diff provided" not in QUALITY_FEEDBACK_INSTRUCTION.lower()
 
     def test_includes_output_format(self):
         """Instruction should include output format guidance."""
@@ -129,8 +136,8 @@ class TestConditionalExecution:
             "quality_acceptable": False,
             "quality_stagnant": False,
             "attempt_number": 0,
-            "quality_metrics": {"mode": "ground_truth", "pv_accuracy": 15.0},
-            "quality_diff_summary": "Some diff",
+            "quality_metrics": {"mode": "heuristic", "heuristic_score": 55.0},
+            "quality_diff_summary": "Low coverage issues",
             "pvmap_csv": "key,prop,value",
             "sampled_data": "col1,col2",
         }
@@ -202,35 +209,8 @@ class TestConditionalExecution:
 class TestStatePreperation:
     """Tests for state preparation before feedback generation."""
 
-    def test_prepares_quality_mode_from_metrics(self, conditional_agent, mock_ctx):
-        """Should extract quality_mode from quality_metrics dict."""
-        mock_ctx.session.state = {
-            "validation_passed": True,
-            "quality_acceptable": False,
-            "quality_stagnant": False,
-            "quality_metrics": {"mode": "ground_truth", "pv_accuracy": 20.0},
-        }
-
-        # Access private method for testing
-        conditional_agent._prepare_feedback_state(mock_ctx)
-
-        assert mock_ctx.session.state["quality_mode"] == "ground_truth"
-
-    def test_prepares_quality_score_gt_mode(self, conditional_agent, mock_ctx):
-        """Should extract pv_accuracy as quality_score for GT mode."""
-        mock_ctx.session.state = {
-            "validation_passed": True,
-            "quality_acceptable": False,
-            "quality_stagnant": False,
-            "quality_metrics": {"mode": "ground_truth", "pv_accuracy": 25.5},
-        }
-
-        conditional_agent._prepare_feedback_state(mock_ctx)
-
-        assert mock_ctx.session.state["quality_score"] == 25.5
-
-    def test_prepares_quality_score_heuristic_mode(self, conditional_agent, mock_ctx):
-        """Should extract heuristic_score as quality_score for heuristic mode."""
+    def test_prepares_quality_score_from_heuristic(self, conditional_agent, mock_ctx):
+        """Should extract heuristic_score as quality_score."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "quality_acceptable": False,
@@ -248,7 +228,7 @@ class TestStatePreperation:
             "validation_passed": True,
             "quality_acceptable": False,
             "quality_stagnant": False,
-            "quality_metrics": {"mode": "ground_truth", "pv_accuracy": 20.0},
+            "quality_metrics": {"mode": "heuristic", "heuristic_score": 55.0},
             "attempt_number": 0,  # 0-indexed
         }
 
@@ -264,26 +244,6 @@ class TestStatePreperation:
 
 class TestMetricsFormatting:
     """Tests for _format_metrics helper method."""
-
-    def test_formats_gt_metrics(self, conditional_agent):
-        """Should format ground truth metrics correctly."""
-        metrics = {
-            "mode": "ground_truth",
-            "pv_accuracy": 25.5,
-            "node_accuracy": 30.0,
-            "counters": {
-                "nodes-matched": 5,
-                "nodes-ground-truth": 10,
-                "PVs-matched": 20,
-            },
-        }
-
-        formatted = conditional_agent._format_metrics(metrics)
-
-        assert "PV Accuracy: 25.5%" in formatted
-        assert "Node Accuracy: 30.0%" in formatted
-        assert "Nodes Matched: 5/10" in formatted
-        assert "PVs Matched: 20" in formatted
 
     def test_formats_heuristic_metrics(self, conditional_agent):
         """Should format heuristic metrics correctly."""
@@ -309,10 +269,9 @@ class TestMetricsFormatting:
     def test_includes_improvement_when_present(self, conditional_agent):
         """Should include improvement from previous when available."""
         metrics = {
-            "mode": "ground_truth",
-            "pv_accuracy": 25.0,
-            "node_accuracy": 30.0,
-            "counters": {},
+            "mode": "heuristic",
+            "heuristic_score": 60.0,
+            "heuristic_breakdown": {},
             "improvement_from_previous": 3.5,
         }
 
@@ -340,7 +299,6 @@ class TestEdgeCases:
         # Should not crash
         conditional_agent._prepare_feedback_state(mock_ctx)
 
-        assert mock_ctx.session.state["quality_mode"] == "unknown"
         assert mock_ctx.session.state["quality_score"] == 0
 
     def test_handles_empty_quality_metrics(self, conditional_agent, mock_ctx):
@@ -354,10 +312,112 @@ class TestEdgeCases:
 
         conditional_agent._prepare_feedback_state(mock_ctx)
 
-        assert mock_ctx.session.state["quality_mode"] == "unknown"
+        assert mock_ctx.session.state["quality_score"] == 0
 
     def test_formats_empty_metrics(self, conditional_agent):
         """Should handle empty metrics dict in formatting."""
         formatted = conditional_agent._format_metrics({})
         # Empty metrics defaults to heuristic mode with 0 score
         assert "0.0" in formatted or formatted == ""
+
+
+# ============================================================================
+# Test GT Score Formatting
+# ============================================================================
+
+class TestGTScoreFormatting:
+    """Tests for _format_gt_section and GT scores in _format_metrics."""
+
+    def test_format_gt_section_with_scores(self, conditional_agent):
+        """Should format GT section with scores and counters."""
+        metrics = {
+            "gt_node_accuracy": 75.0,
+            "gt_pv_accuracy": 60.0,
+            "gt_counters_summary": {
+                "nodes_matched": 3,
+                "nodes_ground_truth": 4,
+                "pvs_matched": 6,
+                "pvs_modified": 2,
+            }
+        }
+        result = conditional_agent._format_gt_section(metrics)
+        assert "Node Accuracy: 75.0%" in result
+        assert "PV Accuracy: 60.0%" in result
+        assert "Nodes matched: 3/4" in result
+        assert "distance from ideal" in result
+
+    def test_format_gt_section_without_gt(self, conditional_agent):
+        """Should show 'not available' when GT not present."""
+        result = conditional_agent._format_gt_section({})
+        assert "not available" in result
+
+    def test_format_gt_section_no_counters(self, conditional_agent):
+        """Should format even without counters."""
+        metrics = {
+            "gt_node_accuracy": 50.0,
+            "gt_pv_accuracy": 30.0,
+        }
+        result = conditional_agent._format_gt_section(metrics)
+        assert "Node Accuracy: 50.0%" in result
+        assert "PV Accuracy: 30.0%" in result
+
+    def test_format_metrics_with_gt_scores(self, conditional_agent):
+        """_format_metrics should include GT scores when present."""
+        metrics = {
+            "heuristic_score": 55.0,
+            "heuristic_breakdown": {
+                "row_coverage": 15.0,
+                "prop_coverage": 20.0,
+                "column_coverage": 10.0,
+                "format_score": 10.0,
+            },
+            "gt_node_accuracy": 42.0,
+            "gt_pv_accuracy": 33.5,
+        }
+        result = conditional_agent._format_metrics(metrics)
+        assert "GT Node Accuracy: 42.0%" in result
+        assert "GT PV Accuracy: 33.5%" in result
+        assert "Heuristic Score: 55.0/100" in result
+
+    def test_format_metrics_without_gt_scores(self, conditional_agent):
+        """_format_metrics should not include GT lines when not present."""
+        metrics = {
+            "heuristic_score": 55.0,
+            "heuristic_breakdown": {},
+        }
+        result = conditional_agent._format_metrics(metrics)
+        assert "GT Node Accuracy" not in result
+        assert "GT PV Accuracy" not in result
+
+    def test_prepare_feedback_state_sets_gt_section(self, conditional_agent, mock_ctx):
+        """_prepare_feedback_state should set gt_score_section in state."""
+        mock_ctx.session.state = {
+            "quality_metrics": {
+                "heuristic_score": 55.0,
+                "gt_node_accuracy": 40.0,
+                "gt_pv_accuracy": 25.0,
+                "gt_counters_summary": {
+                    "nodes_matched": 2,
+                    "nodes_ground_truth": 5,
+                    "pvs_matched": 3,
+                    "pvs_modified": 4,
+                }
+            },
+        }
+
+        conditional_agent._prepare_feedback_state(mock_ctx)
+
+        gt_section = mock_ctx.session.state["gt_score_section"]
+        assert "Node Accuracy: 40.0%" in gt_section
+        assert "PV Accuracy: 25.0%" in gt_section
+
+    def test_prepare_feedback_state_no_gt(self, conditional_agent, mock_ctx):
+        """_prepare_feedback_state should handle no GT gracefully."""
+        mock_ctx.session.state = {
+            "quality_metrics": {"heuristic_score": 55.0},
+        }
+
+        conditional_agent._prepare_feedback_state(mock_ctx)
+
+        gt_section = mock_ctx.session.state["gt_score_section"]
+        assert "not available" in gt_section

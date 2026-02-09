@@ -38,6 +38,9 @@ Your task: Analyze the validation error and provide SPECIFIC, ACTIONABLE feedbac
 ## Structure Warnings (if any)
 {structure_warnings}
 
+## MCP Error Resolution Context (if available)
+{mcp_resolved_context}
+
 ---
 
 # ANALYSIS GUIDELINES

@@ -272,10 +272,10 @@ def test_prompt_injection():
         discovered_statvars=discovered_statvars
     )
 
-    # Check that StatVars section was injected
-    assert "EXISTING DATA COMMONS VARIABLES" in prompt, "Missing StatVars section"
+    # Check that StatVars section was injected (confidence-weighted)
+    assert "DISCOVERED DATA COMMONS VARIABLES" in prompt, "Missing StatVars section"
     assert "Count_Person" in prompt, "Missing Count_Person DCID"
-    assert "IGNORE them" in prompt, "Missing warning to ignore non-matching variables"
+    assert "HIGH confidence matches" in prompt, "Missing confidence-based guidance"
 
     print("PASSED: Exact match StatVars injected into prompt correctly")
 
@@ -289,7 +289,7 @@ def test_prompt_injection():
         discovered_statvars=None
     )
 
-    assert "EXISTING DATA COMMONS VARIABLES" not in prompt_no_statvars
+    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_no_statvars
     print("PASSED: No StatVars section when none discovered")
 
     # Test with "not found" StatVars (should NOT be injected)
@@ -307,7 +307,7 @@ However, related interest rate variables are available:
         discovered_statvars=not_found_statvars
     )
 
-    assert "EXISTING DATA COMMONS VARIABLES" not in prompt_not_found, \
+    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_not_found, \
         "StatVars section should NOT be injected when variables 'not found'"
     print("PASSED: 'Not found' StatVars correctly filtered out")
 
@@ -326,7 +326,7 @@ Related variables that may be of interest:
         discovered_statvars=no_matches_statvars
     )
 
-    assert "EXISTING DATA COMMONS VARIABLES" not in prompt_no_matches, \
+    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_no_matches, \
         "StatVars section should NOT be injected when 'no exact matches'"
     print("PASSED: 'No exact matches' StatVars correctly filtered out")
 

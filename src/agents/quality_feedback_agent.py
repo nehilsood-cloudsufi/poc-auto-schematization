@@ -40,11 +40,13 @@ QUALITY_FEEDBACK_INSTRUCTION = """You are analyzing a PVMAP that passed validati
 Attempt {attempt_number} of 4
 
 ## Quality Metrics
-Mode: {quality_mode}
-Score: {quality_score}%
+Score: {quality_score}/100
 {quality_metrics}
 
-## Quality Issues / Diff Summary
+## Ground Truth Accuracy (if available)
+{gt_score_section}
+
+## Quality Issues
 {quality_diff_summary}
 
 ## Generated PVMAP CSV
@@ -63,17 +65,17 @@ Your task: Analyze the quality issues and provide **specific, actionable feedbac
 
 ## 1. Understand the Quality Gap
 
-### If Ground Truth Mode (diff provided):
-- Look at which PVMAP rows don't match the expected ground truth
-- Identify key mismatches (wrong column mapped to wrong property)
-- Find missing or extra rows
-- Note any DCID format differences
-
-### If Heuristic Mode (score breakdown provided):
+Look at the heuristic score breakdown to identify weak areas:
 - Low row coverage: Are there missing dimension mappings?
 - Low property coverage: Are observationAbout/observationDate/value mapped?
 - Low column coverage: Which data columns weren't mapped?
 - Low format score: Are {Data}/{Number} placeholders used correctly?
+
+If Ground Truth Accuracy scores are available, use them as a signal:
+- Low node accuracy means many PVMAP rows don't match expected patterns
+- Low PV accuracy means property-value pairs within rows are incorrect
+- These scores indicate HOW FAR the PVMAP is from correct, but don't reveal what the correct answer is
+- Focus on structural improvements guided by the heuristic issues above
 
 ## 2. Common Quality Issues to Fix
 
@@ -136,8 +138,9 @@ def create_quality_feedback_agent(
     """
     Create quality feedback agent for generating improvement suggestions.
 
-    This agent analyzes quality metrics and diff summaries to generate
-    actionable feedback for the next generation attempt.
+    This agent analyzes heuristic quality metrics to generate actionable
+    feedback for the next generation attempt. Ground truth is intentionally
+    NOT used here to prevent data leakage into the retry loop.
 
     Args:
         model: Gemini model to use (default: gemini-2.5-flash)
@@ -148,8 +151,8 @@ def create_quality_feedback_agent(
 
     State Inputs (read via instruction templating):
         - attempt_number: int - Current attempt number
-        - quality_metrics: dict - Quality evaluation results
-        - quality_diff_summary: str - Diff or heuristic issues
+        - quality_metrics: dict - Heuristic quality evaluation results
+        - quality_diff_summary: str - Heuristic quality issues
         - pvmap_csv: str - Generated PVMAP CSV
         - sampled_data: str - Original sampled data for reference
 
@@ -265,7 +268,7 @@ class ConditionalQualityFeedbackAgent(BaseAgent):
         """
         Prepare state variables for feedback instruction templating.
 
-        The LlmAgent instruction uses variables like {quality_mode}, {quality_score}
+        The LlmAgent instruction uses variables like {quality_score}
         that need to be extracted from the nested quality_metrics dict.
 
         IMPORTANT: Also escapes PVMAP placeholders ({Data}, {Number}) to prevent
@@ -273,20 +276,17 @@ class ConditionalQualityFeedbackAgent(BaseAgent):
         """
         quality_metrics = ctx.session.state.get("quality_metrics", {})
 
-        # Extract mode
-        mode = quality_metrics.get("mode", "unknown")
-        ctx.session.state["quality_mode"] = mode
-
-        # Extract score based on mode
-        if mode == "ground_truth":
-            score = quality_metrics.get("pv_accuracy", 0)
-        else:
-            score = quality_metrics.get("heuristic_score", 0)
+        # Extract heuristic score
+        score = quality_metrics.get("heuristic_score", 0)
         ctx.session.state["quality_score"] = score
 
         # Format quality_metrics for display
         metrics_str = self._format_metrics(quality_metrics)
         ctx.session.state["quality_metrics"] = metrics_str
+
+        # Format GT score section
+        gt_section = self._format_gt_section(quality_metrics)
+        ctx.session.state["gt_score_section"] = gt_section
 
         # Ensure attempt_number has +1 for display
         attempt = ctx.session.state.get("attempt_number", 0)
@@ -312,24 +312,55 @@ class ConditionalQualityFeedbackAgent(BaseAgent):
         """Format quality metrics dict as readable string."""
         lines = []
 
-        if metrics.get("mode") == "ground_truth":
-            lines.append(f"PV Accuracy: {metrics.get('pv_accuracy', 0):.1f}%")
-            lines.append(f"Node Accuracy: {metrics.get('node_accuracy', 0):.1f}%")
-            counters = metrics.get("counters", {})
-            if counters:
-                lines.append(f"Nodes Matched: {counters.get('nodes-matched', 0)}/{counters.get('nodes-ground-truth', 0)}")
-                lines.append(f"PVs Matched: {counters.get('PVs-matched', 0)}")
-        else:
-            lines.append(f"Heuristic Score: {metrics.get('heuristic_score', 0):.1f}/100")
-            breakdown = metrics.get("heuristic_breakdown", {})
-            if breakdown:
-                lines.append(f"  - Row Coverage: {breakdown.get('row_coverage', 0):.1f}/25")
-                lines.append(f"  - Property Coverage: {breakdown.get('prop_coverage', 0):.1f}/25")
-                lines.append(f"  - Column Coverage: {breakdown.get('column_coverage', 0):.1f}/25")
-                lines.append(f"  - Format Score: {breakdown.get('format_score', 0):.1f}/25")
+        lines.append(f"Heuristic Score: {metrics.get('heuristic_score', 0):.1f}/100")
+        breakdown = metrics.get("heuristic_breakdown", {})
+        if breakdown:
+            lines.append(f"  - Row Coverage: {breakdown.get('row_coverage', 0):.1f}/25")
+            lines.append(f"  - Property Coverage: {breakdown.get('prop_coverage', 0):.1f}/25")
+            lines.append(f"  - Column Coverage: {breakdown.get('column_coverage', 0):.1f}/25")
+            lines.append(f"  - Format Score: {breakdown.get('format_score', 0):.1f}/25")
 
         if "improvement_from_previous" in metrics:
             lines.append(f"Improvement from previous: {metrics['improvement_from_previous']:.1f}%")
+
+        # Include GT scores inline if available
+        gt_node = metrics.get("gt_node_accuracy")
+        if gt_node is not None:
+            gt_pv = metrics.get("gt_pv_accuracy", 0)
+            lines.append(f"GT Node Accuracy: {gt_node:.1f}%")
+            lines.append(f"GT PV Accuracy: {gt_pv:.1f}%")
+
+        return "\n".join(lines)
+
+    def _format_gt_section(self, metrics: dict) -> str:
+        """Format ground truth scores for the feedback instruction.
+
+        Returns a short section with GT scores if available,
+        or a note that GT is not available.
+        """
+        gt_node = metrics.get("gt_node_accuracy")
+        gt_pv = metrics.get("gt_pv_accuracy")
+
+        if gt_node is None:
+            return "Ground truth comparison not available for this dataset."
+
+        lines = [
+            f"Node Accuracy: {gt_node:.1f}%",
+            f"PV Accuracy: {gt_pv:.1f}%",
+        ]
+
+        gt_counters = metrics.get("gt_counters_summary", {})
+        if gt_counters:
+            nodes_matched = gt_counters.get("nodes_matched", 0)
+            nodes_gt = gt_counters.get("nodes_ground_truth", 0)
+            pvs_matched = gt_counters.get("pvs_matched", 0)
+            pvs_modified = gt_counters.get("pvs_modified", 0)
+            lines.append(f"Nodes matched: {nodes_matched}/{nodes_gt}")
+            lines.append(f"PVs matched: {pvs_matched}, PVs needing fixes: {pvs_modified}")
+
+        lines.append("")
+        lines.append("NOTE: These scores show distance from ideal. Use them to gauge severity,")
+        lines.append("but focus on the heuristic issues above for specific fixes.")
 
         return "\n".join(lines)
 

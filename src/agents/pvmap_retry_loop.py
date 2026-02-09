@@ -3,12 +3,14 @@ PVMAP Retry Loop using ADK LoopAgent with Quality-Based Retries.
 
 This module creates a LoopAgent that orchestrates:
 1. StatePreparationAgent - Prepares state for each iteration
-2. PVMAPGeneratorAgent - Generates PVMAP with structured output
-3. ValidationAgent - Validates PVMAP (sets validation_passed flag)
-4. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
-5. ConditionalQualityFeedbackAgent - Generates quality improvement feedback
-6. ConditionalFeedbackAgent - Generates validation error feedback
-7. MaxRetriesCheckAgent - Checks if max retries exceeded
+2. [StatVarDiscoveryAgent] - MCP-based StatVar discovery (if MCP enabled)
+3. PVMAPGeneratorAgent - Generates PVMAP with structured output
+4. ValidationAgent - Validates PVMAP (sets validation_passed flag)
+5. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
+6. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
+7. ConditionalQualityFeedbackAgent - Generates quality improvement feedback
+8. ConditionalFeedbackAgent - Generates validation error feedback
+9. MaxRetriesCheckAgent - Checks if max retries exceeded
 
 The loop exits when:
 - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
@@ -32,6 +34,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import logging
+
 from google.adk.agents import LoopAgent, BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
@@ -43,6 +47,9 @@ from src.agents.feedback_agent import create_feedback_agent
 from src.agents.quality_evaluation_agent import QualityEvaluationAgent
 from src.agents.quality_feedback_agent import ConditionalQualityFeedbackAgent
 from src.agents.template_utils import escape_pvmap_placeholders
+from src.tools.evaluation_tools import find_ground_truth_pvmaps
+
+logger = logging.getLogger(__name__)
 
 
 class StatePreparationAgent(BaseAgent):
@@ -55,6 +62,7 @@ class StatePreparationAgent(BaseAgent):
     3. Initializes quality_metrics_history on first attempt
     4. Resets per-iteration flags (validation_passed, quality_acceptable, etc.)
     5. Ensures required state variables are set for the generator
+    6. Sets MCP-related state defaults
 
     This is necessary because LlmAgent with output_schema reads state
     via instruction templating, so we need to ensure the state is populated
@@ -102,12 +110,32 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["quality_feedback"] = ""
             ctx.session.state["exit_reason"] = None
 
+            # Discover and cache ground truth PVMAP path (once)
+            self._discover_and_cache_ground_truth(ctx)
+
         # =====================================================================
         # Reset per-iteration flags
         # =====================================================================
         ctx.session.state["validation_passed"] = False
         ctx.session.state["quality_acceptable"] = False
         ctx.session.state["quality_stagnant"] = False
+
+        # =====================================================================
+        # MCP-related state defaults
+        # =====================================================================
+        if "mcp_enrichment_context" not in ctx.session.state:
+            ctx.session.state["mcp_enrichment_context"] = {}
+        if "mcp_resolved_context" not in ctx.session.state:
+            ctx.session.state["mcp_resolved_context"] = ""
+
+        # Set MCP tools instruction (populated when MCP enabled, empty when not)
+        mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+        if mcp_enabled:
+            from src.agents.dc_query_agent import MCP_TOOLS_INSTRUCTION
+            ctx.session.state["mcp_tools_instruction"] = MCP_TOOLS_INSTRUCTION
+        else:
+            if "mcp_tools_instruction" not in ctx.session.state:
+                ctx.session.state["mcp_tools_instruction"] = ""
 
         # =====================================================================
         # Read and populate file contents
@@ -193,6 +221,8 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["structure_warnings"] = ""
         if "quality_diff_summary" not in ctx.session.state:
             ctx.session.state["quality_diff_summary"] = ""
+        if "gt_score_section" not in ctx.session.state:
+            ctx.session.state["gt_score_section"] = ""
 
         # =====================================================================
         # CRITICAL: Escape PVMAP placeholders in feedback to prevent templating errors
@@ -238,6 +268,149 @@ class StatePreparationAgent(BaseAgent):
                 types.Part(text=f"State prepared for attempt {attempt + 1}")
             ])
         )
+
+    def _discover_and_cache_ground_truth(self, ctx: InvocationContext) -> None:
+        """
+        Discover ground truth PVMAP path on first attempt and cache in state.
+
+        Uses the same precedence logic as EvaluationAgent:
+          Tier 1: ground_truth_pvmap (explicit file)
+          Tier 2: ground_truth_dir (search directory)
+          Tier 3: ground_truth_repo (default: ground_truth/)
+
+        Stores result in gt_pvmap_path_cached (str or None).
+        """
+        import os
+
+        current_dataset = ctx.session.state.get("current_dataset")
+        if not current_dataset:
+            ctx.session.state["gt_pvmap_path_cached"] = None
+            return
+
+        ground_truth_pvmap = ctx.session.state.get("ground_truth_pvmap")
+        ground_truth_dir = ctx.session.state.get("ground_truth_dir")
+        ground_truth_repo = ctx.session.state.get(
+            "ground_truth_repo",
+            os.getenv("GROUND_TRUTH_REPO", str(PROJECT_ROOT / "ground_truth"))
+        )
+
+        dataset_name = current_dataset.name
+
+        # Apply same precedence as EvaluationAgent
+        if ground_truth_pvmap and Path(ground_truth_pvmap).exists():
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                explicit_pvmap=ground_truth_pvmap
+            )
+        elif ground_truth_dir and Path(ground_truth_dir).exists():
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                search_dir=ground_truth_dir
+            )
+        else:
+            gt_result = find_ground_truth_pvmaps(
+                dataset_name=dataset_name,
+                source_repo=ground_truth_repo,
+                search_dir=str(current_dataset.path) if current_dataset.path else ""
+            )
+
+        if gt_result["success"] and gt_result["count"] > 0:
+            gt_path = str(gt_result["pvmaps"][0])
+            ctx.session.state["gt_pvmap_path_cached"] = gt_path
+            logger.info(f"Ground truth PVMAP cached for in-loop scoring: {gt_path}")
+        else:
+            ctx.session.state["gt_pvmap_path_cached"] = None
+            logger.info("No ground truth PVMAP found; in-loop scoring will use heuristics only")
+
+
+class MCPErrorResolverAgent(BaseAgent):
+    """
+    Thin wrapper that runs MCP error resolution after validation failure.
+
+    Skips if:
+    - MCP is not enabled
+    - Validation passed (no errors to resolve)
+
+    Delegates query logic to dc_query_agent.create_error_resolver_agent().
+    Writes mcp_resolved_context to state.
+    """
+
+    def __init__(self, name: str = "MCPErrorResolver"):
+        super().__init__(name=name)
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        """Run MCP error resolution if needed."""
+        mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+        validation_passed = ctx.session.state.get("validation_passed", False)
+
+        if not mcp_enabled or validation_passed:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="MCP error resolution skipped (not needed)")
+                ])
+            )
+            return
+
+        validation_error = ctx.session.state.get("validation_error", "")
+        pvmap_csv = ctx.session.state.get("pvmap_csv", "")
+        mcp_url = ctx.session.state.get("mcp_url", "http://localhost:3000/mcp")
+
+        if not validation_error:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="MCP error resolution skipped (no validation error)")
+                ])
+            )
+            return
+
+        yield Event(
+            author=self.name,
+            content=types.Content(parts=[
+                types.Part(text="Running MCP error resolution...")
+            ])
+        )
+
+        try:
+            from src.agents.dc_query_agent import (
+                create_error_resolver_agent,
+                run_mcp_query,
+            )
+
+            resolver_agent = create_error_resolver_agent(
+                mcp_url=mcp_url,
+                model="gemini-2.5-pro",
+                validation_error=validation_error[:2000],
+                pvmap_csv=pvmap_csv[:3000],
+            )
+
+            result_text = await run_mcp_query(
+                mcp_url, resolver_agent,
+                "Resolve the PVMAP validation errors using Data Commons queries."
+            )
+
+            ctx.session.state["mcp_resolved_context"] = result_text[:2000]
+            logger.info(f"MCP error resolution complete: {len(result_text)} chars")
+
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text=f"MCP error resolution complete ({len(result_text)} chars)")
+                ])
+            )
+
+        except Exception as e:
+            logger.warning(f"MCP error resolution failed: {e}")
+            ctx.session.state["mcp_resolved_context"] = ""
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text=f"MCP error resolution failed (continuing): {str(e)[:100]}")
+                ])
+            )
 
 
 class ConditionalFeedbackAgent(BaseAgent):
@@ -352,6 +525,11 @@ class ConditionalFeedbackAgent(BaseAgent):
         if structure_warnings:
             ctx.session.state["structure_warnings"] = escape_pvmap_placeholders(structure_warnings)
 
+        # Escape MCP resolved context (may contain PVMAP snippets)
+        mcp_resolved_context = ctx.session.state.get("mcp_resolved_context", "")
+        if mcp_resolved_context:
+            ctx.session.state["mcp_resolved_context"] = escape_pvmap_placeholders(mcp_resolved_context)
+
 
 class MaxRetriesCheckAgent(BaseAgent):
     """
@@ -403,7 +581,7 @@ class MaxRetriesCheckAgent(BaseAgent):
             if error_feedback:
                 error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Last validation error: {error_feedback[:500]}"
             elif quality_feedback:
-                score = quality_metrics.get("pv_accuracy") or quality_metrics.get("heuristic_score", 0)
+                score = quality_metrics.get("heuristic_score", 0)
                 error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
             else:
                 error_msg = f"Max retries ({self._max_retries + 1}) exceeded."
@@ -454,11 +632,13 @@ def create_pvmap_retry_loop(
     max_retries: int = 3,
     use_structured_output: bool = True,
     name: str = "PVMAPRetryLoop",
+    enable_mcp: bool = False,
+    mcp_url: Optional[str] = None,
 ) -> LoopAgent:
     """
     Create PVMAP generation retry loop with quality-based retries.
 
-    The loop runs:
+    The loop runs (without MCP):
     1. StatePreparationAgent - Prepares state for generator
     2. PVMAPGeneratorAgent - Generates PVMAP (structured JSON)
     3. ValidationAgent - Validates; sets validation_passed flag
@@ -466,6 +646,10 @@ def create_pvmap_retry_loop(
     5. ConditionalQualityFeedbackAgent - Generates quality feedback if needed
     6. ConditionalFeedbackAgent - Generates error feedback if validation failed
     7. MaxRetriesCheckAgent - Checks if max retries exceeded
+
+    With MCP enabled, adds:
+    - StatVarDiscoveryAgent after StatePrep (loop-aware discovery)
+    - MCPErrorResolverAgent after Validator (error resolution)
 
     The loop exits when:
     - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
@@ -477,6 +661,8 @@ def create_pvmap_retry_loop(
         max_retries: Max retry attempts (default: 3, for 4 total attempts)
         use_structured_output: Use output_schema for structured JSON (default: True)
         name: Loop agent name (default: PVMAPRetryLoop)
+        enable_mcp: Enable MCP integration (default: False)
+        mcp_url: MCP server URL (required if enable_mcp=True)
 
     Returns:
         Configured LoopAgent
@@ -494,6 +680,8 @@ def create_pvmap_retry_loop(
         - quality_metrics: dict - Final quality metrics
         - quality_metrics_history: List[dict] - All attempts' metrics
         - error: str - Error message if failed
+        - mcp_enrichment_context: dict - MCP discovery results (if MCP enabled)
+        - mcp_resolved_context: str - MCP error resolution (if MCP enabled)
     """
     # Get model from environment override if available
     model = os.getenv("PVMAP_GENERATOR_MODEL", model)
@@ -502,7 +690,10 @@ def create_pvmap_retry_loop(
     state_prep = StatePreparationAgent(name="StatePrep")
 
     if use_structured_output:
-        generator = create_pvmap_generator(model=model, name="Generator")
+        generator = create_pvmap_generator(
+            model=model, name="Generator",
+            enable_mcp=enable_mcp, mcp_url=mcp_url,
+        )
     else:
         from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
         generator = create_pvmap_generator_without_schema(model=model, name="Generator")
@@ -513,21 +704,42 @@ def create_pvmap_retry_loop(
     error_feedback = ConditionalFeedbackAgent(name="ErrorFeedback", model=model)
     max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
+    # Build sub_agents list
+    sub_agents = [state_prep]
+
+    # Insert StatVarDiscoveryAgent when MCP enabled (loop-aware)
+    if enable_mcp and mcp_url:
+        from src.agents.statvar_discovery_agent import StatVarDiscoveryAgent
+        statvar_discovery = StatVarDiscoveryAgent(
+            name="StatVarDiscovery",
+            model=model
+        )
+        sub_agents.append(statvar_discovery)
+        logger.info("StatVarDiscoveryAgent added to retry loop (MCP enabled)")
+
+    sub_agents.append(generator)
+    sub_agents.append(validator)
+
+    # Insert MCPErrorResolverAgent when MCP enabled
+    if enable_mcp and mcp_url:
+        error_resolver = MCPErrorResolverAgent(name="MCPErrorResolver")
+        sub_agents.append(error_resolver)
+        logger.info("MCPErrorResolverAgent added to retry loop (MCP enabled)")
+
+    sub_agents.extend([
+        quality_evaluator,
+        quality_feedback,
+        error_feedback,
+        max_retries_check,
+    ])
+
     # Create loop agent
     # max_iterations = max_retries + 1 (for initial attempt)
     # Exit via escalation in QualityEvaluator or MaxRetriesCheck
     loop = LoopAgent(
         name=name,
         max_iterations=max_retries + 1,
-        sub_agents=[
-            state_prep,          # 1. Prepare state
-            generator,           # 2. Generate PVMAP
-            validator,           # 3. Validate (sets validation_passed flag)
-            quality_evaluator,   # 4. Evaluate quality (ESCALATES if acceptable/stagnant)
-            quality_feedback,    # 5. Generate quality feedback (conditional)
-            error_feedback,      # 6. Generate error feedback (conditional)
-            max_retries_check    # 7. Check if max retries exceeded
-        ]
+        sub_agents=sub_agents
     )
 
     return loop
@@ -581,5 +793,6 @@ __all__ = [
     'create_simple_pvmap_retry_loop',
     'StatePreparationAgent',
     'ConditionalFeedbackAgent',
+    'MCPErrorResolverAgent',
     'MaxRetriesCheckAgent',
 ]

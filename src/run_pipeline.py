@@ -281,13 +281,18 @@ def run_dataset_pipeline(
     # Create PVMAP generation agent or retry loop based on structured_output flag
     if use_structured_output:
         # Use new ADK LoopAgent-based retry loop with structured output
+        # MCP is now inside the loop (loop-aware discovery + error resolution)
         pvmap_agent = create_pvmap_retry_loop(
             model=model,
             max_retries=2,  # 3 total attempts
             use_structured_output=True,
-            name="PVMAPRetryLoop"
+            name="PVMAPRetryLoop",
+            enable_mcp=enable_mcp,
+            mcp_url=mcp_url,
         )
         logger.info("Using ADK LoopAgent-based PVMAP retry loop with structured output")
+        if enable_mcp and mcp_url:
+            logger.info("MCP integration: INSIDE retry loop (loop-aware discovery + error resolution)")
     else:
         # Use original BaseAgent-based generation
         pvmap_agent = PVMAPGenerationAgent(
@@ -312,18 +317,9 @@ def run_dataset_pipeline(
     else:
         logger.info("SchemaSelectionAgent skipped (--skip-schema-selection)")
 
-    # Add StatVarDiscoveryAgent if MCP is enabled (for pre-generation StatVar discovery)
-    if enable_mcp and mcp_url:
-        try:
-            from src.agents.statvar_discovery_agent import StatVarDiscoveryAgent
-            statvar_discovery = StatVarDiscoveryAgent(
-                name="StatVarDiscovery",
-                model=model
-            )
-            sub_agents.append(statvar_discovery)
-            logger.info("StatVarDiscoveryAgent added to pipeline")
-        except ImportError as e:
-            logger.warning(f"StatVarDiscoveryAgent not available: {e}")
+    # Note: StatVarDiscoveryAgent is now INSIDE the retry loop (loop-aware).
+    # It was previously here as a pre-pipeline agent. With MCP inside the loop,
+    # discovery happens on every attempt with error-driven refinement.
 
     # Add generation and evaluation
     sub_agents.extend([pvmap_agent, evaluation_agent])
@@ -378,11 +374,8 @@ def run_dataset_pipeline(
 
     # Read sampled data content for session state (StatVarDiscoveryAgent needs this)
     sampled_data_content = ""
-    # Check session state first (set by SamplingAgent), then fallback to discovered files
     sampled_data_path = None
-    if "sampled_data_path" in session.state:
-        sampled_data_path = Path(session.state["sampled_data_path"])
-    elif current_dataset.sampled_data_files:
+    if current_dataset.sampled_data_files:
         sampled_data_path = current_dataset.sampled_data_files[0]
 
     if sampled_data_path and sampled_data_path.exists():

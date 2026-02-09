@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import LlmAgent
-from google.genai import types
 
 from src.agents.pvmap_generation.schemas import PVMAPOutput
 
@@ -40,8 +39,10 @@ Your task: Generate a Property-Value Map (PVMAP) that transforms input data colu
 ## Metadata Configuration
 {metadata}
 
-## Discovered StatVars (Reference Only - from MCP)
+## Discovered StatVars (from Data Commons)
 {statvar_summary}
+
+{mcp_tools_instruction}
 
 ## Previous Validation Error Feedback (if retrying after validation failure)
 {error_feedback}
@@ -165,7 +166,7 @@ Return a JSON object with this structure:
 - Use dcid: prefix for Data Commons identifiers
 - Use [DATA] for string pass-through, [NUMBER] for numeric values
 - If skeleton_summary identifies dimension columns, ensure they are properly mapped
-- If discovered StatVars are provided, ONLY use them if they EXACTLY match your data
+- If discovered StatVars are provided, use HIGH confidence matches directly and reference MEDIUM matches for naming conventions
 
 Generate the PVMAP now."""
 
@@ -173,6 +174,8 @@ Generate the PVMAP now."""
 def create_pvmap_generator(
     model: str = "gemini-2.5-flash",
     name: str = "PVMAPGenerator",
+    enable_mcp: bool = False,
+    mcp_url: Optional[str] = None,
 ) -> LlmAgent:
     """
     Create PVMAP generator agent with structured output.
@@ -180,9 +183,14 @@ def create_pvmap_generator(
     This agent uses ADK's output_schema feature to guarantee structured JSON
     output that matches the PVMAPOutput Pydantic model.
 
+    When MCP is enabled, the generator gets direct access to Data Commons
+    MCP tools (search_indicators, get_observations) for live verification.
+
     Args:
         model: Gemini model to use (default: gemini-2.5-flash)
         name: Agent name (default: PVMAPGenerator)
+        enable_mcp: Enable MCP tools on the generator (default: False)
+        mcp_url: MCP server URL (required if enable_mcp=True)
 
     Returns:
         Configured LlmAgent with output_schema
@@ -193,6 +201,7 @@ def create_pvmap_generator(
         - metadata: str - Metadata configuration
         - skeleton_summary: str (optional) - Data context from SamplingAgent
         - statvar_summary: str (optional) - Discovered StatVars from MCP
+        - mcp_tools_instruction: str (optional) - MCP tool usage guidance
         - error_feedback: str (optional) - Error feedback from validation failure
         - quality_feedback: str (optional) - Feedback for quality improvement
 
@@ -202,13 +211,25 @@ def create_pvmap_generator(
     # Get model from environment override if available
     model = os.getenv("PVMAP_GENERATOR_MODEL", model)
 
-    return LlmAgent(
+    # Build tools list
+    tools = []
+    if enable_mcp and mcp_url:
+        from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
+        mcp_toolset = create_dc_mcp_toolset(mcp_url=mcp_url)
+        tools.append(mcp_toolset)
+
+    kwargs = dict(
         name=name,
         model=model,
         instruction=PVMAP_GENERATOR_INSTRUCTION,
-        output_schema=PVMAPOutput,  # Enforces structured JSON output
-        output_key="pvmap_output",  # Automatically saves to session state
+        output_schema=PVMAPOutput,
+        output_key="pvmap_output",
     )
+
+    if tools:
+        kwargs["tools"] = tools
+
+    return LlmAgent(**kwargs)
 
 
 def create_pvmap_generator_without_schema(

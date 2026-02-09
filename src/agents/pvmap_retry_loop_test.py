@@ -27,9 +27,11 @@ def mock_dataset():
     dataset = Mock()
     dataset.name = "test_dataset"
     dataset.output_dir = Path("/tmp/test_output")
+    dataset.path = Path("/tmp/test_dataset")
     dataset.schema_examples = None
-    dataset.combined_sampled_data = None
-    dataset.combined_metadata = None
+    dataset.sampled_data_files = []
+    dataset.metadata_files = []
+    dataset.use_metadata = False
     return dataset
 
 
@@ -198,6 +200,66 @@ class TestStatePreparationAgent:
         assert mock_ctx.session.state.get("statvar_summary") == ""
         assert mock_ctx.session.state.get("structure_warnings") == ""
         assert mock_ctx.session.state.get("quality_diff_summary") == ""
+        assert mock_ctx.session.state.get("gt_score_section") == ""
+
+    @patch('src.agents.pvmap_retry_loop.find_ground_truth_pvmaps')
+    def test_discovers_and_caches_gt_on_first_attempt(self, mock_find, mock_ctx, mock_dataset):
+        """Should discover and cache GT PVMAP path on attempt 0."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,
+        }
+        mock_find.return_value = {
+            "success": True,
+            "pvmaps": [Path("/fake/gt_pvmap.csv")],
+            "count": 1,
+            "error": None,
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        assert mock_ctx.session.state["gt_pvmap_path_cached"] == "/fake/gt_pvmap.csv"
+        mock_find.assert_called_once()
+
+    @patch('src.agents.pvmap_retry_loop.find_ground_truth_pvmaps')
+    def test_gt_cache_none_when_not_found(self, mock_find, mock_ctx, mock_dataset):
+        """Should set gt_pvmap_path_cached to None when no GT found."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": -1,
+        }
+        mock_find.return_value = {
+            "success": False,
+            "pvmaps": [],
+            "count": 0,
+            "error": "Not found",
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        assert mock_ctx.session.state["gt_pvmap_path_cached"] is None
+
+    @patch('src.agents.pvmap_retry_loop.find_ground_truth_pvmaps')
+    def test_gt_not_rediscovered_on_retry(self, mock_find, mock_ctx, mock_dataset):
+        """Should not re-discover GT on subsequent attempts."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 0,  # Will become 1 (retry)
+            "quality_metrics_history": [],
+            "error_feedback": "",
+            "quality_feedback": "",
+            "gt_pvmap_path_cached": "/already/cached.csv",
+        }
+
+        agent = StatePreparationAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Should not call find_ground_truth_pvmaps on retry
+        mock_find.assert_not_called()
+        # Cached value should be preserved
+        assert mock_ctx.session.state["gt_pvmap_path_cached"] == "/already/cached.csv"
 
 
 # ============================================================================
@@ -351,14 +413,14 @@ class TestMaxRetriesCheckAgent:
             "quality_acceptable": False,
             "quality_stagnant": False,
             "quality_feedback": "Need to fix keys",
-            "quality_metrics": {"pv_accuracy": 25.0},
+            "quality_metrics": {"heuristic_score": 55.0},
         }
 
         agent = MaxRetriesCheckAgent(max_retries=3)
         events = run_agent(agent, mock_ctx)
 
         error = mock_ctx.session.state["error"]
-        assert "25.0%" in error
+        assert "55.0%" in error
 
 
 # ============================================================================
@@ -431,9 +493,11 @@ class TestEdgeCases:
         mock_dataset = Mock()
         mock_dataset.name = "test"
         mock_dataset.output_dir = Path("/tmp/test")
+        mock_dataset.path = Path("/tmp/test")
         mock_dataset.schema_examples = "/nonexistent/path.txt"
-        mock_dataset.combined_sampled_data = "/nonexistent/data.csv"
-        mock_dataset.combined_metadata = "/nonexistent/meta.csv"
+        mock_dataset.sampled_data_files = []
+        mock_dataset.metadata_files = []
+        mock_dataset.use_metadata = False
 
         mock_ctx.session.state = {
             "current_dataset": mock_dataset,
