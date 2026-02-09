@@ -53,7 +53,6 @@ STATE_SCHEMA = {
     # Sampling Phase (SamplingAgent)
     # -------------------------------------------------------------------------
     "sampled_data_files": "List[Path] - Individual sampled data files",
-    "combined_sampled_data": "Path - Combined sampled data file path",
     "skip_sampling": "bool - Whether to skip sampling phase",
 
     # -------------------------------------------------------------------------
@@ -118,7 +117,6 @@ class PipelineContext:
 
         # Sampling Phase
         sampled_data: List[Path] - Sampled data file paths
-        combined_sampled_data: Path - Combined sampled data file
 
         # Schema Selection Phase
         schema_category: str - Selected schema category

@@ -378,15 +378,24 @@ def run_dataset_pipeline(
 
     # Read sampled data content for session state (StatVarDiscoveryAgent needs this)
     sampled_data_content = ""
-    if current_dataset.combined_sampled_data and Path(current_dataset.combined_sampled_data).exists():
-        with open(current_dataset.combined_sampled_data, 'r') as f:
+    # Check session state first (set by SamplingAgent), then fallback to discovered files
+    sampled_data_path = None
+    if "sampled_data_path" in session.state:
+        sampled_data_path = Path(session.state["sampled_data_path"])
+    elif current_dataset.sampled_data_files:
+        sampled_data_path = current_dataset.sampled_data_files[0]
+
+    if sampled_data_path and sampled_data_path.exists():
+        with open(sampled_data_path, 'r') as f:
             sampled_data_content = f.read()
 
-    # Read metadata content for session state
+    # Read metadata content for session state (only if use_metadata flag is enabled)
     metadata_content = ""
-    if current_dataset.combined_metadata and Path(current_dataset.combined_metadata).exists():
-        with open(current_dataset.combined_metadata, 'r') as f:
-            metadata_content = f.read()
+    if current_dataset.use_metadata and current_dataset.metadata_files:
+        metadata_path = current_dataset.metadata_files[0]
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata_content = f.read()
 
     # Initial state with DatasetInfo object
     # Use dataset-specific output_dir so EvaluationAgent saves results in correct location

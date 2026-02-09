@@ -189,8 +189,6 @@ class ValidationAgent(BaseAgent):
         input_file = None
         if current_dataset.input_data_files:
             input_file = str(current_dataset.input_data_files[0])
-        elif current_dataset.combined_input_data:
-            input_file = str(current_dataset.combined_input_data)
 
         if not input_file or not Path(input_file).exists():
             ctx.session.state["validation_success"] = False
@@ -204,7 +202,7 @@ class ValidationAgent(BaseAgent):
             )
             return
 
-        # Get metadata file: prefer ground_truth metadata, then combined_metadata
+        # Get metadata file: prefer ground_truth metadata, then discovered metadata_files
         metadata_file = None
         if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
             # Use first CSV in ground_truth metadata dir
@@ -212,9 +210,8 @@ class ValidationAgent(BaseAgent):
             gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
             if gt_meta_files:
                 metadata_file = str(gt_meta_files[0])
-        if not metadata_file and current_dataset.combined_metadata:
-            if Path(str(current_dataset.combined_metadata)).exists():
-                metadata_file = str(current_dataset.combined_metadata)
+        if not metadata_file and current_dataset.use_metadata and current_dataset.metadata_files:
+            metadata_file = str(current_dataset.metadata_files[0])
         if not metadata_file:
             # Metadata is optional — validation can proceed without it
             yield Event(

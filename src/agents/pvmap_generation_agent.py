@@ -172,28 +172,31 @@ class PVMAPGenerationAgent(BaseAgent):
                             schema_content = read_file_content(current_dataset.schema_examples)
 
                     # Read sampled data — resolve from multiple sources:
-                    # 1. current_dataset.combined_sampled_data (set by DiscoveryAgent)
-                    # 2. session state sampled_data_path (set by SamplingAgentWrapper)
-                    # 3. output_dir/agentic_sampled.csv (written by sampling agent)
+                    # 1. session state sampled_data_path (set by SamplingAgentWrapper)
+                    # 2. output_dir/agentic_sampled.csv (written by sampling agent)
+                    # 3. discovered sampled_data_files (from DiscoveryAgent)
                     sampled_data_path = None
-                    if current_dataset.combined_sampled_data and current_dataset.combined_sampled_data.exists():
-                        sampled_data_path = current_dataset.combined_sampled_data
-                    elif ctx.session.state.get("sampled_data_path") and Path(ctx.session.state["sampled_data_path"]).exists():
+                    if ctx.session.state.get("sampled_data_path") and Path(ctx.session.state["sampled_data_path"]).exists():
                         sampled_data_path = Path(ctx.session.state["sampled_data_path"])
                     else:
                         # Fallback: check output_dir for agentic_sampled.csv
                         fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
                         if fallback.exists():
                             sampled_data_path = fallback
+                        elif current_dataset.sampled_data_files:
+                            sampled_data_path = current_dataset.sampled_data_files[0]
 
                     if not sampled_data_path:
                         raise ValueError("No sampled data available")
                     sampled_data_content = read_file_content(sampled_data_path)
 
-                    # Read metadata (optional)
+                    # Read metadata (optional) — only if use_metadata flag is enabled
                     metadata_content = "(No metadata provided)"
-                    if current_dataset.combined_metadata and current_dataset.combined_metadata.exists():
-                        metadata_content = read_file_content(current_dataset.combined_metadata)
+                    if current_dataset.use_metadata and current_dataset.metadata_files:
+                        # Read first metadata file (usually only one per dataset)
+                        metadata_path = current_dataset.metadata_files[0]
+                        if metadata_path.exists():
+                            metadata_content = read_file_content(metadata_path)
 
                     # Get discovered StatVars if MCP discovery was performed
                     discovered_statvars = None
@@ -433,14 +436,14 @@ Return your response as a JSON object with this exact structure:
                 if not input_file:
                     raise ValueError("No input data files available for validation")
 
-                # Resolve metadata: prefer ground_truth, then combined_metadata
+                # Resolve metadata: prefer ground_truth, then discovered metadata_files
                 metadata_file = None
                 if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
                     gt_meta_files = sorted(Path(current_dataset.ground_truth_metadata).glob("*.csv"))
                     if gt_meta_files:
                         metadata_file = str(gt_meta_files[0])
-                if not metadata_file and current_dataset.combined_metadata and Path(current_dataset.combined_metadata).exists():
-                    metadata_file = str(current_dataset.combined_metadata)
+                if not metadata_file and current_dataset.use_metadata and current_dataset.metadata_files:
+                    metadata_file = str(current_dataset.metadata_files[0])
 
                 validation_result = run_validation(
                     input_data=str(input_file),

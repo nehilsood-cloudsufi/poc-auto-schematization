@@ -46,8 +46,9 @@ def mock_dataset(temp_dir):
         name="test_dataset",
         path=dataset_dir
     )
-    dataset.combined_sampled_data = sampled_data
-    dataset.combined_metadata = metadata
+    dataset.sampled_data_files = [sampled_data]
+    dataset.metadata_files = [metadata]
+    dataset.use_metadata = True
     dataset.schema_examples = schema
     dataset.output_dir = output_dir
     dataset.input_data_files = [input_data]

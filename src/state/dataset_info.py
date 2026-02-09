@@ -29,11 +29,6 @@ class DatasetInfo:
         sampled_data_files: List of sampled data CSV files
         input_data_files: List of raw input CSV files
 
-        # Combined/merged file paths (created during preparation)
-        combined_metadata: Path to merged metadata CSV
-        combined_sampled_data: Path to combined sampled data CSV
-        combined_input_data: Path to combined input data CSV
-
         # Flags
         use_metadata: Whether to use metadata for prompt building
         standalone: Whether this is a standalone file (no dataset folder)
@@ -72,11 +67,6 @@ class DatasetInfo:
         self.metadata_files: List[Path] = []
         self.sampled_data_files: List[Path] = []
         self.input_data_files: List[Path] = []
-
-        # Combined/merged file paths (created during preparation)
-        self.combined_metadata: Optional[Path] = None
-        self.combined_sampled_data: Optional[Path] = None
-        self.combined_input_data: Optional[Path] = None
 
         # Flags
         self.use_metadata: bool = False

@@ -372,8 +372,6 @@ class SamplingAgentWrapper(BaseAgent):
         input_file = None
         if current_dataset.input_data_files:
             input_file = str(current_dataset.input_data_files[0])
-        elif current_dataset.combined_input_data:
-            input_file = str(current_dataset.combined_input_data)
 
         if not input_file or not Path(input_file).exists():
             yield self._create_event(f"No input file found for dataset {current_dataset.name}")

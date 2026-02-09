@@ -156,13 +156,13 @@ class StatePreparationAgent(BaseAgent):
         if "sampled_data" not in ctx.session.state or not ctx.session.state["sampled_data"]:
             sampled_data = ""
             # Resolve sampled data path from multiple sources
-            sampled_path = current_dataset.combined_sampled_data
-            if not sampled_path or not Path(sampled_path).exists():
-                sampled_path = ctx.session.state.get("sampled_data_path")
+            sampled_path = ctx.session.state.get("sampled_data_path")
             if not sampled_path or not Path(sampled_path).exists():
                 fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
                 if fallback.exists():
                     sampled_path = str(fallback)
+                elif current_dataset.sampled_data_files:
+                    sampled_path = str(current_dataset.sampled_data_files[0])
             if sampled_path and Path(sampled_path).exists():
                 try:
                     sampled_data = Path(sampled_path).read_text(encoding='utf-8')
@@ -170,15 +170,16 @@ class StatePreparationAgent(BaseAgent):
                     sampled_data = f"(Error reading sampled data: {e})"
             ctx.session.state["sampled_data"] = sampled_data
 
-        # Read metadata if not already in state
+        # Read metadata if not already in state (only if use_metadata flag is enabled)
         if "metadata" not in ctx.session.state or not ctx.session.state["metadata"]:
             metadata = ""
-            metadata_path = current_dataset.combined_metadata
-            if metadata_path and Path(metadata_path).exists():
-                try:
-                    metadata = Path(metadata_path).read_text(encoding='utf-8')
-                except Exception as e:
-                    metadata = f"(Error reading metadata: {e})"
+            if current_dataset.use_metadata and current_dataset.metadata_files:
+                metadata_path = current_dataset.metadata_files[0]
+                if metadata_path and Path(metadata_path).exists():
+                    try:
+                        metadata = Path(metadata_path).read_text(encoding='utf-8')
+                    except Exception as e:
+                        metadata = f"(Error reading metadata: {e})"
             ctx.session.state["metadata"] = metadata
 
         # =====================================================================

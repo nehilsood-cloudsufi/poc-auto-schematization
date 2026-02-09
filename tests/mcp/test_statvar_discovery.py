@@ -75,15 +75,19 @@ def test_statvar_discovery():
 
         # Read sampled data content
         sampled_data_content = ""
-        if dataset.combined_sampled_data and Path(dataset.combined_sampled_data).exists():
-            with open(dataset.combined_sampled_data, 'r') as f:
-                sampled_data_content = f.read()
+        if dataset.sampled_data_files:
+            sampled_file = dataset.sampled_data_files[0]
+            if Path(sampled_file).exists():
+                with open(sampled_file, 'r') as f:
+                    sampled_data_content = f.read()
 
         # Read metadata content
         metadata_content = ""
-        if dataset.combined_metadata and Path(dataset.combined_metadata).exists():
-            with open(dataset.combined_metadata, 'r') as f:
-                metadata_content = f.read()
+        if dataset.use_metadata and dataset.metadata_files:
+            metadata_file = dataset.metadata_files[0]
+            if Path(metadata_file).exists():
+                with open(metadata_file, 'r') as f:
+                    metadata_content = f.read()
 
         print(f"Sampled data preview:\n{sampled_data_content[:200]}...")
         print(f"Metadata preview:\n{metadata_content[:200]}...")
