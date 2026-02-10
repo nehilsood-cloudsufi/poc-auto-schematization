@@ -286,3 +286,8 @@ ask gemini the relevant questions about it so we can make it token efficient /Us
 I want to improve the Impact of MCP server getting used,
   understand what kind of output we receive from MCP server
   how can we use it as a subagent or a tool for PVMAP generation agent, where agent can retrieve relevant information whenever it needs it 
+
+
+pv accuracy on top ( if less than 30% you should retry) 
+and if after retry delta improvement is less than 5% then stop mentioning the reasoning
+ask the priority for others with your recommendation

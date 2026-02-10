@@ -655,3 +655,276 @@ class TestGTNumericScoring:
         event_texts = [e.content.parts[0].text for e in events]
         assert any("GT scores" in t for t in event_texts)
         assert any("Node Acc=40.0%" in t for t in event_texts)
+
+
+# ============================================================================
+# Test PV Accuracy Retry Trigger (Priority 2)
+# ============================================================================
+
+class TestPVAccuracyRetryTrigger:
+    """Tests for PV accuracy as a retry trigger (Priority 2 in the gating chain)."""
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_pv_below_threshold_overrides_heuristic_acceptable(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """Heuristic=80 (>70) but PV=15% (<30%) should override to quality_acceptable=False."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 30.0, "pv_accuracy": 15.0,
+            "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
+                         "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
+                         "nodes-auto-generated": 6},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        assert mock_ctx.session.state["quality_acceptable"] is False
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert metrics["quality_reject_reason"] == "pv_accuracy_low"
+
+        # Final event should NOT escalate (low quality → continue to feedback)
+        final_event = [e for e in events if e.actions][-1]
+        assert final_event.actions.escalate is False
+
+        # Message should mention PV accuracy
+        assert "PV accuracy" in final_event.content.parts[0].text
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_pv_above_threshold_with_good_heuristic(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """Heuristic=80, PV=40% (both above thresholds) should be acceptable."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 60.0, "pv_accuracy": 40.0,
+            "counters": {"nodes-matched": 3, "nodes-ground-truth": 5,
+                         "PVs-matched": 6, "pvs-modified": 2, "pvs-deleted": 1,
+                         "nodes-auto-generated": 5},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        assert mock_ctx.session.state["quality_acceptable"] is True
+        # Should escalate
+        events_with_actions = [e for e in events if e.actions]
+        assert any(e.actions.escalate for e in events_with_actions)
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_no_gt_falls_back_to_heuristic_only(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """No GT path → quality_acceptable based on heuristic only."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            # No gt_pvmap_path_cached
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Heuristic is 80 >= 70, so should be acceptable
+        assert mock_ctx.session.state["quality_acceptable"] is True
+        metrics = mock_ctx.session.state["quality_metrics"]
+        # No reject reason should be set
+        assert "quality_reject_reason" not in metrics
+        # No GT scores
+        assert "gt_pv_accuracy" not in metrics
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_stagnation_uses_pv_delta_when_pv_triggered(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """When PV is the reject reason, stagnation should check PV delta."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 75.0, "gt_pv_accuracy": 12.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 30.0, "pv_accuracy": 14.0,  # Only 2% improvement
+            "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
+                         "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
+                         "nodes-auto-generated": 6},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # PV accuracy 14% < 30% → quality_reject_reason = pv_accuracy_low
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert metrics["quality_reject_reason"] == "pv_accuracy_low"
+
+        # PV delta = 14 - 12 = 2 < 5 → stagnant
+        assert mock_ctx.session.state["quality_stagnant"] is True
+        assert metrics["pv_improvement_from_previous"] == 2.0
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_stagnation_uses_heuristic_delta_when_heuristic_triggered(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """When heuristic is the reject reason, stagnation should check heuristic delta."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 55.0, "gt_pv_accuracy": 40.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 57.0, "row_coverage": 14.0, "prop_coverage": 14.0,
+            "column_coverage": 15.0, "format_score": 14.0, "issues": "",
+        }
+        # PV accuracy is above threshold, so heuristic is the gating factor
+        mock_compare.return_value = {
+            "success": True, "accuracy": 60.0, "pv_accuracy": 42.0,
+            "counters": {"nodes-matched": 3, "nodes-ground-truth": 5,
+                         "PVs-matched": 6, "pvs-modified": 2, "pvs-deleted": 1,
+                         "nodes-auto-generated": 5},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Heuristic 57 < 70 → quality_reject_reason = heuristic_low
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert metrics["quality_reject_reason"] == "heuristic_low"
+
+        # Heuristic delta = 57 - 55 = 2 < 5 → stagnant
+        assert mock_ctx.session.state["quality_stagnant"] is True
+        assert metrics["improvement_from_previous"] == 2.0
+        # No PV improvement tracked since PV wasn't the trigger
+        assert "pv_improvement_from_previous" not in metrics
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_stagnation_message_includes_reasoning(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """Stagnation event text should explain which metric and its delta."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 75.0, "gt_pv_accuracy": 10.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 78.0, "row_coverage": 19.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 19.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 25.0, "pv_accuracy": 13.0,  # 3% improvement (<5%)
+            "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
+                         "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
+                         "nodes-auto-generated": 6},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Should be stagnant (PV delta = 3 < 5)
+        assert mock_ctx.session.state["quality_stagnant"] is True
+
+        # Stagnation event should include PV accuracy reasoning
+        event_texts = [e.content.parts[0].text for e in events]
+        stagnation_events = [t for t in event_texts if "STAGNANT" in t or "Stagnation" in t]
+        assert len(stagnation_events) >= 1
+
+        # Check the detail message mentions PV accuracy
+        assert any("PV accuracy" in t for t in stagnation_events)
+        assert any("10.0%" in t for t in stagnation_events)
+        assert any("13.0%" in t for t in stagnation_events)

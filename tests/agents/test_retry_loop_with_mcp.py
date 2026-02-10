@@ -2,7 +2,7 @@
 Tests for PVMAP retry loop with MCP integration.
 
 Tests:
-- Loop agent count (9 with MCP vs 7 without)
+- Loop agent count (8 with MCP vs 6 without)
 - Agent ordering
 - Backward compatibility (no MCP)
 - State key defaults in StatePreparationAgent
@@ -27,28 +27,27 @@ from src.agents.pvmap_retry_loop import (
 class TestCreatePvmapRetryLoop:
     """Tests for create_pvmap_retry_loop with MCP params."""
 
-    def test_without_mcp_7_agents(self):
-        """Without MCP, loop has 7 sub-agents."""
+    def test_without_mcp_6_agents(self):
+        """Without MCP, loop has 6 sub-agents (unified feedback)."""
         loop = create_pvmap_retry_loop(
             model="gemini-2.5-flash",
             max_retries=3,
             enable_mcp=False,
         )
 
-        assert len(loop.sub_agents) == 7
+        assert len(loop.sub_agents) == 6
         agent_names = [a.name for a in loop.sub_agents]
         assert agent_names == [
             "StatePrep",
             "Generator",
             "Validator",
             "QualityEvaluator",
-            "QualityFeedback",
-            "ErrorFeedback",
+            "UnifiedFeedback",
             "MaxRetriesCheck",
         ]
 
-    def test_with_mcp_9_agents(self):
-        """With MCP, loop has 9 sub-agents (adds StatVarDiscovery + MCPErrorResolver)."""
+    def test_with_mcp_8_agents(self):
+        """With MCP, loop has 8 sub-agents (adds StatVarDiscovery + MCPErrorResolver)."""
         loop = create_pvmap_retry_loop(
             model="gemini-2.5-flash",
             max_retries=3,
@@ -56,7 +55,7 @@ class TestCreatePvmapRetryLoop:
             mcp_url="http://localhost:3000/mcp",
         )
 
-        assert len(loop.sub_agents) == 9
+        assert len(loop.sub_agents) == 8
         agent_names = [a.name for a in loop.sub_agents]
         assert agent_names == [
             "StatePrep",
@@ -65,8 +64,7 @@ class TestCreatePvmapRetryLoop:
             "Validator",
             "MCPErrorResolver",
             "QualityEvaluator",
-            "QualityFeedback",
-            "ErrorFeedback",
+            "UnifiedFeedback",
             "MaxRetriesCheck",
         ]
 
@@ -78,13 +76,13 @@ class TestCreatePvmapRetryLoop:
             mcp_url=None,  # No URL
         )
 
-        assert len(loop.sub_agents) == 7
+        assert len(loop.sub_agents) == 6
 
     def test_backward_compat_no_mcp_params(self):
         """Calling without MCP params works (backward compatible)."""
         loop = create_pvmap_retry_loop(model="gemini-2.5-flash")
 
-        assert len(loop.sub_agents) == 7
+        assert len(loop.sub_agents) == 6
 
     def test_statvar_discovery_before_generator(self):
         """StatVarDiscovery is placed between StatePrep and Generator."""

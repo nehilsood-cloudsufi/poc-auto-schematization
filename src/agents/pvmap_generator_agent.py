@@ -44,11 +44,8 @@ Your task: Generate a Property-Value Map (PVMAP) that transforms input data colu
 
 {mcp_tools_instruction}
 
-## Previous Validation Error Feedback (if retrying after validation failure)
+## Previous Feedback (if retrying)
 {error_feedback}
-
-## Previous Quality Improvement Feedback (if retrying after low quality score)
-{quality_feedback}
 
 ---
 
@@ -97,29 +94,23 @@ In the JSON output, use these EXACT strings as values:
 
 ## 5. Error Correction (if retrying)
 
-### If error_feedback is present (validation failed):
-The error_feedback contains **Unmapped Value Analysis** with detected patterns.
+If error_feedback is present, it contains analysis of what went wrong on the previous attempt
+(either validation failure or low quality). Follow the specific fixes provided.
 
-**How to interpret value patterns:**
+**How to interpret value patterns in feedback:**
 - `state_code` pattern (e.g., 'AL', 'CA', 'TX') → State column not mapped. Fix: Map state codes to DCIDs or use State FIPS column instead
 - `place_name` pattern (e.g., 'ALBERTVILLE CITY') → Place names need DCID resolution. Fix: Use FIPS codes or add dcid:geoId/ prefix
 - `numeric_id` pattern (e.g., '10000500879') → ID column not in PVMAP keys. Check if NCESID, SCHID, or similar column is mapped
 - `year` pattern (e.g., '2010', '2020') → Year column not mapped to observationDate
-- `fips_code` pattern (e.g., '01', '06') → FIPS codes may need zero-padding: dcid:geoId/{Data:02d}
+- `fips_code` pattern (e.g., '01', '06') → FIPS codes may need zero-padding: dcid:geoId/[DATA]
 - `enum` pattern → Categorical column values need explicit mappings
 
 **Fix strategy:**
-1. Identify which column the pattern values come from (check the sampled data)
-2. Add that column to PVMAP keys with appropriate mapping
+1. Read the feedback carefully for specific fixes
+2. Focus on the "High-Impact Fixes" section
 3. Ensure keys match EXACT column headers (case-sensitive)
 4. Verify required properties are mapped (observationAbout, observationDate, value)
-
-### If quality_feedback is present (validation passed but low quality):
-The previous PVMAP passed validation but has low accuracy compared to expected output:
-1. Read the quality feedback carefully for specific fixes
-2. Focus on the "High-Impact Fixes" section
-3. If pattern issues are mentioned, fix ALL affected rows
-4. Pay attention to any diff showing expected vs actual mappings
+5. If pattern issues are mentioned, fix ALL affected rows
 
 IMPORTANT: Apply the specific fixes from the feedback. Do not repeat previous mistakes.
 
@@ -202,8 +193,7 @@ def create_pvmap_generator(
         - skeleton_summary: str (optional) - Data context from SamplingAgent
         - statvar_summary: str (optional) - Discovered StatVars from MCP
         - mcp_tools_instruction: str (optional) - MCP tool usage guidance
-        - error_feedback: str (optional) - Error feedback from validation failure
-        - quality_feedback: str (optional) - Feedback for quality improvement
+        - error_feedback: str (optional) - Feedback from validation failure or quality issues
 
     State Outputs (written via output_key):
         - pvmap_output: dict - Structured PVMAP output (JSON dict matching PVMAPOutput)

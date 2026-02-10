@@ -1,7 +1,9 @@
 """
 Unit tests for QualityFeedbackAgent and ConditionalQualityFeedbackAgent.
 
-Tests the quality feedback generation and conditional execution logic.
+NOTE: The quality_feedback_agent module is DEPRECATED in favor of the unified
+ConditionalFeedbackAgent in pvmap_retry_loop.py. These tests verify that the
+deprecated module still works for backward compatibility (simple retry loop).
 """
 
 import pytest
@@ -52,7 +54,7 @@ def run_agent(agent, ctx):
 
 
 # ============================================================================
-# Test create_quality_feedback_agent
+# Test create_quality_feedback_agent (deprecated, backward compat)
 # ============================================================================
 
 class TestCreateQualityFeedbackAgent:
@@ -123,7 +125,7 @@ class TestQualityFeedbackInstruction:
 
 
 # ============================================================================
-# Test ConditionalQualityFeedbackAgent - Conditional Execution
+# Test ConditionalQualityFeedbackAgent - Conditional Execution (deprecated)
 # ============================================================================
 
 class TestConditionalExecution:
@@ -143,7 +145,6 @@ class TestConditionalExecution:
         }
 
         # Mock the inner feedback agent to avoid actual LLM call
-        # Use async generator pattern instead of iter()
         async def mock_run_async(ctx):
             if False:  # Empty generator
                 yield
@@ -203,7 +204,7 @@ class TestConditionalExecution:
 
 
 # ============================================================================
-# Test State Preparation
+# Test State Preparation (deprecated ConditionalQualityFeedbackAgent)
 # ============================================================================
 
 class TestStatePreperation:
@@ -239,7 +240,7 @@ class TestStatePreperation:
 
 
 # ============================================================================
-# Test Metrics Formatting
+# Test Metrics Formatting (deprecated ConditionalQualityFeedbackAgent)
 # ============================================================================
 
 class TestMetricsFormatting:
@@ -322,7 +323,7 @@ class TestEdgeCases:
 
 
 # ============================================================================
-# Test GT Score Formatting
+# Test GT Score Formatting (deprecated ConditionalQualityFeedbackAgent)
 # ============================================================================
 
 class TestGTScoreFormatting:

@@ -1,6 +1,10 @@
 """
 Quality Feedback Agent for ADK pipeline retry loop.
 
+DEPRECATED: This module is superseded by the unified ConditionalFeedbackAgent
+in pvmap_retry_loop.py, which handles both validation errors and quality issues.
+Kept for backward compatibility with create_simple_pvmap_retry_loop().
+
 This module provides:
 1. LlmAgent for generating quality improvement feedback
 2. ConditionalQualityFeedbackAgent wrapper that only runs when needed

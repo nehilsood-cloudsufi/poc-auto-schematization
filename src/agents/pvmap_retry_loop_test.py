@@ -83,10 +83,10 @@ class TestCreatePvmapRetryLoop:
         loop = create_pvmap_retry_loop(max_retries=2)
         assert loop.max_iterations == 3  # 2 retries + 1 initial
 
-    def test_has_seven_sub_agents(self):
-        """Should have 7 sub-agents in the loop."""
+    def test_has_six_sub_agents(self):
+        """Should have 6 sub-agents in the loop (unified feedback)."""
         loop = create_pvmap_retry_loop()
-        assert len(loop.sub_agents) == 7
+        assert len(loop.sub_agents) == 6
 
     def test_sub_agent_order(self):
         """Sub-agents should be in correct order."""
@@ -98,8 +98,7 @@ class TestCreatePvmapRetryLoop:
             "Generator",
             "Validator",
             "QualityEvaluator",
-            "QualityFeedback",
-            "ErrorFeedback",
+            "UnifiedFeedback",
             "MaxRetriesCheck",
         ]
 
@@ -125,8 +124,8 @@ class TestStatePreparationAgent:
 
         assert mock_ctx.session.state["attempt_number"] == 0
 
-    def test_initializes_quality_metrics_history_on_first_attempt(self, mock_ctx, mock_dataset):
-        """Should initialize quality_metrics_history on first attempt."""
+    def test_initializes_tracking_state_on_first_attempt(self, mock_ctx, mock_dataset):
+        """Should initialize quality_metrics_history and error_feedback on first attempt."""
         mock_ctx.session.state = {
             "current_dataset": mock_dataset,
             "attempt_number": -1,
@@ -137,7 +136,7 @@ class TestStatePreparationAgent:
 
         assert mock_ctx.session.state["quality_metrics_history"] == []
         assert mock_ctx.session.state["error_feedback"] == ""
-        assert mock_ctx.session.state["quality_feedback"] == ""
+        assert mock_ctx.session.state["validation_counter_summary"] == ""
 
     def test_resets_per_iteration_flags(self, mock_ctx, mock_dataset):
         """Should reset per-iteration flags on each iteration."""
@@ -159,13 +158,12 @@ class TestStatePreparationAgent:
         assert mock_ctx.session.state["quality_stagnant"] is False
 
     def test_preserves_feedback_on_retries(self, mock_ctx, mock_dataset):
-        """Should preserve feedback from previous iteration on retries."""
+        """Should preserve error_feedback from previous iteration on retries."""
         mock_ctx.session.state = {
             "current_dataset": mock_dataset,
             "attempt_number": 0,  # Will become 1
             "quality_metrics_history": [],
             "error_feedback": "Previous error feedback",
-            "quality_feedback": "Previous quality feedback",
         }
 
         agent = StatePreparationAgent()
@@ -173,7 +171,6 @@ class TestStatePreparationAgent:
 
         # Feedback should be preserved
         assert mock_ctx.session.state["error_feedback"] == "Previous error feedback"
-        assert mock_ctx.session.state["quality_feedback"] == "Previous quality feedback"
 
     def test_handles_missing_dataset(self, mock_ctx):
         """Should handle missing current_dataset gracefully."""
@@ -249,7 +246,6 @@ class TestStatePreparationAgent:
             "attempt_number": 0,  # Will become 1 (retry)
             "quality_metrics_history": [],
             "error_feedback": "",
-            "quality_feedback": "",
             "gt_pvmap_path_cached": "/already/cached.csv",
         }
 
@@ -263,16 +259,18 @@ class TestStatePreparationAgent:
 
 
 # ============================================================================
-# Test ConditionalFeedbackAgent
+# Test ConditionalFeedbackAgent (unified feedback)
 # ============================================================================
 
 class TestConditionalFeedbackAgent:
-    """Tests for ConditionalFeedbackAgent (error feedback)."""
+    """Tests for ConditionalFeedbackAgent (unified feedback)."""
 
-    def test_runs_when_validation_failed(self, mock_ctx):
-        """Should run feedback agent when validation failed."""
+    def test_runs_error_path_when_validation_failed(self, mock_ctx):
+        """Should run feedback agent with error mode when validation failed."""
         mock_ctx.session.state = {
             "validation_passed": False,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
             "validation_error": "Some error",
             "pvmap_csv": "key,prop,value",
             "sampled_data": "col1,col2",
@@ -291,34 +289,26 @@ class TestConditionalFeedbackAgent:
 
         events = run_agent(agent, mock_ctx)
 
-        # Should have yielded "generating error feedback" message
+        # Should have yielded "error feedback" message
         assert any("error feedback" in str(e.content.parts[0].text).lower() for e in events)
+        # Should have set feedback_mode
+        assert "VALIDATION FAILED" in mock_ctx.session.state.get("feedback_mode", "")
 
-    def test_skips_when_validation_passed(self, mock_ctx):
-        """Should skip when validation passed."""
+    def test_runs_quality_path_when_quality_low(self, mock_ctx):
+        """Should run feedback agent with quality mode when quality is low."""
         mock_ctx.session.state = {
             "validation_passed": True,
-        }
-
-        agent = ConditionalFeedbackAgent()
-        events = run_agent(agent, mock_ctx)
-
-        # Should skip
-        assert len(events) == 1
-        assert "skipping" in events[0].content.parts[0].text.lower()
-
-    def test_clears_quality_feedback_when_running(self, mock_ctx):
-        """Should clear quality_feedback when generating error feedback."""
-        mock_ctx.session.state = {
-            "validation_passed": False,
-            "quality_feedback": "Old quality feedback",
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "quality_metrics": {"heuristic_score": 55.0},
+            "pvmap_csv": "key,prop,value",
+            "sampled_data": "col1,col2",
         }
 
         agent = ConditionalFeedbackAgent()
 
-        # Mock the inner feedback agent with async generator
         async def mock_run_async(ctx):
-            if False:  # Empty generator
+            if False:
                 yield
 
         mock_inner = Mock()
@@ -327,8 +317,212 @@ class TestConditionalFeedbackAgent:
 
         events = run_agent(agent, mock_ctx)
 
-        # Quality feedback should be cleared
-        assert mock_ctx.session.state["quality_feedback"] == ""
+        # Should have yielded "quality" or "improvement" message
+        assert any("quality" in str(e.content.parts[0].text).lower() or
+                    "improvement" in str(e.content.parts[0].text).lower()
+                    for e in events)
+        # Should have set feedback_mode
+        assert "QUALITY LOW" in mock_ctx.session.state.get("feedback_mode", "")
+
+    def test_skips_when_quality_acceptable(self, mock_ctx):
+        """Should skip when quality is acceptable."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "quality_acceptable": True,
+            "quality_stagnant": False,
+        }
+
+        agent = ConditionalFeedbackAgent()
+        events = run_agent(agent, mock_ctx)
+
+        # Should skip
+        assert len(events) == 1
+        assert "skipping" in events[0].content.parts[0].text.lower()
+        assert "quality acceptable" in events[0].content.parts[0].text.lower()
+
+    def test_skips_when_quality_stagnant(self, mock_ctx):
+        """Should skip when quality is stagnant."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "quality_acceptable": False,
+            "quality_stagnant": True,
+        }
+
+        agent = ConditionalFeedbackAgent()
+        events = run_agent(agent, mock_ctx)
+
+        assert len(events) == 1
+        assert "skipping" in events[0].content.parts[0].text.lower()
+        assert "stagnant" in events[0].content.parts[0].text.lower()
+
+    def test_prepares_counter_summary_default(self, mock_ctx):
+        """Should set default counter summary when missing."""
+        mock_ctx.session.state = {
+            "validation_passed": False,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_error": "err",
+            "pvmap_csv": "key,prop,value",
+        }
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        assert mock_ctx.session.state["validation_counter_summary"] == "Processing metrics not available."
+
+
+# ============================================================================
+# Test ConditionalFeedbackAgent state preparation
+# ============================================================================
+
+class TestFeedbackStatePreperation:
+    """Tests for _prepare_feedback_state on ConditionalFeedbackAgent."""
+
+    def test_prepares_quality_score_from_heuristic(self, mock_ctx):
+        """Should extract heuristic_score as quality_score."""
+        mock_ctx.session.state = {
+            "quality_metrics": {"heuristic_score": 65.0},
+        }
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        assert mock_ctx.session.state["quality_score"] == 65.0
+
+    def test_formats_gt_section(self, mock_ctx):
+        """Should format GT section from quality metrics."""
+        mock_ctx.session.state = {
+            "quality_metrics": {
+                "heuristic_score": 55.0,
+                "gt_node_accuracy": 40.0,
+                "gt_pv_accuracy": 25.0,
+                "gt_counters_summary": {
+                    "nodes_matched": 2,
+                    "nodes_ground_truth": 5,
+                    "pvs_matched": 3,
+                    "pvs_modified": 4,
+                }
+            },
+        }
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        gt_section = mock_ctx.session.state["gt_score_section"]
+        assert "Node Accuracy: 40.0%" in gt_section
+        assert "PV Accuracy: 25.0%" in gt_section
+
+    def test_handles_missing_quality_metrics(self, mock_ctx):
+        """Should handle missing quality_metrics gracefully."""
+        mock_ctx.session.state = {}
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        assert mock_ctx.session.state["quality_score"] == 0
+
+    def test_escapes_counter_summary(self, mock_ctx):
+        """Should escape PVMAP placeholders in counter summary."""
+        mock_ctx.session.state = {
+            "quality_metrics": {},
+            "validation_counter_summary": "Coverage: {Data} mapped",
+        }
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        # {Data} should be escaped to [DATA]
+        assert "{Data}" not in mock_ctx.session.state["validation_counter_summary"]
+
+
+# ============================================================================
+# Test Metrics Formatting on ConditionalFeedbackAgent
+# ============================================================================
+
+class TestMetricsFormatting:
+    """Tests for _format_metrics helper method on ConditionalFeedbackAgent."""
+
+    def test_formats_heuristic_metrics(self):
+        """Should format heuristic metrics correctly."""
+        agent = ConditionalFeedbackAgent()
+        metrics = {
+            "mode": "heuristic",
+            "heuristic_score": 65.0,
+            "heuristic_breakdown": {
+                "row_coverage": 15.0,
+                "prop_coverage": 20.0,
+                "column_coverage": 15.0,
+                "format_score": 15.0,
+            },
+        }
+
+        formatted = agent._format_metrics(metrics)
+
+        assert "Heuristic Score: 65.0/100" in formatted
+        assert "Row Coverage: 15.0/25" in formatted
+        assert "Property Coverage: 20.0/25" in formatted
+        assert "Column Coverage: 15.0/25" in formatted
+        assert "Format Score: 15.0/25" in formatted
+
+    def test_includes_improvement_when_present(self):
+        """Should include improvement from previous when available."""
+        agent = ConditionalFeedbackAgent()
+        metrics = {
+            "heuristic_score": 60.0,
+            "heuristic_breakdown": {},
+            "improvement_from_previous": 3.5,
+        }
+
+        formatted = agent._format_metrics(metrics)
+
+        assert "Improvement from previous: 3.5%" in formatted
+
+    def test_includes_gt_scores(self):
+        """Should include GT scores when present."""
+        agent = ConditionalFeedbackAgent()
+        metrics = {
+            "heuristic_score": 55.0,
+            "heuristic_breakdown": {},
+            "gt_node_accuracy": 42.0,
+            "gt_pv_accuracy": 33.5,
+        }
+
+        formatted = agent._format_metrics(metrics)
+        assert "GT Node Accuracy: 42.0%" in formatted
+        assert "GT PV Accuracy: 33.5%" in formatted
+
+
+# ============================================================================
+# Test GT Score Formatting on ConditionalFeedbackAgent
+# ============================================================================
+
+class TestGTScoreFormatting:
+    """Tests for _format_gt_section on ConditionalFeedbackAgent."""
+
+    def test_format_gt_section_with_scores(self):
+        """Should format GT section with scores and counters."""
+        agent = ConditionalFeedbackAgent()
+        metrics = {
+            "gt_node_accuracy": 75.0,
+            "gt_pv_accuracy": 60.0,
+            "gt_counters_summary": {
+                "nodes_matched": 3,
+                "nodes_ground_truth": 4,
+                "pvs_matched": 6,
+                "pvs_modified": 2,
+            }
+        }
+        result = agent._format_gt_section(metrics)
+        assert "Node Accuracy: 75.0%" in result
+        assert "PV Accuracy: 60.0%" in result
+        assert "Nodes matched: 3/4" in result
+        assert "distance from ideal" in result
+
+    def test_format_gt_section_without_gt(self):
+        """Should show 'not available' when GT not present."""
+        agent = ConditionalFeedbackAgent()
+        result = agent._format_gt_section({})
+        assert "not available" in result
 
 
 # ============================================================================
@@ -402,17 +596,16 @@ class TestMaxRetriesCheckAgent:
         events = run_agent(agent, mock_ctx)
 
         error = mock_ctx.session.state["error"]
-        assert "validation error" in error.lower()
+        assert "feedback" in error.lower()
         assert "Key 'year' not found" in error
 
-    def test_error_message_includes_quality_score(self, mock_ctx, mock_dataset):
-        """Error message should include quality score when available."""
+    def test_error_message_includes_quality_score_when_no_feedback(self, mock_ctx, mock_dataset):
+        """Error message should include quality score when no feedback available."""
         mock_ctx.session.state = {
             "current_dataset": mock_dataset,
             "attempt_number": 3,
             "quality_acceptable": False,
             "quality_stagnant": False,
-            "quality_feedback": "Need to fix keys",
             "quality_metrics": {"heuristic_score": 55.0},
         }
 
@@ -443,11 +636,8 @@ class TestLoopFlow:
         # Must have quality evaluator
         assert "QualityEvaluator" in agent_names
 
-        # Must have quality feedback
-        assert "QualityFeedback" in agent_names
-
-        # Must have error feedback
-        assert "ErrorFeedback" in agent_names
+        # Must have unified feedback
+        assert "UnifiedFeedback" in agent_names
 
     def test_state_outputs_documented(self):
         """Loop docstring should document all state outputs."""

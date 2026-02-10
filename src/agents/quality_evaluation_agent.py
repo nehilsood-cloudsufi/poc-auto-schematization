@@ -2,11 +2,12 @@
 Quality Evaluation Agent for ADK pipeline.
 
 This BaseAgent evaluates PVMAP quality after validation passes using
-heuristic scoring (Score >= 70/100).
+a priority-based gating chain:
+  Priority 2: PV accuracy >= 30% (when ground truth available)
+  Priority 3: Heuristic score >= 70/100
 
-Ground truth comparison is intentionally NOT used here to avoid data leakage
-into the retry loop. Ground truth evaluation happens only in the final
-EvaluationAgent after the retry loop completes.
+Only numeric PV accuracy is used from ground truth — no content leakage.
+When GT is unavailable, falls back to heuristic-only (existing behavior).
 
 Key ADK features used:
 - BaseAgent for custom evaluation logic
@@ -37,16 +38,24 @@ logger = logging.getLogger(__name__)
 
 class QualityEvaluationAgent(BaseAgent):
     """
-    Evaluates PVMAP quality after validation passes using heuristic scoring.
+    Evaluates PVMAP quality after validation passes using priority-based gating.
 
-    NOTE: Ground truth comparison is intentionally excluded from the retry loop
-    to prevent data leakage. Ground truth is only used in the final EvaluationAgent.
+    Priority chain for retry triggers:
+        1. Validation failure (handled upstream) - always retry with error feedback
+        2. PV accuracy < 30% (GT required) - retry with quality feedback
+        3. Heuristic score < 70/100 - retry with quality feedback
+        4. Stagnation (delta < 5%) - stop, explain reasoning
+        5. Max retries >= 3 - stop (safety net, handled downstream)
+
+    Ground truth safety: Only numeric PV accuracy score is used as a trigger.
+    GT content (diff_text) is NEVER stored or passed to feedback.
 
     This agent:
     1. Checks if validation passed (skip if not)
     2. Uses heuristic scoring (row/property/column coverage + format) >= 70/100
-    3. Detects stagnation (improvement < 5% between attempts)
-    4. Escalates to exit loop if quality acceptable OR stagnant
+    3. Uses PV accuracy >= 30% when ground truth is available (Priority 2)
+    4. Detects stagnation on the triggering metric (improvement < 5%)
+    5. Escalates to exit loop if quality acceptable OR stagnant
 
     ADK State Inputs:
         - validation_passed: bool (must be True to run evaluation)
@@ -57,10 +66,11 @@ class QualityEvaluationAgent(BaseAgent):
         - quality_metrics_history: List[dict] (accumulated across attempts)
         - sampled_data: str - For heuristic scoring
         - metadata: str - For heuristic scoring
+        - gt_pvmap_path_cached: str - Optional GT path for PV accuracy
 
     ADK State Outputs:
-        - quality_metrics: dict - Current attempt metrics
-        - quality_acceptable: bool - Whether quality meets threshold
+        - quality_metrics: dict - Current attempt metrics (includes quality_reject_reason)
+        - quality_acceptable: bool - Whether quality meets all thresholds
         - quality_diff_summary: str - Issues summary for feedback
         - quality_stagnant: bool - Whether improvement has stagnated
         - quality_metrics_history: List[dict] - Updated with current metrics
@@ -73,6 +83,7 @@ class QualityEvaluationAgent(BaseAgent):
 
     # Quality thresholds (ClassVar to avoid Pydantic field treatment)
     QUALITY_THRESHOLD: ClassVar[float] = 70.0  # Heuristic score threshold (out of 100)
+    PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
     STAGNATION_THRESHOLD: ClassVar[float] = 5.0  # Minimum improvement required between attempts
 
     def __init__(self, name: str = "QualityEvaluator"):
@@ -159,24 +170,71 @@ class QualityEvaluationAgent(BaseAgent):
                 )
 
         # =====================================================================
-        # Step 2: Check for stagnation
+        # Step 1b-ii: Re-evaluate quality_acceptable with PV accuracy (Priority 2)
+        # PV accuracy < 30% overrides heuristic acceptance when GT is available.
+        # =====================================================================
+        gt_pv_accuracy = quality_metrics.get("gt_pv_accuracy")
+        if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
+            quality_acceptable = False  # Override even if heuristic was fine
+            quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
+            if not quality_diff_summary:
+                quality_diff_summary = format_quality_report(
+                    {"total": quality_metrics.get("heuristic_score", 0),
+                     "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                     "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                     "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
+                     "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                     "issues": ""}
+                )
+        elif not quality_acceptable:
+            quality_metrics["quality_reject_reason"] = "heuristic_low"
+
+        # =====================================================================
+        # Step 1c: Enrich diff summary with counter metrics (when quality low)
+        # =====================================================================
+        counter_summary = ctx.session.state.get("validation_counter_summary", "")
+        if counter_summary and not quality_acceptable:
+            quality_diff_summary = (
+                quality_diff_summary + "\n\n---\n\n"
+                "## Actual Processing Metrics\n" + counter_summary
+            )
+
+        # =====================================================================
+        # Step 2: Check for stagnation (on the metric that triggered the retry)
         # =====================================================================
         metrics_history = ctx.session.state.get("quality_metrics_history", [])
         quality_stagnant = False
+        stagnation_detail = ""
 
         if metrics_history and attempt_number > 0:
             prev_metrics = metrics_history[-1]
-            prev_score = prev_metrics.get("heuristic_score", 0)
-            curr_score = quality_metrics.get("heuristic_score", 0)
-            improvement = curr_score - prev_score
-            quality_metrics["improvement_from_previous"] = round(improvement, 1)
 
-            if improvement < self.STAGNATION_THRESHOLD:
+            # Compute deltas for both metrics
+            prev_heuristic = prev_metrics.get("heuristic_score", 0)
+            curr_heuristic = quality_metrics.get("heuristic_score", 0)
+            heuristic_delta = curr_heuristic - prev_heuristic
+            quality_metrics["improvement_from_previous"] = round(heuristic_delta, 1)
+
+            # Determine which metric to check for stagnation
+            reject_reason = quality_metrics.get("quality_reject_reason", "")
+            prev_gt_pv = prev_metrics.get("gt_pv_accuracy")
+            curr_gt_pv = quality_metrics.get("gt_pv_accuracy")
+
+            if reject_reason == "pv_accuracy_low" and prev_gt_pv is not None and curr_gt_pv is not None:
+                pv_delta = curr_gt_pv - prev_gt_pv
+                quality_metrics["pv_improvement_from_previous"] = round(pv_delta, 1)
+                stagnation_delta = pv_delta
+                stagnation_detail = f"PV accuracy ({prev_gt_pv:.1f}% -> {curr_gt_pv:.1f}%)"
+            else:
+                stagnation_delta = heuristic_delta
+                stagnation_detail = f"heuristic ({prev_heuristic:.1f} -> {curr_heuristic:.1f})"
+
+            if stagnation_delta < self.STAGNATION_THRESHOLD:
                 quality_stagnant = True
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
-                        types.Part(text=f"Stagnation detected: improvement = {improvement:.1f}% (< {self.STAGNATION_THRESHOLD}%)")
+                        types.Part(text=f"Stagnation detected: {stagnation_detail} improved only {stagnation_delta:.1f}% (< {self.STAGNATION_THRESHOLD}%)")
                     ])
                 )
 
@@ -206,14 +264,11 @@ class QualityEvaluationAgent(BaseAgent):
             self._update_notes_on_success(ctx, quality_metrics)
 
             score_value = quality_metrics.get("heuristic_score", 0)
-            gt_node = quality_metrics.get("gt_node_accuracy")
             gt_pv = quality_metrics.get("gt_pv_accuracy")
-            message = (
-                f"Quality ACCEPTABLE (heuristic): {score_value:.1f}/100 >= {self.QUALITY_THRESHOLD} threshold."
-            )
-            if gt_node is not None:
-                message += f" GT: Node={gt_node:.1f}%, PV={gt_pv:.1f}%."
-            message += " ESCALATING to exit loop."
+            message = f"Quality ACCEPTABLE: heuristic {score_value:.1f}/100"
+            if gt_pv is not None:
+                message += f", PV accuracy {gt_pv:.1f}%"
+            message += ". ESCALATING to exit loop."
 
             yield Event(
                 author=self.name,
@@ -229,14 +284,11 @@ class QualityEvaluationAgent(BaseAgent):
             # Update generation notes
             self._update_notes_on_stagnation(ctx, quality_metrics)
 
-            gt_node = quality_metrics.get("gt_node_accuracy")
-            gt_pv = quality_metrics.get("gt_pv_accuracy")
             message = (
-                f"Quality STAGNANT (improvement < {self.STAGNATION_THRESHOLD}%)."
+                f"Quality STAGNANT: {stagnation_detail} improved only "
+                f"{quality_metrics.get('pv_improvement_from_previous', quality_metrics.get('improvement_from_previous', 0)):.1f}% "
+                f"(< {self.STAGNATION_THRESHOLD}%). Stopping with best effort."
             )
-            if gt_node is not None:
-                message += f" GT: Node={gt_node:.1f}%, PV={gt_pv:.1f}%."
-            message += " ESCALATING with best effort result."
 
             yield Event(
                 author=self.name,
@@ -246,14 +298,19 @@ class QualityEvaluationAgent(BaseAgent):
 
         else:
             score_value = quality_metrics.get("heuristic_score", 0)
-            gt_node = quality_metrics.get("gt_node_accuracy")
             gt_pv = quality_metrics.get("gt_pv_accuracy")
-            message = (
-                f"Quality LOW (heuristic): {score_value:.1f}/100 < {self.QUALITY_THRESHOLD} threshold."
-            )
-            if gt_node is not None:
-                message += f" GT: Node={gt_node:.1f}%, PV={gt_pv:.1f}%."
-            message += " Continuing to quality feedback."
+            reject_reason = quality_metrics.get("quality_reject_reason", "")
+
+            if reject_reason == "pv_accuracy_low" and gt_pv is not None:
+                message = (
+                    f"Quality LOW: PV accuracy {gt_pv:.1f}% < {self.PV_ACCURACY_THRESHOLD}% threshold. "
+                    f"Continuing to feedback."
+                )
+            else:
+                message = (
+                    f"Quality LOW: heuristic {score_value:.1f}/100 < {self.QUALITY_THRESHOLD} threshold. "
+                    f"Continuing to feedback."
+                )
 
             yield Event(
                 author=self.name,
@@ -372,6 +429,11 @@ class QualityEvaluationAgent(BaseAgent):
             pvmap_csv = ctx.session.state.get("pvmap_csv")
 
             score = metrics.get("heuristic_score", 0)
+            gt_pv = metrics.get("gt_pv_accuracy")
+            status = f"SUCCESS (heuristic quality: {score:.1f}/100"
+            if gt_pv is not None:
+                status += f", PV accuracy: {gt_pv:.1f}%"
+            status += f") on attempt {attempt + 1}"
 
             update_generation_notes(
                 output_dir=Path(current_dataset.output_dir),
@@ -380,7 +442,7 @@ class QualityEvaluationAgent(BaseAgent):
                 llm_result=llm_result,
                 pvmap_csv=pvmap_csv,
                 validation_result={"success": True},
-                final_status=f"SUCCESS (heuristic quality: {score:.1f}/100) on attempt {attempt + 1}"
+                final_status=status
             )
         except Exception:
             pass  # Don't fail on logging errors
@@ -399,7 +461,14 @@ class QualityEvaluationAgent(BaseAgent):
             pvmap_csv = ctx.session.state.get("pvmap_csv")
 
             score = metrics.get("heuristic_score", 0)
-            improvement = metrics.get("improvement_from_previous", 0)
+            reject_reason = metrics.get("quality_reject_reason", "")
+            if reject_reason == "pv_accuracy_low":
+                pv_imp = metrics.get("pv_improvement_from_previous", 0)
+                gt_pv = metrics.get("gt_pv_accuracy", 0)
+                status = f"STAGNANT (best effort, PV accuracy: {gt_pv:.1f}%, PV improvement: {pv_imp:.1f}%) on attempt {attempt + 1}"
+            else:
+                improvement = metrics.get("improvement_from_previous", 0)
+                status = f"STAGNANT (best effort, heuristic quality: {score:.1f}/100, improvement: {improvement:.1f}%) on attempt {attempt + 1}"
 
             update_generation_notes(
                 output_dir=Path(current_dataset.output_dir),
@@ -408,7 +477,7 @@ class QualityEvaluationAgent(BaseAgent):
                 llm_result=llm_result,
                 pvmap_csv=pvmap_csv,
                 validation_result={"success": True},
-                final_status=f"STAGNANT (best effort, heuristic quality: {score:.1f}/100, improvement: {improvement:.1f}%) on attempt {attempt + 1}"
+                final_status=status
             )
         except Exception:
             pass  # Don't fail on logging errors

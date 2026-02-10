@@ -235,6 +235,8 @@ class ValidationAgent(BaseAgent):
         ctx.session.state["validation_success"] = result["success"]
         ctx.session.state["validation_data_rows"] = result.get("data_rows", 0)
         ctx.session.state["processed_output_path"] = result.get("output_file", "")
+        ctx.session.state["validation_counter_summary"] = result.get("counter_summary", "")
+        ctx.session.state["validation_statvar_analysis"] = result.get("statvar_analysis", "")
 
         # =====================================================================
         # Step 3: Save attempt artifacts
@@ -410,9 +412,7 @@ class ValidationAgent(BaseAgent):
                 ctx.session.state["feedback_tracker"] = tracker
 
             # Get feedback that was given before this attempt
-            error_feedback = ctx.session.state.get("error_feedback", "")
-            quality_feedback = ctx.session.state.get("quality_feedback", "")
-            feedback_given = error_feedback or quality_feedback
+            feedback_given = ctx.session.state.get("error_feedback", "")
 
             # Get errors from counters
             errors = result.get("counters", {})

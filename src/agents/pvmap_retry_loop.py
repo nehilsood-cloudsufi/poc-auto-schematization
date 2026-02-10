@@ -8,9 +8,8 @@ This module creates a LoopAgent that orchestrates:
 4. ValidationAgent - Validates PVMAP (sets validation_passed flag)
 5. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
 6. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
-7. ConditionalQualityFeedbackAgent - Generates quality improvement feedback
-8. ConditionalFeedbackAgent - Generates validation error feedback
-9. MaxRetriesCheckAgent - Checks if max retries exceeded
+7. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
+8. MaxRetriesCheckAgent - Checks if max retries exceeded
 
 The loop exits when:
 - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
@@ -45,7 +44,6 @@ from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
 from src.agents.feedback_agent import create_feedback_agent
 from src.agents.quality_evaluation_agent import QualityEvaluationAgent
-from src.agents.quality_feedback_agent import ConditionalQualityFeedbackAgent
 from src.agents.template_utils import escape_pvmap_placeholders
 from src.tools.evaluation_tools import find_ground_truth_pvmaps
 
@@ -107,8 +105,8 @@ class StatePreparationAgent(BaseAgent):
         if attempt == 0:
             ctx.session.state["quality_metrics_history"] = []
             ctx.session.state["error_feedback"] = ""
-            ctx.session.state["quality_feedback"] = ""
             ctx.session.state["exit_reason"] = None
+            ctx.session.state["validation_counter_summary"] = ""
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
@@ -226,39 +224,28 @@ class StatePreparationAgent(BaseAgent):
 
         # =====================================================================
         # CRITICAL: Escape PVMAP placeholders in feedback to prevent templating errors
-        # The generator instruction uses {error_feedback} and {quality_feedback},
+        # The generator instruction uses {error_feedback},
         # which may contain PVMAP snippets with {Data}/{Number} from LLM analysis
         # =====================================================================
         error_feedback = ctx.session.state.get("error_feedback", "")
         if error_feedback:
             ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
 
-        quality_feedback = ctx.session.state.get("quality_feedback", "")
-        if quality_feedback:
-            ctx.session.state["quality_feedback"] = escape_pvmap_placeholders(quality_feedback)
+        if "validation_counter_summary" not in ctx.session.state:
+            ctx.session.state["validation_counter_summary"] = ""
 
         # =====================================================================
         # Log feedback status (critical for debugging retry loop)
         # =====================================================================
         if attempt > 0:
             error_feedback = ctx.session.state.get("error_feedback", "")
-            quality_feedback = ctx.session.state.get("quality_feedback", "")
 
             if error_feedback:
                 preview = error_feedback[:150] + "..." if len(error_feedback) > 150 else error_feedback
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
-                        types.Part(text=f"Using validation error feedback: {preview}")
-                    ])
-                )
-
-            if quality_feedback:
-                preview = quality_feedback[:150] + "..." if len(quality_feedback) > 150 else quality_feedback
-                yield Event(
-                    author=self.name,
-                    content=types.Content(parts=[
-                        types.Part(text=f"Using quality improvement feedback: {preview}")
+                        types.Part(text=f"Using feedback: {preview}")
                     ])
                 )
 
@@ -415,12 +402,15 @@ class MCPErrorResolverAgent(BaseAgent):
 
 class ConditionalFeedbackAgent(BaseAgent):
     """
-    Conditional wrapper that only runs FeedbackAgent when validation failed.
+    Unified conditional feedback agent that handles both validation failures
+    and quality issues.
 
-    This agent runs the error feedback LlmAgent only when:
-    - validation_passed = False (validation failed)
+    This agent runs the feedback LlmAgent when:
+    - Path A: validation_passed = False (validation failed)
+    - Path B: validation_passed = True, quality_acceptable = False,
+              quality_stagnant = False (quality low)
 
-    Otherwise, it skips feedback generation (quality feedback will handle it).
+    Skips when quality is acceptable or stagnant (loop will exit).
     """
 
     # Declare feedback_agent as a Pydantic field (ADK agents use Pydantic)
@@ -428,7 +418,7 @@ class ConditionalFeedbackAgent(BaseAgent):
 
     def __init__(
         self,
-        name: str = "ConditionalFeedback",
+        name: str = "UnifiedFeedback",
         model: str = "gemini-2.5-flash"
     ):
         """
@@ -449,14 +439,17 @@ class ConditionalFeedbackAgent(BaseAgent):
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
         """
-        Conditionally run feedback agent.
-
-        Only runs if validation failed.
+        Conditionally run feedback agent for validation errors or quality issues.
         """
         validation_passed = ctx.session.state.get("validation_passed", False)
+        quality_acceptable = ctx.session.state.get("quality_acceptable", False)
+        quality_stagnant = ctx.session.state.get("quality_stagnant", False)
 
         if not validation_passed:
-            # Validation failed - generate error feedback
+            # Path A: Validation failed — generate error feedback
+            ctx.session.state["feedback_mode"] = "VALIDATION FAILED - Analyze errors and provide fixes"
+            self._prepare_feedback_state(ctx)
+
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
@@ -464,18 +457,8 @@ class ConditionalFeedbackAgent(BaseAgent):
                 ])
             )
 
-            # =====================================================================
-            # CRITICAL: Escape PVMAP placeholders to prevent ADK templating errors
-            # {Data} and {Number} in pvmap_csv/validation_error cause KeyError
-            # =====================================================================
-            self._prepare_feedback_state(ctx)
-
-            # Run the inner feedback agent
             async for event in self.feedback_agent.run_async(ctx):
                 yield event
-
-            # Clear quality_feedback since we're using error_feedback
-            ctx.session.state["quality_feedback"] = ""
 
             # Log feedback preview
             error_feedback = ctx.session.state.get("error_feedback", "")
@@ -486,49 +469,196 @@ class ConditionalFeedbackAgent(BaseAgent):
                     content=types.Content(parts=[
                         types.Part(text=f"Error feedback generated: {preview}")
                     ]),
-                    actions=EventActions(escalate=False)  # Explicit: continue loop
+                    actions=EventActions(escalate=False)
                 )
-        else:
-            # Validation passed - skip this agent (quality feedback will handle it)
+
+        elif not quality_acceptable and not quality_stagnant:
+            # Path B: Validation passed but quality low — determine if PV accuracy triggered
+            quality_metrics_raw = ctx.session.state.get("quality_metrics", {})
+            reject_reason = ""
+            if isinstance(quality_metrics_raw, dict):
+                reject_reason = quality_metrics_raw.get("quality_reject_reason", "")
+
+            if reject_reason == "pv_accuracy_low":
+                ctx.session.state["feedback_mode"] = (
+                    "PV ACCURACY LOW - Validation passed and structure is OK, "
+                    "but property-value pairs don't match expected patterns. "
+                    "Focus on SEMANTIC correctness using the schema vocab and StatVar analysis below."
+                )
+            else:
+                ctx.session.state["feedback_mode"] = (
+                    "QUALITY LOW - Validation passed but quality score below threshold. "
+                    "Focus on structural issues: row coverage, column mappings, format."
+                )
+            self._prepare_feedback_state(ctx)
+
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text="Skipping validation feedback (validation passed)")
+                    types.Part(text="Quality low - generating improvement feedback...")
+                ])
+            )
+
+            async for event in self.feedback_agent.run_async(ctx):
+                yield event
+
+            # Log feedback preview
+            error_feedback = ctx.session.state.get("error_feedback", "")
+            if error_feedback:
+                preview = error_feedback[:200] + "..." if len(error_feedback) > 200 else error_feedback
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Quality feedback generated: {preview}")
+                    ]),
+                    actions=EventActions(escalate=False)
+                )
+
+        else:
+            # Skip feedback — quality acceptable or stagnant
+            if quality_acceptable:
+                reason = "quality acceptable"
+            elif quality_stagnant:
+                reason = "quality stagnant"
+            else:
+                reason = "not applicable"
+
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text=f"Skipping feedback ({reason})")
                 ]),
-                actions=EventActions(escalate=False)  # Explicit: continue loop
+                actions=EventActions(escalate=False)
             )
 
     def _prepare_feedback_state(self, ctx: InvocationContext) -> None:
         """
-        Prepare state variables for feedback instruction templating.
+        Prepare state variables for unified feedback instruction templating.
 
-        Escapes PVMAP placeholders ({Data}, {Number}) to prevent ADK templating
-        conflicts. These get converted to [DATA], [NUMBER].
+        Handles both validation-failure and quality-low paths:
+        - Escapes PVMAP placeholders ({Data}, {Number}) → [DATA], [NUMBER]
+        - Extracts quality metrics for display
+        - Formats GT score section
+        - Sets defaults for all template variables
         """
-        # Escape PVMAP content
-        pvmap_csv = ctx.session.state.get("pvmap_csv", "")
-        if pvmap_csv:
-            ctx.session.state["pvmap_csv"] = escape_pvmap_placeholders(pvmap_csv)
+        # Prepare quality-related state for instruction templating
+        # NOTE: quality_metrics may have been overwritten to a string on a
+        # previous attempt. Only extract from it if it's still a dict.
+        quality_metrics = ctx.session.state.get("quality_metrics", {})
+        if isinstance(quality_metrics, dict):
+            score = quality_metrics.get("heuristic_score", 0)
+            ctx.session.state["quality_score"] = score
 
-        # Escape validation error (may contain PVMAP snippets)
-        validation_error = ctx.session.state.get("validation_error", "")
-        if validation_error:
-            ctx.session.state["validation_error"] = escape_pvmap_placeholders(validation_error)
+            # Format quality_metrics for display (writes string to state)
+            metrics_str = self._format_metrics(quality_metrics)
+            ctx.session.state["quality_metrics"] = metrics_str
 
-        # Escape sampled data (unlikely but possible)
-        sampled_data = ctx.session.state.get("sampled_data", "")
-        if sampled_data:
-            ctx.session.state["sampled_data"] = escape_pvmap_placeholders(sampled_data)
+            # Format GT score section
+            gt_section = self._format_gt_section(quality_metrics)
+            ctx.session.state["gt_score_section"] = gt_section
+        else:
+            # Already formatted string from prior attempt — keep as-is
+            ctx.session.state.setdefault("quality_score", 0)
+            ctx.session.state.setdefault("gt_score_section", "Ground truth comparison not available.")
 
-        # Escape structure warnings
-        structure_warnings = ctx.session.state.get("structure_warnings", "")
-        if structure_warnings:
-            ctx.session.state["structure_warnings"] = escape_pvmap_placeholders(structure_warnings)
+        # Ensure defaults for all template variables
+        for key in ["validation_error", "quality_diff_summary", "feedback_mode"]:
+            if key not in ctx.session.state:
+                ctx.session.state[key] = ""
 
-        # Escape MCP resolved context (may contain PVMAP snippets)
-        mcp_resolved_context = ctx.session.state.get("mcp_resolved_context", "")
-        if mcp_resolved_context:
-            ctx.session.state["mcp_resolved_context"] = escape_pvmap_placeholders(mcp_resolved_context)
+        # Pass schema context to feedback agent (same context generator had)
+        for key in ["schema_vocab_content", "schema_category", "skeleton_summary"]:
+            ctx.session.state.setdefault(key, "")
+
+        # Ensure statvar analysis is available
+        ctx.session.state.setdefault("validation_statvar_analysis", "")
+
+        # Escape all PVMAP-containing state
+        for key in ["pvmap_csv", "validation_error", "sampled_data",
+                     "structure_warnings", "mcp_resolved_context",
+                     "quality_diff_summary"]:
+            val = ctx.session.state.get(key, "")
+            if val:
+                # structure_warnings can be a list from the validator
+                if isinstance(val, list):
+                    val = "\n".join(str(item) for item in val)
+                    ctx.session.state[key] = escape_pvmap_placeholders(val)
+                elif isinstance(val, str):
+                    ctx.session.state[key] = escape_pvmap_placeholders(val)
+
+        # Escape schema context and statvar analysis
+        for key in ["schema_vocab_content", "skeleton_summary", "validation_statvar_analysis"]:
+            val = ctx.session.state.get(key, "")
+            if val and isinstance(val, str):
+                ctx.session.state[key] = escape_pvmap_placeholders(val)
+
+        # Counter summary escaping
+        counter_summary = ctx.session.state.get("validation_counter_summary", "")
+        if counter_summary:
+            ctx.session.state["validation_counter_summary"] = escape_pvmap_placeholders(counter_summary)
+        else:
+            ctx.session.state["validation_counter_summary"] = "Processing metrics not available."
+
+    def _format_metrics(self, metrics: dict) -> str:
+        """Format quality metrics dict as readable string."""
+        lines = []
+
+        lines.append(f"Heuristic Score: {metrics.get('heuristic_score', 0):.1f}/100")
+        breakdown = metrics.get("heuristic_breakdown", {})
+        if breakdown:
+            lines.append(f"  - Row Coverage: {breakdown.get('row_coverage', 0):.1f}/25")
+            lines.append(f"  - Property Coverage: {breakdown.get('prop_coverage', 0):.1f}/25")
+            lines.append(f"  - Column Coverage: {breakdown.get('column_coverage', 0):.1f}/25")
+            lines.append(f"  - Format Score: {breakdown.get('format_score', 0):.1f}/25")
+
+        if "improvement_from_previous" in metrics:
+            lines.append(f"Improvement from previous: {metrics['improvement_from_previous']:.1f}%")
+
+        # Include GT scores inline if available
+        gt_node = metrics.get("gt_node_accuracy")
+        if gt_node is not None:
+            gt_pv = metrics.get("gt_pv_accuracy", 0)
+            lines.append(f"GT Node Accuracy: {gt_node:.1f}%")
+            lines.append(f"GT PV Accuracy: {gt_pv:.1f}%")
+
+        return "\n".join(lines)
+
+    def _format_gt_section(self, metrics: dict) -> str:
+        """Format ground truth scores for the feedback instruction.
+
+        Returns a short section with GT scores if available,
+        or a note that GT is not available.
+        """
+        gt_node = metrics.get("gt_node_accuracy")
+        gt_pv = metrics.get("gt_pv_accuracy")
+
+        if gt_node is None:
+            return "Ground truth comparison not available for this dataset."
+
+        lines = [
+            f"Node Accuracy: {gt_node:.1f}%",
+            f"PV Accuracy: {gt_pv:.1f}%",
+        ]
+
+        gt_counters = metrics.get("gt_counters_summary", {})
+        if gt_counters:
+            nodes_matched = gt_counters.get("nodes_matched", 0)
+            nodes_gt = gt_counters.get("nodes_ground_truth", 0)
+            pvs_matched = gt_counters.get("pvs_matched", 0)
+            pvs_modified = gt_counters.get("pvs_modified", 0)
+            lines.append(f"Nodes matched: {nodes_matched}/{nodes_gt}")
+            lines.append(f"PVs matched: {pvs_matched}, PVs needing fixes: {pvs_modified}")
+
+        lines.append("")
+        quality_reject = metrics.get("quality_reject_reason", "")
+        if quality_reject == "pv_accuracy_low":
+            lines.append("NOTE: PV accuracy is the primary concern. Use the StatVar analysis and")
+            lines.append("schema vocabulary below to identify property/value mismatches.")
+        else:
+            lines.append("NOTE: These scores show distance from ideal. Use them to gauge severity,")
+            lines.append("but focus on the heuristic issues above for specific fixes.")
+
+        return "\n".join(lines)
 
 
 class MaxRetriesCheckAgent(BaseAgent):
@@ -575,16 +705,16 @@ class MaxRetriesCheckAgent(BaseAgent):
 
             # Determine error message based on what type of feedback we had
             error_feedback = ctx.session.state.get("error_feedback", "")
-            quality_feedback = ctx.session.state.get("quality_feedback", "")
-            quality_metrics = ctx.session.state.get("quality_metrics", {})
 
             if error_feedback:
-                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Last validation error: {error_feedback[:500]}"
-            elif quality_feedback:
-                score = quality_metrics.get("heuristic_score", 0)
-                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
+                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Last feedback: {error_feedback[:500]}"
             else:
-                error_msg = f"Max retries ({self._max_retries + 1}) exceeded."
+                quality_metrics = ctx.session.state.get("quality_metrics", {})
+                if isinstance(quality_metrics, dict):
+                    score = quality_metrics.get("heuristic_score", 0)
+                else:
+                    score = ctx.session.state.get("quality_score", 0)
+                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
 
             ctx.session.state["error"] = error_msg
 
@@ -643,9 +773,8 @@ def create_pvmap_retry_loop(
     2. PVMAPGeneratorAgent - Generates PVMAP (structured JSON)
     3. ValidationAgent - Validates; sets validation_passed flag
     4. QualityEvaluationAgent - Evaluates quality; ESCALATES if acceptable/stagnant
-    5. ConditionalQualityFeedbackAgent - Generates quality feedback if needed
-    6. ConditionalFeedbackAgent - Generates error feedback if validation failed
-    7. MaxRetriesCheckAgent - Checks if max retries exceeded
+    5. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
+    6. MaxRetriesCheckAgent - Checks if max retries exceeded
 
     With MCP enabled, adds:
     - StatVarDiscoveryAgent after StatePrep (loop-aware discovery)
@@ -700,8 +829,7 @@ def create_pvmap_retry_loop(
 
     validator = ValidationAgent(name="Validator")
     quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator")
-    quality_feedback = ConditionalQualityFeedbackAgent(name="QualityFeedback", model=model)
-    error_feedback = ConditionalFeedbackAgent(name="ErrorFeedback", model=model)
+    unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model)
     max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
     # Build sub_agents list
@@ -728,8 +856,7 @@ def create_pvmap_retry_loop(
 
     sub_agents.extend([
         quality_evaluator,
-        quality_feedback,
-        error_feedback,
+        unified_feedback,
         max_retries_check,
     ])
 

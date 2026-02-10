@@ -35,6 +35,8 @@ from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
 from src.agents.feedback_agent import create_feedback_agent
 from src.agents.quality_evaluation_agent import QualityEvaluationAgent
+# Deprecated: quality_feedback_agent is superseded by unified ConditionalFeedbackAgent
+# Kept for backward compatibility with simple retry loop
 from src.agents.quality_feedback_agent import (
     create_quality_feedback_agent,
     ConditionalQualityFeedbackAgent,

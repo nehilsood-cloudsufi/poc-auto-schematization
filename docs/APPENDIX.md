@@ -712,51 +712,65 @@ claude code \
 
 ## Phase 3: Validation
 
-**Goal:** Validate generated PVMAP using stat_var_processor
+**Goal:** Validate generated PVMAP using stat_var_processor and extract semantic analysis
 
 ### How It Works
 
-1. **Run stat_var_processor:**
+1. **Run stat_var_processor** (via subprocess):
    ```bash
    python3 tools/stat_var_processor.py \
-       --input_data=combined_sampled_data.csv \
-       --pv_map=generated_pvmap.csv \
-       --config_file=metadata.csv
+       --input_data=input/{dataset}/test_data/*_input.csv \
+       --pv_map=output/{dataset}/generated_pvmap.csv \
+       --config_file=input/{dataset}/input_metadata/*_metadata.csv \
+       --generate_statvar_name=True \
+       --output_path=output/{dataset}/processed
    ```
 
 2. **Check validation result:**
-   - **Success**: Move to Phase 4 (Evaluation)
+   - **Success**: Extract StatVar MCF analysis, move to quality evaluation
    - **Failure**: Extract error feedback and retry
 
-3. **Retry Logic (up to 2 times):**
-   - Extract meaningful error samples
-   - Send error feedback to Claude
-   - Request corrected PVMAP
-   - Re-validate
+3. **StatVar MCF Analysis** (on success):
+   After validation passes, `_extract_statvar_summary()` parses the generated `processed_stat_vars.mcf` to produce a semantic analysis:
+   - Property→value distributions across all generated StatVars
+   - Flags raw strings without `dcid:` prefix on dimension properties
+   - Flags values with special characters ($, /, –) suggesting CSV parsing corruption
+   - Flags single-value dimensions that may be missing category breakdowns
+   - Summary capped at 40 lines to avoid prompt bloat
 
-### Retry Feedback
+4. **Quality Evaluation:**
+   - Heuristic scoring (structural quality)
+   - Ground truth comparison (if available) — node accuracy, PV accuracy
+   - Sets `quality_reject_reason`: `"pv_accuracy_low"` or `"quality_below_threshold"`
 
-When validation fails, the pipeline provides:
-- **Error message** from stat_var_processor
-- **Sample rows** that caused errors
-- **Specific guidance** on what to fix
+5. **Feedback Loop** (unified `ConditionalFeedbackAgent`):
+   - **Path A (Validation Failed):** Structural error feedback from subprocess output
+   - **Path B (Quality Low):** Context-aware feedback with schema vocab + StatVar analysis:
+     - `"PV ACCURACY LOW"` mode: Semantic focus — cross-references StatVar analysis with schema vocabulary to identify property/value mismatches
+     - `"QUALITY LOW"` mode: Structural focus — row coverage, column mappings, format
 
-Example feedback:
-```
-Validation failed with error:
-KeyError: 'StatVar' column not found in PVMAP
+### Feedback Context
 
-Sample rows from generated PVMAP:
-[First 5 rows of the PVMAP]
+The feedback agent receives the same domain context as the generator:
 
-Please regenerate the PVMAP with correct column names.
-```
+| Context | Source | Purpose |
+|---------|--------|---------|
+| Schema vocabulary | `schema_vocab_content` state | Valid properties, DCIDs, enum values for the domain |
+| Schema category | `schema_category` state | Domain classification (Health, Economy, etc.) |
+| Skeleton summary | `skeleton_summary` state | Column roles (place, time, dimension, value) |
+| StatVar analysis | `validation_statvar_analysis` state | MCF-parsed property distributions + issue flags |
+| Counter summary | `validation_counter_summary` state | High-level validation metrics |
+| Quality metrics | `quality_metrics` state | Heuristic scores + GT accuracy + reject reason |
+
+### Anti-Regression Guidance
+
+Feedback includes a "Rows to PRESERVE" section identifying correct PVMAP rows that should not be changed during retry, preventing regressions where fixing one issue breaks previously working mappings.
 
 ### Output Files
 
 - `processed.csv` - Validated StatVarObservations
 - `processed.tmcf` - Template MCF file
-- `processed_stat_vars.mcf` - StatVar definitions
+- `processed_stat_vars.mcf` - StatVar definitions (also parsed for feedback analysis)
 
 ---
 
@@ -804,34 +818,63 @@ Uses `mcf_diff.diff_mcf_nodes()` for node-by-node comparison:
 
 ### Why Retry?
 
-PVMAP generation may fail validation due to:
-- Incorrect column naming
-- Missing required properties
-- Invalid value formats
-- Schema misunderstandings
+PVMAP generation may fail for two distinct reasons:
+1. **Validation failure** — stat_var_processor rejects the PVMAP (wrong column names, invalid formats, empty output)
+2. **Quality below threshold** — Validation passes but quality evaluation detects issues:
+   - Low PV accuracy (property-value pairs don't match expected patterns)
+   - Low heuristic quality score (structural issues)
 
 ### Retry Strategy
 
 **Attempt 0 (Initial):**
-- Full prompt with schema examples and sampled data
+- Full prompt with schema examples, sampled data, and skeleton summary
+- Schema vocabulary injected if available
 - No prior feedback
 
-**Attempt 1 (First Retry):**
-- Include validation error feedback
-- Show sample rows that caused errors
-- Request specific corrections
+**Attempt 1+ (Retries):**
+- Includes accumulated error feedback from previous attempts
+- Feedback is context-aware based on failure type:
 
-**Attempt 2 (Final Retry):**
-- Include cumulative error history
-- More explicit guidance on corrections
-- Last chance before marking as failed
+| Failure Type | Feedback Mode | Context Provided |
+|-------------|---------------|------------------|
+| Validation failed | `VALIDATION FAILED` | Subprocess error output (sampled to ~300 lines) |
+| PV accuracy low | `PV ACCURACY LOW` | Schema vocab + StatVar MCF analysis + GT metrics |
+| General quality low | `QUALITY LOW` | Heuristic scores + counter summary + GT metrics |
+
+**Max 3 attempts total** (configurable via `max_iterations` on LoopAgent).
+
+### Retry Loop Architecture (ADK)
+
+The retry loop uses Google ADK's `LoopAgent` with 6 sub-agents:
+
+```
+LoopAgent (max_iterations=6)
+├── StatePreparationAgent    — Prepares state, logs feedback presence
+├── PVMAPGenerationAgent     — Generates PVMAP with accumulated feedback
+├── ValidationAgent          — Runs stat_var_processor, extracts StatVar analysis
+├── QualityEvaluationAgent   — Heuristic + GT scoring, sets reject reason
+├── ConditionalFeedbackAgent — Unified feedback (validation-failed OR quality-low)
+└── MaxRetriesCheckAgent     — Escalates after max attempts (EventActions.escalate)
+```
+
+**Key design:** The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent`. It determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
+
+### Feedback Improvements (2026-02-10)
+
+The feedback agent now receives full domain context:
+- **Schema vocabulary** — valid properties, DCIDs, and enum values for the domain
+- **Skeleton summary** — column classifications (place, time, dimension, value)
+- **StatVar MCF analysis** — parsed property→value distributions from validation output
+- **Anti-regression guidance** — identifies correct rows to preserve during retry
+
+This enables semantic feedback (e.g., "income values need DCID mapping, not raw strings") instead of generic structural advice.
 
 ### Success Rate
 
-Testing on 4 diverse datasets:
-- **Initial success rate:** 75% (3/4 succeed on attempt 0)
-- **After 1 retry:** 100% (4/4 succeed)
-- **Max retries needed:** 1
+Testing on 10 diverse datasets (2026-02-10):
+- **Validation pass rate:** 80% (8/10 pass validation within 3 attempts)
+- **New PV accuracy bests:** 2/10 datasets achieved new best PV accuracy scores
+- **Key wins:** FBI Crime (+6.6% PV), US Urban School Teachers (+0.7% PV)
 
 ---
 

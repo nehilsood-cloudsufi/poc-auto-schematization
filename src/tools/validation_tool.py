@@ -10,10 +10,12 @@ Enhanced Features:
 """
 
 import os
+import re
 import subprocess
 import random
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
+from collections import Counter, defaultdict
 
 # Base directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -80,6 +82,146 @@ def extract_log_samples(
                 )
 
     return '\n'.join(result_parts)
+
+
+def _extract_statvar_summary(output_path: str, max_lines: int = 40) -> str:
+    """
+    Extract a concise StatVar analysis from generated MCF output.
+
+    Parses the processed_stat_vars.mcf file and produces a summary showing
+    property→value distributions and flagging potential issues (raw strings
+    on dimension properties, corrupted values, etc.).
+
+    Args:
+        output_path: Base output path (e.g., "output/dataset/processed").
+                     The MCF file is expected at "{output_path}_stat_vars.mcf".
+        max_lines: Maximum lines in the summary (default: 40).
+
+    Returns:
+        Formatted markdown summary, or empty string if MCF not found.
+    """
+    mcf_path = Path(f"{output_path}_stat_vars.mcf")
+    if not mcf_path.exists():
+        return ""
+
+    try:
+        mcf_text = mcf_path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+    # Skip properties that are structural, not semantic
+    SKIP_PROPS = {"typeOf", "name", "dcid"}
+
+    # Parse MCF nodes
+    # Nodes are separated by blank lines and start with "Node:"
+    nodes = []
+    current_node: Dict[str, str] = {}
+    for line in mcf_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            if current_node:
+                nodes.append(current_node)
+                current_node = {}
+            continue
+        if line.startswith("Node:"):
+            if current_node:
+                nodes.append(current_node)
+            current_node = {"_node": line.split(":", 1)[1].strip()}
+            continue
+        if ":" in line:
+            prop, _, val = line.partition(":")
+            prop = prop.strip()
+            val = val.strip()
+            if prop not in SKIP_PROPS:
+                current_node[prop] = val
+    if current_node:
+        nodes.append(current_node)
+
+    if not nodes:
+        return ""
+
+    # Aggregate property→value counts
+    prop_values: Dict[str, Counter] = defaultdict(Counter)
+    for node in nodes:
+        for prop, val in node.items():
+            if prop == "_node":
+                continue
+            prop_values[prop][val] += 1
+
+    # Identify core vs dimension properties
+    core_props = {"populationType", "measuredProperty", "statType", "measurementPeriod"}
+    dimension_props = {p for p in prop_values if p not in core_props}
+
+    # Build summary lines
+    lines = [f"## Generated StatVar Analysis ({len(nodes)} unique StatVars)"]
+    lines.append("")
+    lines.append("Properties used:")
+
+    # Core properties first
+    for prop in ["populationType", "measuredProperty", "statType"]:
+        if prop in prop_values:
+            vals = prop_values[prop].most_common(5)
+            val_strs = [f"{v} ({c})" for v, c in vals]
+            lines.append(f"- {prop}: {', '.join(val_strs)}")
+
+    # Dimension properties
+    for prop in sorted(dimension_props):
+        vals = prop_values[prop]
+        top = vals.most_common(5)
+        val_strs = [f"{v} ({c})" for v, c in top]
+        suffix = f" (+{len(vals) - 5} more)" if len(vals) > 5 else ""
+
+        # Flag raw strings (no dcid: prefix on values that probably need one)
+        has_raw = any(not v.startswith("dcid:") for v, _ in top)
+        flag = ""
+        if has_raw and prop not in {"measurementPeriod"}:
+            flag = " [RAW STRING - may need DCID mapping]"
+
+        lines.append(f"- {prop}: {', '.join(val_strs)}{suffix}{flag}")
+
+    # Detect potential issues
+    issues = []
+    for prop in sorted(dimension_props):
+        vals = prop_values[prop]
+        sample_vals = [v for v, _ in vals.most_common(3)]
+
+        # Flag values with special characters suggesting broken CSV parsing
+        for v in sample_vals:
+            if re.search(r'[$–—/\\]', v) and not v.startswith("dcid:"):
+                issues.append(
+                    f"- {prop}: Values contain special characters (e.g., '{v[:60]}') "
+                    f"— likely broken CSV parsing or need DCID enum mappings"
+                )
+                break
+
+        # Flag single-value dimensions
+        if len(vals) == 1:
+            only_val = list(vals.keys())[0]
+            issues.append(
+                f"- {prop}: Only 1 unique value ('{only_val[:40]}') — may be missing category breakdowns"
+            )
+
+        # Flag raw strings on dimension properties
+        raw_count = sum(c for v, c in vals.items() if not v.startswith("dcid:"))
+        if raw_count > 0 and raw_count == sum(vals.values()):
+            issues.append(
+                f"- {prop}: All {len(vals)} values are raw strings — likely need DCID enum mappings from schema vocab"
+            )
+
+    if issues:
+        lines.append("")
+        lines.append("Potential Issues:")
+        # Deduplicate: keep first mention per property
+        seen_props = set()
+        for issue in issues:
+            prop_name = issue.split(":")[1].strip() if ":" in issue else ""
+            if prop_name not in seen_props:
+                lines.append(issue)
+                seen_props.add(prop_name)
+
+    # Cap output
+    result = "\n".join(lines[:max_lines])
+    return result
 
 
 def build_validation_command(
@@ -213,7 +355,8 @@ def run_validation(
             "error": f"Input data file not found: {input_data}",
             "error_logs": None,
             "output_file": None,
-            "data_rows": 0
+            "data_rows": 0,
+            "counter_summary": "",
         }
 
     if metadata_file and not Path(metadata_file).exists():
@@ -222,7 +365,8 @@ def run_validation(
             "error": f"Metadata file not found: {metadata_file}",
             "error_logs": None,
             "output_file": None,
-            "data_rows": 0
+            "data_rows": 0,
+            "counter_summary": "",
         }
 
     if not pvmap_path or not Path(pvmap_path).exists():
@@ -231,7 +375,8 @@ def run_validation(
             "error": f"PVMAP file not found: {pvmap_path}",
             "error_logs": None,
             "output_file": None,
-            "data_rows": 0
+            "data_rows": 0,
+            "counter_summary": "",
         }
 
     # Build command and environment (with debug=True for detailed error context)
@@ -310,10 +455,18 @@ def run_validation(
                     "data_rows": 0,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
-                    "returncode": result.returncode
+                    "returncode": result.returncode,
+                    "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
                 }
 
             # Validation passed
+            counter_summary = filtered_logs.to_summary() if filtered_logs else ""
+
+            # Extract StatVar analysis from MCF output
+            statvar_analysis = _extract_statvar_summary(
+                str(Path(output_dir) / "processed")
+            )
+
             return {
                 "success": True,
                 "error": None,
@@ -324,7 +477,9 @@ def run_validation(
                 "data_rows": data_rows,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "returncode": result.returncode
+                "returncode": result.returncode,
+                "counter_summary": counter_summary,
+                "statvar_analysis": statvar_analysis,
             }
 
         else:
@@ -367,7 +522,8 @@ def run_validation(
                 "data_rows": 0,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "returncode": result.returncode
+                "returncode": result.returncode,
+                "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
             }
 
     except subprocess.TimeoutExpired:
@@ -379,7 +535,8 @@ def run_validation(
             "counters": {},
             "output_file": None,
             "data_rows": 0,
-            "returncode": -1
+            "returncode": -1,
+            "counter_summary": "",
         }
     except Exception as e:
         return {
@@ -390,5 +547,6 @@ def run_validation(
             "counters": {},
             "output_file": None,
             "data_rows": 0,
-            "returncode": -1
+            "returncode": -1,
+            "counter_summary": "",
         }
