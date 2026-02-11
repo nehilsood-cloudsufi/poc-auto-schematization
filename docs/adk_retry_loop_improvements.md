@@ -117,15 +117,114 @@ Added `"model": model` to `initial_state` dict so attempt artifacts (`attempt_*.
 
 ---
 
-### 4. Placeholder Syntax (Resolved)
+### 4. PVMAP Repair Pipeline (2026-02-10)
 
-**Problem:** `{Data}` and `{Number}` placeholders conflicted with ADK instruction templating.
+**Problem:** LLMs frequently generate PVMAPs with minor key mismatches — wrong case (`ref_area` vs `REF_AREA`), extra whitespace, truncated names — that cause the 5-minute validation subprocess to fail. Each failure wastes a full retry iteration.
 
-**Solution:** `escape_pvmap_placeholders()` converts `{Data}`→`[DATA]`, `{Number}`→`[NUMBER]` before ADK processes instructions. Applied in `_prepare_feedback_state()` to all text fields injected into feedback instruction.
+**Solution:** Added `src/pipeline/validation/pvmap_repair.py` module that runs inside `ValidationAgent` after PVMAP generation and before the subprocess:
+
+```
+PVMAP Generated → repair_pvmap() → pre_validate_pvmap() → [subprocess or early return]
+```
+
+#### 4a. Key Repair (`repair_pvmap`)
+
+5-tier cascading match for each PVMAP key:
+1. **Exact match** — `REF_AREA` matches `REF_AREA`
+2. **Case-insensitive** — `ref_area` → `REF_AREA`
+3. **Whitespace-normalized** — `REF  AREA` → `REF_AREA`
+4. **Alphanumeric-only** — `ref-area` → `REF_AREA`
+5. **Fuzzy match** (≥0.85 cutoff via `difflib.SequenceMatcher`) — `REF_AERA` → `REF_AREA`
+
+Also normalizes ADK escaping artifacts: `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}`.
+
+#### 4b. Pre-Validation (`pre_validate_pvmap`)
+
+Fast structural checks (milliseconds vs 5-minute subprocess):
+- ≥50% PVMAP keys must match input columns
+- `observationAbout`, `observationDate`, `value` properties must be present
+- No unresolved `[DATA]`/`[NUMBER]` placeholders
+- At least one data row
+
+On pre-validation failure, returns immediate error feedback and skips subprocess entirely.
+
+#### 4c. Key Match Report (`generate_key_match_report`)
+
+Markdown report injected into feedback agent via `{key_match_report}` state variable:
+- Matched keys (exact or auto-fixed)
+- UNMATCHED keys (no match found — actionable guidance)
+- Unmapped input columns (suggestions for missing mappings)
+
+**State keys:** `pvmap_repair_changes`, `key_match_report`
+
+**Files changed:** `pvmap_repair.py` (new), `validation_agent.py`, `feedback_agent.py`, `pvmap_retry_loop.py`
 
 ---
 
-### 5. Error Feedback Propagation (Resolved)
+### 5. Column Reference Table (2026-02-10)
+
+**Problem:** LLMs frequently invent or truncate column names when generating PVMAP keys, causing mismatches that even fuzzy repair can't fix.
+
+**Solution:** Added `column_stats` field to `DataContext` (`src/pipeline/sampling/data_context.py`) that generates a Section 1.5 "COLUMN REFERENCE TABLE" in the skeleton_summary:
+
+```
+## 1.5 COLUMN REFERENCE TABLE
+| Column | Type | Cardinality | Samples |
+|--------|------|-------------|---------|
+| REF_AREA | categorical | 42 | US, GB, JP, DE, FR |
+| TIME_PERIOD | date | 120 | 2023-01, 2023-02, 2023-03 |
+| OBS_VALUE | numeric | 847 | 0.25, 1.50, 5.25, 12.00 |
+```
+
+This gives the LLM exact column names to copy-paste, reducing key mismatches. Combined with PVMAP repair, this addresses key matching from both directions (better generation + programmatic correction).
+
+---
+
+### 6. Placeholder Syntax & Template Escaping (Resolved)
+
+**Problem:** `{Data}` and `{Number}` placeholders in PVMAP content conflicted with ADK's `LlmAgent` instruction templating, which interprets ALL `{word}` patterns as state variable references.
+
+**Root cause (bug fix 2026-02-11):** `feedback_agent.py` had literal `{Number}` in the `FEEDBACK_AGENT_INSTRUCTION` template text. ADK tried to resolve it as a state variable, throwing `KeyError: 'Context variable not found: 'Number'.'`. This crashed the FeedbackAgent on every retry, effectively limiting the retry loop to 1 attempt.
+
+**Solution:** Three-layer escaping strategy in `src/agents/template_utils.py`:
+
+| Function | Converts | Use Case |
+|----------|----------|----------|
+| `escape_pvmap_placeholders()` | `{Data}` → `[DATA]`, `{Number}` → `[NUMBER]`, `{word}` → `[word]` | State values injected into LlmAgent instructions |
+| `sanitize_for_adk()` | ALL `{word}` and `{{word}}` → `[word]` | Fully-resolved instructions (after Python `.replace()`) |
+| `unescape_pvmap_placeholders()` | `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}` | Before writing final PVMAP to disk |
+
+**Critical lesson:** `{{word}}` is NOT an escape in ADK — the regex strips ALL braces. Only bracket escaping `[DATA]` works.
+
+**Files changed:** `template_utils.py`, `feedback_agent.py`, `pvmap_retry_loop.py`
+
+---
+
+### 7. LLM Metadata Capture via Artifact Plugin (2026-02-10)
+
+**Problem:** Attempt artifacts (`attempt_*.md`, `attempt_*.json`) lacked model metadata (name, token counts, timing, thinking content). The only way to capture this is via ADK plugin hooks.
+
+**Solution:** Refactored `src/utils/artifact_plugin.py` from file-based to state-based capture:
+
+```python
+class ArtifactLoggingPlugin(BasePlugin):
+    # before_model_callback: Start timer, extract config, enable ThinkingConfig
+    # after_model_callback: Extract usage, thinking content → pvmap_llm_result state
+```
+
+**State output:** `pvmap_llm_result` dict containing:
+- `model`, `temperature`, `max_output_tokens` — Request config
+- `prompt_token_count`, `candidates_token_count`, `total_token_count` — Usage stats
+- `thinking_content` — Chain-of-thought reasoning
+- `duration_seconds` — Wall-clock time
+
+Only captures calls from `"Generator"` / `"PVMAPGenerator"` agents. `ValidationAgent.save_attempt_response()` reads `pvmap_llm_result` to write rich artifacts.
+
+**Files changed:** `artifact_plugin.py` (refactored), `validation_agent.py`, `run_pipeline.py`
+
+---
+
+### 8. Error Feedback Propagation (Resolved)
 
 **Problem:** Error feedback may not propagate between LoopAgent iterations.
 
@@ -133,7 +232,7 @@ Added `"model": model` to `initial_state` dict so attempt artifacts (`attempt_*.
 
 ---
 
-### 6. Sampling Agent Iteration Limit (Resolved)
+### 9. Sampling Agent Iteration Limit (Resolved)
 
 **Problem:** Forced tool calling mode with no iteration limit could cause infinite API calls.
 
@@ -178,6 +277,10 @@ LoopAgent (max_iterations=6)
 - `schema_category` — selected schema category name
 - `skeleton_summary` — column classification from sampling
 - `generated_config_path` — path to auto_config.csv (set by MetadataGenerationAgent)
+- `generated_config_params` — dict of auto-generated config parameters
+- `pvmap_repair_changes` — list of key repairs applied by pvmap_repair module
+- `key_match_report` — markdown report of PVMAP key match status (matched/fixed/unmatched/unmapped)
+- `pvmap_llm_result` — LLM metadata dict (model, tokens, timing, thinking content)
 - `model` — LLM model name for artifact logging (set in initial_state)
 
 ---
@@ -185,7 +288,7 @@ LoopAgent (max_iterations=6)
 ## Verification
 
 ```bash
-# Unit tests (all 623+ pass)
+# Unit tests (all 703+ pass)
 PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
 
 # Test StatVar extraction standalone

@@ -750,6 +750,78 @@ The `MetadataGenerationAgent` runs after PVMAP generation and before validation 
 
 ---
 
+## Phase 2.75: PVMAP Repair (Automatic)
+
+**Goal:** Programmatically fix common PVMAP issues BEFORE running the expensive validation subprocess
+
+**Module:** `src/pipeline/validation/pvmap_repair.py`
+
+### Why It Exists
+
+LLMs frequently produce PVMAPs with minor key mismatches (wrong case, extra whitespace, truncated names) that cause validation to fail. Rather than waste a 5-minute subprocess call + a retry iteration on fixable issues, the repair module catches and fixes them in milliseconds.
+
+### How It Works
+
+The repair module runs automatically inside `ValidationAgent` after PVMAP generation and before the subprocess call:
+
+```
+PVMAP Generated → repair_pvmap() → pre_validate_pvmap() → [subprocess or early return]
+```
+
+#### Step 1: Key Repair (`repair_pvmap`)
+
+For each PVMAP key, attempts to match it to an actual input CSV column header using a 5-tier cascade:
+
+| Tier | Method | Example |
+|------|--------|---------|
+| 1 | Exact match | `REF_AREA` → `REF_AREA` |
+| 2 | Case-insensitive | `ref_area` → `REF_AREA` |
+| 3 | Whitespace-normalized | `REF  AREA` → `REF_AREA` |
+| 4 | Alphanumeric-only | `ref-area` → `REF_AREA` |
+| 5 | Fuzzy match (≥0.85 cutoff) | `REF_AERA` → `REF_AREA` |
+
+Also normalizes placeholder syntax: `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}`.
+
+#### Step 2: Pre-Validation (`pre_validate_pvmap`)
+
+Fast structural checks that skip the 5-minute subprocess for obviously broken PVMAPs:
+
+1. **Column match rate** — at least 50% of PVMAP keys must match input columns
+2. **Required properties** — `observationAbout`, `observationDate`, and `value` must be present
+3. **No unresolved placeholders** — no `[DATA]` or `[NUMBER]` remaining after normalization
+4. **Non-empty** — PVMAP must have at least one data row
+
+#### Step 3: Key Match Report (`generate_key_match_report`)
+
+Generates a markdown report for the feedback agent:
+
+```
+## Key Match Report
+- ✓ Matched: REF_AREA, TIME_PERIOD, OBS_VALUE (3/5)
+- ✎ Auto-Fixed: ref_area → REF_AREA (case), obs value → OBS_VALUE (whitespace)
+- ✗ UNMATCHED: InvalidColumn (no match found)
+- ○ Unmapped input columns: FREQ, STATUS (suggestion: check if these should be mapped)
+```
+
+### State Keys
+
+| Key | Set By | Used By |
+|-----|--------|---------|
+| `pvmap_repair_changes` | ValidationAgent | Feedback agent (repair log) |
+| `key_match_report` | ValidationAgent | Feedback agent (targeted guidance) |
+
+### Public API
+
+```python
+from src.pipeline.validation.pvmap_repair import repair_pvmap, pre_validate_pvmap, generate_key_match_report
+
+pvmap_csv, changes = repair_pvmap(pvmap_csv_str, Path("input_data.csv"))
+ok, errors = pre_validate_pvmap(pvmap_csv_str, Path("input_data.csv"))
+report = generate_key_match_report(pvmap_csv_str, Path("input_data.csv"))
+```
+
+---
+
 ## Phase 3: Validation
 
 **Goal:** Validate generated PVMAP using stat_var_processor and extract semantic analysis
@@ -1027,6 +1099,54 @@ logs/
 - Claude CLI classifies into 7 predefined categories
 - Schema files automatically copied to dataset directory
 - Falls back gracefully if selection fails
+
+### 6. Template Placeholder Escaping
+
+**Decision:** Convert PVMAP `{Data}`/`{Number}` placeholders to `[DATA]`/`[NUMBER]` when passing through ADK instruction templates
+
+**Rationale:**
+ADK's `LlmAgent` interprets ALL `{word}` patterns in instruction strings as state variable references. PVMAP content uses `{Data}` and `{Number}` as value placeholders, causing `KeyError` when ADK tries to resolve them.
+
+**Module:** `src/agents/template_utils.py`
+
+**Functions:**
+
+| Function | Purpose | Use When |
+|----------|---------|----------|
+| `escape_pvmap_placeholders(text)` | `{Data}` → `[DATA]`, `{Number}` → `[NUMBER]`, `{word}` → `[word]` | Before storing PVMAP content in state that will be injected into LlmAgent instructions |
+| `sanitize_for_adk(instruction)` | Escape ALL `{word}` patterns (including `{{word}}`) | On fully-resolved instruction strings where all Python `.replace()` substitutions are done |
+| `unescape_pvmap_placeholders(text)` | `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}` | Before writing final PVMAP output to disk |
+| `prepare_state_for_templating(ctx, keys)` | Batch escape multiple state variables | Convenience wrapper for escaping multiple state keys at once |
+
+**Critical lesson:** `{{word}}` is NOT an escape in ADK — ADK's regex strips ALL braces, so `{{Data}}` resolves identically to `{Data}`. The only safe approach is bracket escaping: `[DATA]`.
+
+### 7. LLM Metadata Capture (Artifact Plugin)
+
+**Decision:** Capture model metadata (name, tokens, timing, thinking content) during LLM calls via an ADK plugin
+
+**Rationale:**
+- Attempt artifacts (`attempt_*.md`, `attempt_*.json`) need model info and token counts
+- Thinking content (chain-of-thought reasoning) is valuable for debugging
+- Plugin hooks are the only ADK mechanism to intercept model calls
+
+**Module:** `src/utils/artifact_plugin.py`
+
+**How it works:**
+
+```
+ArtifactLoggingPlugin (BasePlugin)
+├── before_model_callback  → Start timer, extract request config, enable ThinkingConfig
+└── after_model_callback   → Extract usage stats, thinking content, store as pvmap_llm_result
+```
+
+**State output:** `pvmap_llm_result` dict with keys:
+- `model` — Model name (e.g., `gemini-3-pro-preview`)
+- `temperature`, `max_output_tokens` — Request config
+- `prompt_token_count`, `candidates_token_count`, `total_token_count` — Usage stats
+- `thinking_content` — Chain-of-thought reasoning (if model supports it)
+- `duration_seconds` — Wall-clock time for the model call
+
+**Only captures calls from agents named** `"Generator"` or `"PVMAPGenerator"` — other agent calls are ignored.
 
 ---
 

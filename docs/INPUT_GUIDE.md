@@ -295,12 +295,14 @@ input/bis_bis_central_bank_policy_rate/
 
 output/bis_bis_central_bank_policy_rate/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
+├── auto_config.csv               # Auto-generated metadata config (PVMAP-derived + merged GT/user values)
 ├── generation_notes.md           # LLM reasoning
 ├── populated_prompt.txt          # Full prompt sent to LLM
 ├── agentic_sampled.csv           # Sampled data
 ├── data_context.json             # Structural analysis cache
 ├── generated_response/           # LLM attempts
-│   ├── attempt_0.md              # First attempt
+│   ├── attempt_0.md              # First attempt (with model info + thinking content)
+│   ├── attempt_0.json            # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md              # Retry (if validation failed)
 │   └── attempt_2.md              # Final retry (if needed)
 ├── processed.csv                 # Validated StatVarObservations
