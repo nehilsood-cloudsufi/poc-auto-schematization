@@ -259,7 +259,7 @@ class TestStagnationDetection:
     def test_stagnation_detected_no_improvement(
         self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
-        """Improvement < 5% should set quality_stagnant = True."""
+        """Improvement < 10% of previous accuracy should set quality_stagnant = True."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
@@ -273,7 +273,7 @@ class TestStagnationDetection:
         }
 
         mock_heuristic.return_value = {
-            "total": 57.0,  # Only 2 point improvement (< 5)
+            "total": 57.0,  # Only 2 point improvement (< 5.5 = 10% of 55)
             "row_coverage": 14.0,
             "prop_coverage": 14.0,
             "column_coverage": 15.0,
@@ -318,7 +318,7 @@ class TestStagnationDetection:
     def test_good_improvement_not_stagnant(
         self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
     ):
-        """Improvement >= 5% should not be stagnant."""
+        """Improvement >= 10% of previous accuracy should not be stagnant."""
         mock_ctx.session.state = {
             "validation_passed": True,
             "current_dataset": mock_dataset,
@@ -332,7 +332,7 @@ class TestStagnationDetection:
         }
 
         mock_heuristic.return_value = {
-            "total": 60.0,  # 10 point improvement (>= 5)
+            "total": 60.0,  # 10 point improvement (>= 5.0 = 10% of 50)
             "row_coverage": 15.0,
             "prop_coverage": 15.0,
             "column_coverage": 15.0,
@@ -812,7 +812,7 @@ class TestPVAccuracyRetryTrigger:
             "column_coverage": 20.0, "format_score": 20.0, "issues": "",
         }
         mock_compare.return_value = {
-            "success": True, "accuracy": 30.0, "pv_accuracy": 14.0,  # Only 2% improvement
+            "success": True, "accuracy": 30.0, "pv_accuracy": 13.0,  # Only 1% improvement
             "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
                          "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
                          "nodes-auto-generated": 6},
@@ -821,13 +821,13 @@ class TestPVAccuracyRetryTrigger:
 
         events = run_agent(quality_agent, mock_ctx)
 
-        # PV accuracy 14% < 30% → quality_reject_reason = pv_accuracy_low
+        # PV accuracy 13% < 30% → quality_reject_reason = pv_accuracy_low
         metrics = mock_ctx.session.state["quality_metrics"]
         assert metrics["quality_reject_reason"] == "pv_accuracy_low"
 
-        # PV delta = 14 - 12 = 2 < 5 → stagnant
+        # PV delta = 13 - 12 = 1 < 1.2 (10% of 12) → stagnant
         assert mock_ctx.session.state["quality_stagnant"] is True
-        assert metrics["pv_improvement_from_previous"] == 2.0
+        assert metrics["pv_improvement_from_previous"] == 1.0
 
     @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
     @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
@@ -872,7 +872,7 @@ class TestPVAccuracyRetryTrigger:
         metrics = mock_ctx.session.state["quality_metrics"]
         assert metrics["quality_reject_reason"] == "heuristic_low"
 
-        # Heuristic delta = 57 - 55 = 2 < 5 → stagnant
+        # Heuristic delta = 57 - 55 = 2 < 5.5 (10% of 55) → stagnant
         assert mock_ctx.session.state["quality_stagnant"] is True
         assert metrics["improvement_from_previous"] == 2.0
         # No PV improvement tracked since PV wasn't the trigger
@@ -907,7 +907,7 @@ class TestPVAccuracyRetryTrigger:
             "column_coverage": 20.0, "format_score": 19.0, "issues": "",
         }
         mock_compare.return_value = {
-            "success": True, "accuracy": 25.0, "pv_accuracy": 13.0,  # 3% improvement (<5%)
+            "success": True, "accuracy": 25.0, "pv_accuracy": 10.5,  # 0.5% improvement (< 1.0 = 10% of 10)
             "counters": {"nodes-matched": 2, "nodes-ground-truth": 5,
                          "PVs-matched": 3, "pvs-modified": 4, "pvs-deleted": 2,
                          "nodes-auto-generated": 6},
@@ -916,7 +916,7 @@ class TestPVAccuracyRetryTrigger:
 
         events = run_agent(quality_agent, mock_ctx)
 
-        # Should be stagnant (PV delta = 3 < 5)
+        # Should be stagnant (PV delta = 0.5 < 1.0 = 10% of 10)
         assert mock_ctx.session.state["quality_stagnant"] is True
 
         # Stagnation event should include PV accuracy reasoning
@@ -927,4 +927,4 @@ class TestPVAccuracyRetryTrigger:
         # Check the detail message mentions PV accuracy
         assert any("PV accuracy" in t for t in stagnation_events)
         assert any("10.0%" in t for t in stagnation_events)
-        assert any("13.0%" in t for t in stagnation_events)
+        assert any("10.5%" in t for t in stagnation_events)

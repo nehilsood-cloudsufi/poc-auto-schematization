@@ -34,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from google.adk.agents import LlmAgent
 
 from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
+from src.agents.template_utils import sanitize_for_adk
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +255,7 @@ def create_dc_query_agent(
     agent = LlmAgent(
         name=name,
         model=model,
-        instruction=final_instruction,
+        instruction=sanitize_for_adk(final_instruction),
         tools=[mcp_toolset]
     )
 
@@ -316,7 +317,7 @@ def create_enrichment_agent(
     return LlmAgent(
         name=name,
         model=model,
-        instruction=instruction,
+        instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset]
     )
 
@@ -358,7 +359,7 @@ def create_error_resolver_agent(
     return LlmAgent(
         name="ErrorResolver",
         model=model,
-        instruction=instruction,
+        instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset]
     )
 
@@ -503,7 +504,7 @@ Use this context to build more targeted queries.
 
     section += """
 **Query Strategy:**
-1. Start broad: Search for "{measurement_type} {population_type}"
+1. Start broad: Search for "[measurement_type] [population_type]"
 2. Add constraints: Include dimension values like gender, age, sector
 3. Example: "Count Person Male" or "Mean Wage Rural"
 """

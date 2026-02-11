@@ -1,7 +1,7 @@
 """
 PVMAP Generation package.
 
-Contains helper functions, schemas, and the main PVMAPGenerationAgent.
+Contains helper functions and schemas for PVMAP generation.
 """
 
 from .helpers import (

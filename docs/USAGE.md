@@ -85,6 +85,16 @@ python src/run_pipeline.py --dry-run
 | `--force-schema-selection` | Force re-select schema files even if they exist | False | `--force-schema-selection` |
 | `--schema-base-dir` | Path to schema files directory | `src/resources/schema_examples/` | `--schema-base-dir=/path/to/schemas` |
 | `--skip-evaluation` | Skip evaluation phase | False | `--skip-evaluation` |
+| `--no-schema-examples` | Skip schema vocab injection into PVMAP prompt | False | `--no-schema-examples` |
+| **Input Modes** |
+| `--input-file` | Standalone input file (no dataset folder required) | None | `--input-file=data.csv` |
+| `--use-metadata` | Use metadata files for prompt building | False | `--use-metadata` |
+| `--metadata-file-path` | Explicit metadata file (auto-enables `--use-metadata`) | None | `--metadata-file-path=meta.csv` |
+| `--schema-file` | Explicit schema file override | None | `--schema-file=schema.txt` |
+| **Model Selection** |
+| `--model` or `-m` | Override default LLM model | `gemini-3-pro-preview` | `--model=gemini-2.5-pro` |
+| **MCP Integration** |
+| `--enable-mcp` | Enable MCP integration for StatVar discovery | False | `--enable-mcp` |
 | **Evaluation Configuration** |
 | `--ground-truth-pvmap` | Path to single ground truth PVMAP file (Tier 1 precedence) | None | `--ground-truth-pvmap=/path/to/file.csv` |
 | `--ground-truth-dir` | Directory containing ground truth files (Tier 2 precedence) | None | `--ground-truth-dir=/path/to/ground_truth` |
@@ -94,14 +104,14 @@ python src/run_pipeline.py --dry-run
 
 ## Pipeline Workflow
 
-The pipeline runs five automated phases:
+The pipeline runs six automated phases:
 
 ### Phase 1: Auto-Sampling (Optional)
 
 **What it does:**
 - Checks for existing `*_sampled_data.csv` files
-- If not found: Automatically generates sampled data (max 100 rows)
-- Creates `combined_sampled_data.csv` for pipeline
+- If not found: Automatically generates sampled data (max 100 rows) using LLM-driven agentic sampling
+- Generates `skeleton_summary` (column classifications) and `data_context.json` for downstream agents
 
 **Skip this phase:**
 ```bash
@@ -116,11 +126,11 @@ python src/run_pipeline.py --force-resample
 ### Phase 1.5: Schema Selection (Optional)
 
 **What it does:**
-- Checks if schema files already exist in dataset directory
-- If not found: Analyzes metadata + sampled data using Claude CLI
-- Selects appropriate category from 7 schema categories (Demographics, Economy, Education, Employment, Energy, Health, School)
-- Copies `.txt` and `.mcf` schema files to dataset directory
-- Logs selected category and copied files
+- Checks if schema files already exist in dataset's `schema/` subdirectory
+- If not found: Analyzes skeleton_summary using Gemini to select best schema category
+- Selects from 7 categories (Demographics, Economy, Education, Employment, Energy, Health, School)
+- Copies schema files to `input/{dataset}/schema/` subdirectory
+- Loads compressed `schema_vocab.json` for downstream PVMAP prompt injection
 
 **Skip this phase:**
 ```bash
@@ -152,21 +162,38 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 ### Phase 2: PVMAP Generation
 
 **What it does:**
-- Populates prompt with schema examples, sampled data, and metadata
-- Calls Claude Code CLI to generate PVMAP
-- Saves Claude's response and reasoning
+- Populates prompt with schema vocab, sampled data, skeleton summary, and optional metadata
+- Calls Gemini API to generate PVMAP (default model: `gemini-3-pro-preview`)
+- Saves response, reasoning, and attempt metadata (model name, token counts)
 
 **Output:**
 - `generated_pvmap.csv`
 - `generation_notes.md`
 - `populated_prompt.txt`
 
+### Phase 2.5: Metadata Generation
+
+**What it does:**
+- Automatically generates `auto_config.csv` from the PVMAP on every iteration
+- Extracts PVMAP-derived parameters: `output_columns`, `mapped_rows`, `mapped_columns`, `header_rows`, `drop_statvars_without_svobs`, `generate_statvar_name`
+- Merges with any existing GT/user metadata (existing values override auto-generated)
+- Sets `generated_config_path` in session state for the Validator
+
+**Output:**
+- `auto_config.csv` — enriched metadata config used by stat_var_processor
+
 ### Phase 3: Validation
 
 **What it does:**
-- Runs `stat_var_processor.py` to validate generated PVMAP
-- Generates StatVarObservation CSV and MCF/TMCF files
+- Runs `stat_var_processor.py` to validate generated PVMAP on the **full dataset**
+- Passes `auto_config.csv` as `--config_file` (preferred over GT/user metadata)
+- Extracts StatVar MCF analysis for semantic feedback
 - If validation fails: Provides error feedback for retry (up to 2 retries)
+
+**Metadata Priority (for `--config_file`):**
+1. **Tier 1:** Auto-generated config (`auto_config.csv`) — has PVMAP-derived params + merged values
+2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
+3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
 **Output:**
 - `processed.csv`
@@ -304,11 +331,14 @@ python src/run_pipeline.py \
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
-├── generation_notes.md           # Claude's analysis and reasoning
-├── populated_prompt.txt          # Full prompt sent to Claude
-├── generated_response/           # Claude response history
-│   ├── attempt_0.md              # First attempt
+├── auto_config.csv               # Auto-generated metadata config (PVMAP-derived + merged)
+├── generation_notes.md           # LLM analysis and reasoning
+├── populated_prompt.txt          # Full prompt sent to LLM
+├── generated_response/           # LLM response history
+│   ├── attempt_0.md              # First attempt (with model info)
+│   ├── attempt_0.json            # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md              # Retry (if validation failed)
+│   ├── attempt_1.json
 │   └── attempt_2.md              # Final retry (if needed)
 ├── processed.csv                 # Validated StatVarObservations
 ├── processed.tmcf                # Template MCF file
@@ -380,8 +410,8 @@ Log file: logs/pipeline_20260115_134545.log
 
 | Setting | Value |
 |---------|-------|
-| Max retries | 2 |
-| Claude model | `sonnet` |
+| Max retries | 2 (3 total attempts) |
+| Default model | `gemini-3-pro-preview` |
 | Validation timeout | 5 minutes |
 | Generation timeout | 15 minutes |
 | Sampling max rows | 100 |

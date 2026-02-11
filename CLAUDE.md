@@ -563,6 +563,16 @@ PipelineCoordinator (LlmAgent)
    - `.env` file takes priority over environment variables
    - Ensures fresh keys from `.env` are used even if stale keys are in shell environment
 
+7. **Data Commons expert consultation:**
+   - Use `claude_tools/gemini_query_tool.py` to query Gemini for expert guidance on PVMAP generation, StatVar design, dimension analysis, and other Data Commons topics
+   - Example: `python -m src.tools.gemini_query_tool --topic pvmap "How should I map this column?"`
+   - Supports topics: `statvar`, `dimension`, `sampling`, `pvmap`, `mcp`
+
+8. **Documentation updates are mandatory:**
+   - Always update the `docs/` folder whenever you implement a major change
+   - This includes new features, architectural changes, refactoring, and significant bug fixes
+   - Create new docs or update existing ones as appropriate
+
 ### Common Pitfalls to Avoid
 
 1. **Don't run validation on sampled data** - Must use FULL original data

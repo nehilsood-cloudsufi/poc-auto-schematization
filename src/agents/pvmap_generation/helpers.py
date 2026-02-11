@@ -1,7 +1,7 @@
 """
 Helper functions for PVMAP generation.
 
-These are simple Python functions (not agents) used by PVMAPGenerationAgent.
+These are simple Python functions (not agents) used by the PVMAP generation pipeline.
 """
 
 import json

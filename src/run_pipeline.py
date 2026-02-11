@@ -38,7 +38,6 @@ from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
 from src.agents.sampling_agent import create_sampling_agent, SamplingAgent, SamplingAgentWrapper
 from src.agents.schema_selection_agent import create_schema_selection_agent
-from src.agents.pvmap_generation_agent import PVMAPGenerationAgent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
 from typing import Optional, Dict, Any
@@ -213,7 +212,6 @@ def run_dataset_pipeline(
     input_dir: Path,
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
-    use_structured_output: bool = False,
     model: str = "gemini-3-pro-preview",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
@@ -239,7 +237,6 @@ def run_dataset_pipeline(
         input_dir: Input directory
         output_dir: Output directory
         schema_base_dir: Schema examples directory (optional)
-        use_structured_output: If True, use structured JSON output with deterministic CSV conversion
         model: Gemini model to use for generation
         enable_mcp: Enable MCP integration for StatVar discovery
         mcp_url: MCP server URL (required if enable_mcp=True)
@@ -278,29 +275,17 @@ def run_dataset_pipeline(
         model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
     )
 
-    # Create PVMAP generation agent or retry loop based on structured_output flag
-    if use_structured_output:
-        # Use new ADK LoopAgent-based retry loop with structured output
-        # MCP is now inside the loop (loop-aware discovery + error resolution)
-        pvmap_agent = create_pvmap_retry_loop(
-            model=model,
-            max_retries=2,  # 3 total attempts
-            use_structured_output=True,
-            name="PVMAPRetryLoop",
-            enable_mcp=enable_mcp,
-            mcp_url=mcp_url,
-        )
-        logger.info("Using ADK LoopAgent-based PVMAP retry loop with structured output")
-        if enable_mcp and mcp_url:
-            logger.info("MCP integration: INSIDE retry loop (loop-aware discovery + error resolution)")
-    else:
-        # Use original BaseAgent-based generation
-        pvmap_agent = PVMAPGenerationAgent(
-            name="PVMAPGeneration",
-            use_structured_output=False,
-            model=model
-        )
-        logger.info("Using BaseAgent-based PVMAPGenerationAgent")
+    # Create PVMAP retry loop (ADK LoopAgent-based)
+    pvmap_agent = create_pvmap_retry_loop(
+        model=model,
+        max_retries=2,  # 3 total attempts
+        name="PVMAPRetryLoop",
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
+    )
+    logger.info("Using ADK LoopAgent-based PVMAP retry loop")
+    if enable_mcp and mcp_url:
+        logger.info("MCP integration: INSIDE retry loop (loop-aware discovery + error resolution)")
 
     # Create evaluation agent
     evaluation_agent = EvaluationAgent(name="Evaluation")
@@ -397,6 +382,7 @@ def run_dataset_pipeline(
         "output_dir": str(current_dataset.output_dir),  # Dataset-specific output dir
         "dataset_name": dataset_name,
         "current_dataset": current_dataset,
+        "model": model,  # LLM model name for artifact logging
         "sampled_data_content": sampled_data_content,  # For StatVar discovery
         "metadata_content": metadata_content,          # For StatVar discovery
         # Sampling agent flags
@@ -550,8 +536,6 @@ if __name__ == "__main__":
                         help="Output directory (default: output/)")
     parser.add_argument("--input-dir", "-i", type=str, default=None,
                         help="Input directory (default: input/)")
-    parser.add_argument("--structured-output", "-s", action="store_true",
-                        help="Use structured JSON output from LLM with deterministic CSV conversion")
     parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
                         help="Gemini model to use (default: gemini-3-pro-preview)")
     # MCP integration flags
@@ -670,7 +654,6 @@ if __name__ == "__main__":
             print(f"  Input directory: {input_dir / dataset_name}")
         print(f"  Output directory: {output_dir / dataset_name}")
         print(f"  Model: {args.model}")
-        print(f"  Structured output: {args.structured_output}")
         print(f"  Use metadata: {args.use_metadata}")
         print(f"  Skip sampling: {args.skip_sampling}")
         print(f"  Skip schema selection: {args.skip_schema_selection}")
@@ -691,10 +674,7 @@ if __name__ == "__main__":
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
     print(f"Model: {args.model}")
-    if args.structured_output:
-        print(f"Generation mode: ADK LoopAgent with structured output")
-    else:
-        print(f"Generation mode: BaseAgent (legacy)")
+    print(f"Generation mode: ADK LoopAgent")
     if enable_mcp:
         print(f"MCP integration: ENABLED (port {mcp_port})")
     else:
@@ -724,7 +704,6 @@ if __name__ == "__main__":
             dataset_name=dataset_name,
             input_dir=input_dir,
             output_dir=output_dir,
-            use_structured_output=args.structured_output,
             model=args.model,
             enable_mcp=enable_mcp,
             mcp_url=mcp_url,
@@ -777,6 +756,10 @@ if __name__ == "__main__":
 
         print(f"\nLogs location: {output_dir}/logs/")
         print(f"Artifacts location: {output_dir}/{dataset_name}/")
+
+        # Exit with non-zero if validation failed (distinct from crash exit code 1)
+        if not final_state.get('validation_passed', False):
+            sys.exit(2)
 
     except Exception as e:
         print(f"\n❌ Pipeline failed: {str(e)}")

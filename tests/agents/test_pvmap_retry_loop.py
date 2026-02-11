@@ -83,10 +83,10 @@ class TestCreatePvmapRetryLoop:
         loop = create_pvmap_retry_loop(max_retries=2)
         assert loop.max_iterations == 3  # 2 retries + 1 initial
 
-    def test_has_six_sub_agents(self):
-        """Should have 6 sub-agents in the loop (unified feedback)."""
+    def test_has_seven_sub_agents(self):
+        """Should have 7 sub-agents in the loop (with MetadataGenerator)."""
         loop = create_pvmap_retry_loop()
-        assert len(loop.sub_agents) == 6
+        assert len(loop.sub_agents) == 7
 
     def test_sub_agent_order(self):
         """Sub-agents should be in correct order."""
@@ -96,6 +96,7 @@ class TestCreatePvmapRetryLoop:
         expected_order = [
             "StatePrep",
             "Generator",
+            "MetadataGenerator",
             "Validator",
             "QualityEvaluator",
             "UnifiedFeedback",

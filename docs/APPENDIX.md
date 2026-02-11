@@ -514,8 +514,10 @@ Phase 1.5: Schema Selection (Optional)
     ↓
 Phase 2: PVMAP Generation
     ↓
-Phase 3: Validation
-    ↓ (retry up to 2 times if validation fails)
+Phase 2.5: Metadata Generation (auto_config.csv)
+    ↓
+Phase 3: Validation (uses auto_config.csv)
+    ↓ (retry up to 2 times if validation fails — regenerates PVMAP + auto_config each iteration)
 Phase 4: Evaluation (Optional)
 ```
 
@@ -670,7 +672,7 @@ python3 src/pipeline/schema_selection/schema_selector.py \
 
 ## Phase 2: PVMAP Generation
 
-**Goal:** Generate Property-Value mapping using Claude Code CLI
+**Goal:** Generate Property-Value mapping using Gemini LLM
 
 ### Input Preparation
 
@@ -678,35 +680,73 @@ The pipeline combines data from multiple sources:
 
 | Placeholder | Source | Purpose |
 |-------------|--------|---------|
-| `{{SCHEMA_EXAMPLES}}` | `scripts_*_schema_examples_*.txt` | Example PVMAPs from similar data |
-| `{{SAMPLED_DATA}}` | `combined_sampled_data.csv` | Representative sample of input data |
-| `{{METADATA_CONFIG}}` | `*_metadata.csv` | Configuration for processor |
+| `{{SCHEMA_EXAMPLES}}` | `schema_vocab.json` (compressed) | Valid properties, DCIDs, enum values from schema category |
+| `{{SAMPLED_DATA}}` | `agentic_sampled.csv` | Representative sample of input data (LLM-driven) |
+| `{{SKELETON_SUMMARY}}` | Sampling agent output | Column classifications (place, time, dimension, value) |
+| `{{METADATA_CONFIG}}` | `*_metadata.csv` (optional) | Configuration for processor (when `--use-metadata` enabled) |
 
 ### Prompt Template
 
-The pipeline uses a structured prompt template:
+The pipeline uses a structured prompt template (`src/resources/prompts/improved_pvmap_prompt.txt`):
 
 1. **Task Description** - Explain PVMAP format and requirements
-2. **Schema Examples** - Provide existing PVMAPs from similar data
-3. **Sampled Data** - Show representative sample
-4. **Metadata Configuration** - Explain column mappings
-5. **Output Format** - Specify expected CSV format
+2. **Schema Vocabulary** - Compressed vocab with valid properties/DCIDs for the domain
+3. **Sampled Data** - Representative sample with column analysis
+4. **Skeleton Summary** - Column role classifications from sampling agent
+5. **Metadata Configuration** - Column mappings (if `--use-metadata` enabled)
+6. **Output Format** - Specify expected CSV format
 
-### Claude Invocation
+### LLM Invocation
 
-```bash
-claude code \
-    --model=sonnet \
-    --timeout=900 \
-    --prompt="Generate PVMAP from sampled data..."
+Uses Gemini API via Google ADK `LlmAgent` with structured output schema:
+
+```python
+# Default model: gemini-3-pro-preview (configurable via --model flag)
+LlmAgent(
+    model=model,
+    output_schema=PVMAPOutput,
+    output_key="pvmap_output",
+)
 ```
 
 ### Output Files
 
 - `generated_pvmap.csv` - The generated property-value mapping
-- `generation_notes.md` - Claude's analysis and reasoning
-- `populated_prompt.txt` - Full prompt sent to Claude
-- `generated_response/attempt_0.md` - Claude's response
+- `generation_notes.md` - LLM analysis and reasoning (with attempt history)
+- `populated_prompt.txt` - Full prompt sent to LLM
+- `generated_response/attempt_0.md` - LLM response (with model info)
+- `generated_response/attempt_0.json` - Attempt metadata (model, tokens, duration)
+
+---
+
+## Phase 2.5: Metadata Generation
+
+**Goal:** Auto-generate enriched metadata config from the PVMAP for stat_var_processor
+
+### How It Works
+
+The `MetadataGenerationAgent` runs after PVMAP generation and before validation on **every iteration** of the retry loop:
+
+1. **Extract PVMAP-derived parameters:**
+   - `output_columns` — columns the PVMAP maps to (e.g., `observationAbout,observationDate,variableMeasured,value,unit,scalingFactor`)
+   - `mapped_rows` — number of data rows the PVMAP maps
+   - `mapped_columns` — number of columns the PVMAP maps
+   - `header_rows` — number of header rows detected
+   - `drop_statvars_without_svobs` — whether to drop orphan StatVars
+   - `generate_statvar_name` — whether to auto-generate StatVar names
+
+2. **Merge with existing metadata:**
+   - Loads GT metadata or user metadata (if available)
+   - Existing values override auto-generated ones (via `merge_with_existing()`)
+   - Result is a strict superset: everything GT/user has, PLUS PVMAP-derived params
+
+3. **Write `auto_config.csv`** to the output directory
+
+4. **Set `generated_config_path`** in session state for the Validator
+
+### Output
+
+- `auto_config.csv` — enriched 2-column CSV (parameter, value)
 
 ---
 
@@ -721,10 +761,15 @@ claude code \
    python3 tools/stat_var_processor.py \
        --input_data=input/{dataset}/test_data/*_input.csv \
        --pv_map=output/{dataset}/generated_pvmap.csv \
-       --config_file=input/{dataset}/input_metadata/*_metadata.csv \
+       --config_file=output/{dataset}/auto_config.csv \
        --generate_statvar_name=True \
        --output_path=output/{dataset}/processed
    ```
+
+   **Metadata priority for `--config_file`:**
+   1. **Tier 1:** `auto_config.csv` (auto-generated, has PVMAP-derived params + merged GT/user values)
+   2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
+   3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
 2. **Check validation result:**
    - **Success**: Extract StatVar MCF analysis, move to quality evaluation
@@ -845,19 +890,20 @@ PVMAP generation may fail for two distinct reasons:
 
 ### Retry Loop Architecture (ADK)
 
-The retry loop uses Google ADK's `LoopAgent` with 6 sub-agents:
+The retry loop uses Google ADK's `LoopAgent` with 7 sub-agents:
 
 ```
 LoopAgent (max_iterations=6)
-├── StatePreparationAgent    — Prepares state, logs feedback presence
-├── PVMAPGenerationAgent     — Generates PVMAP with accumulated feedback
-├── ValidationAgent          — Runs stat_var_processor, extracts StatVar analysis
-├── QualityEvaluationAgent   — Heuristic + GT scoring, sets reject reason
-├── ConditionalFeedbackAgent — Unified feedback (validation-failed OR quality-low)
-└── MaxRetriesCheckAgent     — Escalates after max attempts (EventActions.escalate)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── PVMAPGenerationAgent         — Generates PVMAP with accumulated feedback
+├── MetadataGenerationAgent      — Generates auto_config.csv from PVMAP (merged with GT/user)
+├── ValidationAgent              — Runs stat_var_processor with auto_config, extracts StatVar analysis
+├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
+├── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+└── MaxRetriesCheckAgent         — Escalates after max attempts (EventActions.escalate)
 ```
 
-**Key design:** The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent`. It determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
+**Key design:** The `MetadataGenerationAgent` runs on every iteration, so when the PVMAP changes during retry, `auto_config.csv` is regenerated with updated parameters. The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent` that determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
 
 ### Feedback Improvements (2026-02-10)
 
@@ -884,12 +930,14 @@ Testing on 10 diverse datasets (2026-02-10):
 
 ```
 input/{dataset_name}/
-├── test_data/
-│   ├── *_input.csv                    # Original data
-│   ├── *_input_sampled_data.csv       # Auto-generated (Phase 1)
-│   └── combined_sampled_data.csv      # Auto-generated (Phase 1)
-├── *_metadata.csv                      # Required
-└── scripts_*_schema_examples_*.txt    # Required or Auto-generated (Phase 1.5)
+├── input_metadata/                         # Optional metadata (use with --use-metadata)
+│   └── *_metadata.csv                      # Config (param,value rows)
+├── schema/                                 # Auto-populated by SchemaSelectionAgent
+│   ├── scripts_*_schema_examples_*.txt     # Schema examples
+│   └── schema_vocab.json                   # Compressed schema vocabulary
+└── test_data/
+    ├── *_input.csv                         # Original full dataset (REQUIRED)
+    └── *_agentic_sampled.csv               # Auto-generated by LLM-driven sampler
 ```
 
 ### Output Directory
@@ -897,11 +945,14 @@ input/{dataset_name}/
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv                # Main output
-├── generation_notes.md                # Claude's reasoning
+├── auto_config.csv                    # Auto-generated metadata config (PVMAP-derived + merged)
+├── generation_notes.md                # LLM reasoning with attempt history
 ├── populated_prompt.txt               # Full prompt
 ├── generated_response/
-│   ├── attempt_0.md
+│   ├── attempt_0.md                   # LLM response (with model info)
+│   ├── attempt_0.json                 # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md                   # If retry
+│   ├── attempt_1.json
 │   └── attempt_2.md                   # If retry
 ├── processed.csv                      # Validation output
 ├── processed.tmcf

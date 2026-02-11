@@ -27,27 +27,28 @@ from src.agents.pvmap_retry_loop import (
 class TestCreatePvmapRetryLoop:
     """Tests for create_pvmap_retry_loop with MCP params."""
 
-    def test_without_mcp_6_agents(self):
-        """Without MCP, loop has 6 sub-agents (unified feedback)."""
+    def test_without_mcp_7_agents(self):
+        """Without MCP, loop has 7 sub-agents (with MetadataGenerator)."""
         loop = create_pvmap_retry_loop(
             model="gemini-2.5-flash",
             max_retries=3,
             enable_mcp=False,
         )
 
-        assert len(loop.sub_agents) == 6
+        assert len(loop.sub_agents) == 7
         agent_names = [a.name for a in loop.sub_agents]
         assert agent_names == [
             "StatePrep",
             "Generator",
+            "MetadataGenerator",
             "Validator",
             "QualityEvaluator",
             "UnifiedFeedback",
             "MaxRetriesCheck",
         ]
 
-    def test_with_mcp_8_agents(self):
-        """With MCP, loop has 8 sub-agents (adds StatVarDiscovery + MCPErrorResolver)."""
+    def test_with_mcp_9_agents(self):
+        """With MCP, loop has 9 sub-agents (adds StatVarDiscovery + MCPErrorResolver)."""
         loop = create_pvmap_retry_loop(
             model="gemini-2.5-flash",
             max_retries=3,
@@ -55,12 +56,13 @@ class TestCreatePvmapRetryLoop:
             mcp_url="http://localhost:3000/mcp",
         )
 
-        assert len(loop.sub_agents) == 8
+        assert len(loop.sub_agents) == 9
         agent_names = [a.name for a in loop.sub_agents]
         assert agent_names == [
             "StatePrep",
             "StatVarDiscovery",
             "Generator",
+            "MetadataGenerator",
             "Validator",
             "MCPErrorResolver",
             "QualityEvaluator",
@@ -76,13 +78,13 @@ class TestCreatePvmapRetryLoop:
             mcp_url=None,  # No URL
         )
 
-        assert len(loop.sub_agents) == 6
+        assert len(loop.sub_agents) == 7
 
     def test_backward_compat_no_mcp_params(self):
         """Calling without MCP params works (backward compatible)."""
         loop = create_pvmap_retry_loop(model="gemini-2.5-flash")
 
-        assert len(loop.sub_agents) == 6
+        assert len(loop.sub_agents) == 7
 
     def test_statvar_discovery_before_generator(self):
         """StatVarDiscovery is placed between StatePrep and Generator."""

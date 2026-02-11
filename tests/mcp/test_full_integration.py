@@ -74,7 +74,7 @@ def test_agent_imports():
         from src.agents import (
             DiscoveryAgent,
             SamplingAgent,
-            PVMAPGenerationAgent,
+            create_pvmap_retry_loop,
             EvaluationAgent,
             create_pipeline_coordinator,
             create_dc_query_agent,
@@ -82,7 +82,7 @@ def test_agent_imports():
         )
 
         all_passed &= print_result("DiscoveryAgent import", DiscoveryAgent is not None)
-        all_passed &= print_result("PVMAPGenerationAgent import", PVMAPGenerationAgent is not None)
+        all_passed &= print_result("create_pvmap_retry_loop import", create_pvmap_retry_loop is not None)
         all_passed &= print_result("create_pipeline_coordinator import", create_pipeline_coordinator is not None)
         all_passed &= print_result("create_dc_query_agent import", create_dc_query_agent is not None)
         all_passed &= print_result("DC_QUERY_AVAILABLE flag", DC_QUERY_AVAILABLE == True)

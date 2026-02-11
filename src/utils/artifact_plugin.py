@@ -5,46 +5,70 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.events import Event
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.genai import types as genai_types
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+import time
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Agent names used by the PVMAP generator
+_GENERATOR_AGENT_NAMES = ("Generator", "PVMAPGenerator")
 
 
 class ArtifactLoggingPlugin(BasePlugin):
     """
-    Plugin to save agent execution artifacts.
+    Plugin to capture LLM metadata from PVMAP generation calls.
 
-    Captures:
-    - LLM responses per attempt
-    - Generation notes with reasoning
-    - Error feedback chains
-    - Retry history
+    Captures model name, token usage, timing, and thinking content,
+    then stores it in session state as ``pvmap_llm_result`` so that
+    ``ValidationAgent.save_attempt_response()`` can write rich artifact files.
     """
 
     def __init__(self, output_dir: Path, dataset_name: str):
-        """
-        Initialize artifact logger.
-
-        Args:
-            output_dir: Base output directory (e.g., src/output/)
-            dataset_name: Current dataset being processed
-        """
         super().__init__(name="artifact_logger")
         self.output_dir = output_dir
         self.dataset_name = dataset_name
 
-        # Create dataset output directory
-        self.dataset_dir = output_dir / dataset_name
-        self.dataset_dir.mkdir(parents=True, exist_ok=True)
+        # Timing state for before/after callback pair
+        self._model_call_start: Optional[float] = None
+        self._request_config: dict = {}
 
-        # Track attempts
-        self.attempt_count = 0
-        self.generation_notes = []
+    async def before_model_callback(
+        self,
+        *,
+        callback_context: CallbackContext,
+        llm_request: LlmRequest,
+    ) -> Optional[LlmResponse]:
+        """Capture timing and request config before model call."""
+        if callback_context.agent_name not in _GENERATOR_AGENT_NAMES:
+            return None
 
-        # Create generated_response directory
-        self.response_dir = self.dataset_dir / "generated_response"
-        self.response_dir.mkdir(exist_ok=True)
+        self._model_call_start = time.time()
+
+        # Extract request config
+        self._request_config = {}
+        if llm_request.config:
+            self._request_config['temperature'] = getattr(
+                llm_request.config, 'temperature', None
+            )
+            self._request_config['max_output_tokens'] = getattr(
+                llm_request.config, 'max_output_tokens', None
+            )
+
+            # Enable thinking output so the model returns thought parts
+            if not llm_request.config.thinking_config:
+                llm_request.config.thinking_config = genai_types.ThinkingConfig(
+                    include_thoughts=True
+                )
+
+        if llm_request.model:
+            self._request_config['model'] = llm_request.model
+
+        return None
 
     async def after_model_callback(
         self,
@@ -52,117 +76,75 @@ class ArtifactLoggingPlugin(BasePlugin):
         callback_context: CallbackContext,
         llm_response: LlmResponse,
     ) -> Optional[LlmResponse]:
-        """Save LLM response after each model call."""
+        """Extract LLM metadata and store as pvmap_llm_result in session state."""
+        if callback_context.agent_name not in _GENERATOR_AGENT_NAMES:
+            return None
 
-        # Only track PVMAP generation agent
-        if "PVMAPGeneration" in callback_context.agent_name:
-            # Extract response text
-            response_text = ""
-            if llm_response.candidates:
-                candidate = llm_response.candidates[0]
-                if candidate.content and candidate.content.parts:
-                    response_text = candidate.content.parts[0].text
+        # --- Timing ---
+        end_time = time.time()
+        start_time = self._model_call_start or end_time
+        duration_ms = round((end_time - start_time) * 1000)
 
-            # Save attempt file
-            attempt_file = self.response_dir / f"attempt_{self.attempt_count}.md"
-            timestamp = datetime.now().isoformat()
+        # --- Extract response text and thinking content ---
+        response_text = ""
+        thinking_parts: list[str] = []
 
-            with open(attempt_file, 'w') as f:
-                f.write(f"# PVMAP Generation Attempt {self.attempt_count}\n")
-                f.write(f"**Timestamp:** {timestamp}\n")
-                f.write(f"**Agent:** {callback_context.agent_name}\n")
-                f.write(f"**Invocation ID:** {callback_context.invocation_id}\n\n")
+        if llm_response.content and llm_response.content.parts:
+            for part in llm_response.content.parts:
+                if getattr(part, 'thought', False):
+                    # This is a thinking/reasoning part
+                    if part.text:
+                        thinking_parts.append(part.text)
+                elif part.text:
+                    response_text += part.text
 
-                # Token usage
-                if llm_response.usage_metadata:
-                    usage = llm_response.usage_metadata
-                    f.write(f"**Token Usage:**\n")
-                    f.write(f"- Prompt tokens: {usage.prompt_token_count}\n")
-                    f.write(f"- Response tokens: {usage.candidates_token_count}\n")
-                    f.write(f"- Total tokens: {usage.total_token_count}\n\n")
+        # --- Extract token usage ---
+        prompt_tokens = None
+        response_tokens = None
+        total_tokens = None
+        thoughts_tokens = None
 
-                f.write("## Response\n\n")
-                f.write(response_text)
+        if llm_response.usage_metadata:
+            usage = llm_response.usage_metadata
+            prompt_tokens = getattr(usage, 'prompt_token_count', None)
+            response_tokens = getattr(usage, 'candidates_token_count', None)
+            total_tokens = getattr(usage, 'total_token_count', None)
+            thoughts_tokens = getattr(usage, 'thoughts_token_count', None)
 
-            # Add to generation notes
-            self.generation_notes.append({
-                "attempt": self.attempt_count,
-                "timestamp": timestamp,
-                "token_count": llm_response.usage_metadata.total_token_count if llm_response.usage_metadata else 0,
-                "response_length": len(response_text),
-            })
+        # --- Model version ---
+        model = (
+            llm_response.model_version
+            or self._request_config.get('model')
+            or 'unknown'
+        )
 
-            self.attempt_count += 1
+        # --- Build pvmap_llm_result dict ---
+        llm_result = {
+            'model': model,
+            'temperature': self._request_config.get('temperature'),
+            'max_tokens': self._request_config.get('max_output_tokens'),
+            'start_time': datetime.fromtimestamp(start_time).isoformat(),
+            'end_time': datetime.fromtimestamp(end_time).isoformat(),
+            'duration_ms': duration_ms,
+            'prompt_tokens': prompt_tokens,
+            'response_tokens': response_tokens,
+            'total_tokens': total_tokens,
+            'thoughts_tokens': thoughts_tokens,
+            'text': response_text,
+            'thinking_content': thinking_parts if thinking_parts else None,
+        }
+
+        # Store in session state for ValidationAgent to pick up
+        callback_context.state["pvmap_llm_result"] = llm_result
+
+        logger.debug(
+            "ArtifactLoggingPlugin: captured LLM result for %s "
+            "(model=%s, tokens=%s, thinking_parts=%d, duration=%dms)",
+            callback_context.agent_name,
+            model,
+            total_tokens,
+            len(thinking_parts),
+            duration_ms,
+        )
 
         return None  # Don't modify response
-
-    async def on_event_callback(
-        self,
-        *,
-        invocation_context: InvocationContext,
-        event: Event,
-    ) -> Optional[Event]:
-        """Track events for generation notes."""
-
-        # Extract validation results from events
-        if event.author and "PVMAP" in event.author:
-            for part in event.content.parts:
-                if part.text:
-                    # Check for validation events
-                    if "validation" in part.text.lower():
-                        self.generation_notes.append({
-                            "event": "validation",
-                            "timestamp": datetime.now().isoformat(),
-                            "content": part.text[:200]  # First 200 chars
-                        })
-
-                    # Check for error feedback
-                    if "error" in part.text.lower() or "retry" in part.text.lower():
-                        self.generation_notes.append({
-                            "event": "error_feedback",
-                            "timestamp": datetime.now().isoformat(),
-                            "content": part.text[:200]
-                        })
-
-        return None
-
-    async def on_invocation_end_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> None:
-        """Save generation notes at the end of invocation."""
-
-        notes_file = self.dataset_dir / "generation_notes.md"
-
-        with open(notes_file, 'w') as f:
-            f.write(f"# PVMAP Generation Notes: {self.dataset_name}\n\n")
-            f.write(f"**Generated:** {datetime.now().isoformat()}\n")
-            f.write(f"**Invocation ID:** {invocation_context.invocation_id}\n")
-            f.write(f"**Session ID:** {invocation_context.session.id}\n\n")
-
-            # Final state
-            state = invocation_context.session.state
-            f.write("## Final State\n\n")
-            f.write(f"- Generation success: {state.get('generation_success', False)}\n")
-            f.write(f"- Attempts made: {self.attempt_count}\n")
-            f.write(f"- Validation passed: {state.get('validation_results', {}).get('valid', False)}\n")
-
-            if state.get('error'):
-                f.write(f"- Final error: {state['error']}\n")
-
-            f.write("\n## Execution Timeline\n\n")
-            for note in self.generation_notes:
-                # Build event title
-                if 'event' in note:
-                    event_title = note['event']
-                else:
-                    attempt_num = note.get('attempt', '?')
-                    event_title = f"Attempt {attempt_num}"
-
-                f.write(f"### {event_title} - {note['timestamp']}\n")
-                if 'token_count' in note:
-                    f.write(f"- Tokens: {note['token_count']}\n")
-                if 'response_length' in note:
-                    f.write(f"- Response length: {note['response_length']} chars\n")
-                if 'content' in note:
-                    f.write(f"- Content: {note['content']}\n")
-                f.write("\n")

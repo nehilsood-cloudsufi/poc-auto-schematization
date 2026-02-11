@@ -27,7 +27,8 @@ def escape_pvmap_placeholders(text: Optional[str]) -> str:
     This function converts:
     - {Data} -> [DATA]
     - {Number} -> [NUMBER]
-    - {Data:format} -> [DATA:format]  (preserves format specifiers)
+    - {Key} -> [KEY]
+    - Any other {word} pattern -> [word] (catch-all for LLM-generated references)
 
     These square-bracket versions match the JSON output format that the
     PVMAP generator uses, so they're understood by both humans and LLMs.
@@ -52,7 +53,38 @@ def escape_pvmap_placeholders(text: Optional[str]) -> str:
     # Replace {Number} variants
     text = re.sub(r'\{Number(?::[^}]*)?\}', lambda m: m.group(0).replace('{Number', '[NUMBER').replace('}', ']'), text)
 
+    # Catch-all: escape any remaining {word} patterns that look like template variables.
+    # This prevents ADK from trying to resolve arbitrary LLM-generated patterns
+    # like {year}, {measurement_type}, {country}, etc. in error feedback text.
+    # Matches {word}, {Word}, {WORD}, {snake_case} but NOT JSON-like {key: value}
+    # or already-escaped [WORD] patterns.
+    text = re.sub(r'\{([A-Za-z_][A-Za-z0-9_]*)\}', r'[\1]', text)
+
     return text
+
+
+def sanitize_for_adk(instruction: str) -> str:
+    """Escape all {word} and {{word}} patterns in a fully-resolved instruction.
+
+    ADK's custom regex ({+[^{}]*}+) strips ALL braces, so {{word}} is NOT
+    an escape — it resolves identically to {word}. This function converts
+    both forms to [word], which ADK's _is_valid_state_name() ignores.
+
+    Use on instruction strings where ALL intended substitutions have been
+    done via Python .replace(). This does NOT apply to instructions that
+    rely on ADK state variable resolution (feedback_agent, pvmap_generator).
+
+    Args:
+        instruction: Fully-resolved instruction string
+
+    Returns:
+        Instruction with all brace-enclosed identifiers converted to brackets
+    """
+    if not instruction:
+        return instruction or ""
+    # Match one-or-more opening braces + valid identifier + one-or-more closing braces
+    # Handles both {word} and {{word}} (ADK treats them identically)
+    return re.sub(r'\{+([A-Za-z_][A-Za-z0-9_]*)\}+', r'[\1]', instruction)
 
 
 def unescape_pvmap_placeholders(text: Optional[str]) -> str:
@@ -114,4 +146,5 @@ __all__ = [
     'escape_pvmap_placeholders',
     'unescape_pvmap_placeholders',
     'prepare_state_for_templating',
+    'sanitize_for_adk',
 ]

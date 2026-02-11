@@ -44,7 +44,7 @@ class QualityEvaluationAgent(BaseAgent):
         1. Validation failure (handled upstream) - always retry with error feedback
         2. PV accuracy < 30% (GT required) - retry with quality feedback
         3. Heuristic score < 70/100 - retry with quality feedback
-        4. Stagnation (delta < 5%) - stop, explain reasoning
+        4. Stagnation (delta < 10% of previous accuracy) - stop, explain reasoning
         5. Max retries >= 3 - stop (safety net, handled downstream)
 
     Ground truth safety: Only numeric PV accuracy score is used as a trigger.
@@ -54,7 +54,7 @@ class QualityEvaluationAgent(BaseAgent):
     1. Checks if validation passed (skip if not)
     2. Uses heuristic scoring (row/property/column coverage + format) >= 70/100
     3. Uses PV accuracy >= 30% when ground truth is available (Priority 2)
-    4. Detects stagnation on the triggering metric (improvement < 5%)
+    4. Detects stagnation on the triggering metric (improvement < 10% of previous accuracy)
     5. Escalates to exit loop if quality acceptable OR stagnant
 
     ADK State Inputs:
@@ -84,7 +84,7 @@ class QualityEvaluationAgent(BaseAgent):
     # Quality thresholds (ClassVar to avoid Pydantic field treatment)
     QUALITY_THRESHOLD: ClassVar[float] = 70.0  # Heuristic score threshold (out of 100)
     PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
-    STAGNATION_THRESHOLD: ClassVar[float] = 5.0  # Minimum improvement required between attempts
+    STAGNATION_RATIO: ClassVar[float] = 0.10  # Minimum improvement as fraction of previous accuracy
 
     def __init__(self, name: str = "QualityEvaluator"):
         """Initialize QualityEvaluationAgent."""
@@ -205,6 +205,7 @@ class QualityEvaluationAgent(BaseAgent):
         metrics_history = ctx.session.state.get("quality_metrics_history", [])
         quality_stagnant = False
         stagnation_detail = ""
+        stagnation_threshold = 0.5  # Default minimum
 
         if metrics_history and attempt_number > 0:
             prev_metrics = metrics_history[-1]
@@ -225,16 +226,20 @@ class QualityEvaluationAgent(BaseAgent):
                 quality_metrics["pv_improvement_from_previous"] = round(pv_delta, 1)
                 stagnation_delta = pv_delta
                 stagnation_detail = f"PV accuracy ({prev_gt_pv:.1f}% -> {curr_gt_pv:.1f}%)"
+                # Relative threshold: 10% of previous attempt's PV accuracy
+                stagnation_threshold = max(prev_gt_pv * self.STAGNATION_RATIO, 0.5)
             else:
                 stagnation_delta = heuristic_delta
                 stagnation_detail = f"heuristic ({prev_heuristic:.1f} -> {curr_heuristic:.1f})"
+                # Relative threshold: 10% of previous attempt's heuristic score
+                stagnation_threshold = max(prev_heuristic * self.STAGNATION_RATIO, 0.5)
 
-            if stagnation_delta < self.STAGNATION_THRESHOLD:
+            if stagnation_delta < stagnation_threshold:
                 quality_stagnant = True
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
-                        types.Part(text=f"Stagnation detected: {stagnation_detail} improved only {stagnation_delta:.1f}% (< {self.STAGNATION_THRESHOLD}%)")
+                        types.Part(text=f"Stagnation detected: {stagnation_detail} improved only {stagnation_delta:.1f}% (need >= {stagnation_threshold:.1f}%)")
                     ])
                 )
 
@@ -287,7 +292,7 @@ class QualityEvaluationAgent(BaseAgent):
             message = (
                 f"Quality STAGNANT: {stagnation_detail} improved only "
                 f"{quality_metrics.get('pv_improvement_from_previous', quality_metrics.get('improvement_from_previous', 0)):.1f}% "
-                f"(< {self.STAGNATION_THRESHOLD}%). Stopping with best effort."
+                f"(need >= {stagnation_threshold:.1f}%). Stopping with best effort."
             )
 
             yield Event(

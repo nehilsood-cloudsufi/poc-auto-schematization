@@ -73,6 +73,9 @@ Category: {schema_category}
 ## Generated StatVar Analysis (from validation output)
 {validation_statvar_analysis}
 
+## Key Match Report (PVMAP keys vs actual column headers)
+{key_match_report}
+
 ---
 
 # ANALYSIS GUIDELINES
@@ -138,6 +141,16 @@ If the StatVar analysis shows raw strings on dimension properties that should us
 - Suggest explicit Column:Value mappings instead of [DATA] passthrough
 - Reference the schema_vocab property_vocabulary for valid DCID values in this domain
 - Do NOT hardcode specific values — use the vocabulary as the source of truth
+
+### Key Match Report Analysis
+If the Key Match Report is provided above, use it to identify key issues:
+- **UNMATCHED keys**: These PVMAP keys don't match any column header. Use the suggested correct header.
+- **Unmapped columns**: These data columns aren't referenced in the PVMAP. Determine if they should be mapped:
+  - Place/geo columns → MUST be mapped to observationAbout
+  - Time/date columns → MUST be mapped to observationDate
+  - Value/numeric columns → Should be mapped with value,[NUMBER]
+  - Dimension columns → Should use COLUMN:VALUE enumeration
+  - Metadata columns (source, notes) → Can be safely ignored
 
 ## 2. Interpret Processing Metrics
 

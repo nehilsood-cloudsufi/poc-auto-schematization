@@ -5,11 +5,12 @@ This module creates a LoopAgent that orchestrates:
 1. StatePreparationAgent - Prepares state for each iteration
 2. [StatVarDiscoveryAgent] - MCP-based StatVar discovery (if MCP enabled)
 3. PVMAPGeneratorAgent - Generates PVMAP with structured output
-4. ValidationAgent - Validates PVMAP (sets validation_passed flag)
-5. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
-6. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
-7. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
-8. MaxRetriesCheckAgent - Checks if max retries exceeded
+4. MetadataGenerationAgent - Auto-generates stat_var_processor config
+5. ValidationAgent - Validates PVMAP (sets validation_passed flag)
+6. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
+7. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
+8. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
+9. MaxRetriesCheckAgent - Checks if max retries exceeded
 
 The loop exits when:
 - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
@@ -42,6 +43,7 @@ from google.genai import types
 
 from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
+from src.agents.metadata_generation_agent import MetadataGenerationAgent
 from src.agents.feedback_agent import create_feedback_agent
 from src.agents.quality_evaluation_agent import QualityEvaluationAgent
 from src.agents.template_utils import escape_pvmap_placeholders
@@ -367,11 +369,17 @@ class MCPErrorResolverAgent(BaseAgent):
                 run_mcp_query,
             )
 
+            # Escape PVMAP placeholders before embedding in inner agent instruction.
+            # Raw {Data}/{Number}/{word} patterns in validation_error or pvmap_csv
+            # would crash ADK's instruction templating in the inner LlmAgent.
+            safe_validation_error = escape_pvmap_placeholders(validation_error[:2000])
+            safe_pvmap_csv = escape_pvmap_placeholders(pvmap_csv[:3000])
+
             resolver_agent = create_error_resolver_agent(
                 mcp_url=mcp_url,
                 model="gemini-2.5-pro",
-                validation_error=validation_error[:2000],
-                pvmap_csv=pvmap_csv[:3000],
+                validation_error=safe_validation_error,
+                pvmap_csv=safe_pvmap_csv,
             )
 
             result_text = await run_mcp_query(
@@ -570,8 +578,9 @@ class ConditionalFeedbackAgent(BaseAgent):
         for key in ["schema_vocab_content", "schema_category", "skeleton_summary"]:
             ctx.session.state.setdefault(key, "")
 
-        # Ensure statvar analysis is available
+        # Ensure statvar analysis and key match report are available
         ctx.session.state.setdefault("validation_statvar_analysis", "")
+        ctx.session.state.setdefault("key_match_report", "")
 
         # Escape all PVMAP-containing state
         for key in ["pvmap_csv", "validation_error", "sampled_data",
@@ -586,8 +595,9 @@ class ConditionalFeedbackAgent(BaseAgent):
                 elif isinstance(val, str):
                     ctx.session.state[key] = escape_pvmap_placeholders(val)
 
-        # Escape schema context and statvar analysis
-        for key in ["schema_vocab_content", "skeleton_summary", "validation_statvar_analysis"]:
+        # Escape schema context, statvar analysis, and key match report
+        for key in ["schema_vocab_content", "skeleton_summary",
+                     "validation_statvar_analysis", "key_match_report"]:
             val = ctx.session.state.get(key, "")
             if val and isinstance(val, str):
                 ctx.session.state[key] = escape_pvmap_placeholders(val)
@@ -771,10 +781,11 @@ def create_pvmap_retry_loop(
     The loop runs (without MCP):
     1. StatePreparationAgent - Prepares state for generator
     2. PVMAPGeneratorAgent - Generates PVMAP (structured JSON)
-    3. ValidationAgent - Validates; sets validation_passed flag
-    4. QualityEvaluationAgent - Evaluates quality; ESCALATES if acceptable/stagnant
-    5. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
-    6. MaxRetriesCheckAgent - Checks if max retries exceeded
+    3. MetadataGenerationAgent - Auto-generates stat_var_processor config
+    4. ValidationAgent - Validates; sets validation_passed flag
+    5. QualityEvaluationAgent - Evaluates quality; ESCALATES if acceptable/stagnant
+    6. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
+    7. MaxRetriesCheckAgent - Checks if max retries exceeded
 
     With MCP enabled, adds:
     - StatVarDiscoveryAgent after StatePrep (loop-aware discovery)
@@ -827,6 +838,7 @@ def create_pvmap_retry_loop(
         from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
         generator = create_pvmap_generator_without_schema(model=model, name="Generator")
 
+    metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
     quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator")
     unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model)
@@ -846,6 +858,7 @@ def create_pvmap_retry_loop(
         logger.info("StatVarDiscoveryAgent added to retry loop (MCP enabled)")
 
     sub_agents.append(generator)
+    sub_agents.append(metadata_generator)
     sub_agents.append(validator)
 
     # Insert MCPErrorResolverAgent when MCP enabled
@@ -873,51 +886,11 @@ def create_pvmap_retry_loop(
 
 
 # ============================================================================
-# Legacy: Simple retry loop without quality-based retries
-# ============================================================================
-
-def create_simple_pvmap_retry_loop(
-    model: str = "gemini-2.5-flash",
-    max_retries: int = 2,
-    name: str = "PVMAPSimpleRetryLoop",
-) -> LoopAgent:
-    """
-    Create a simpler PVMAP retry loop without quality-based retries.
-
-    This version only validates and retries on validation failure.
-    Use create_pvmap_retry_loop() for the full quality-based retry mechanism.
-
-    Args:
-        model: Gemini model for generation
-        max_retries: Max retry attempts (default: 2, for 3 total attempts)
-        name: Loop agent name
-
-    Returns:
-        Configured LoopAgent
-    """
-    model = os.getenv("PVMAP_GENERATOR_MODEL", model)
-
-    # Note: This uses the OLD ValidationAgent behavior
-    # You may need to create a separate ValidationAgentLegacy if needed
-    state_prep = StatePreparationAgent(name="StatePrep")
-    generator = create_pvmap_generator(model=model, name="Generator")
-    validator = ValidationAgent(name="Validator")
-    feedback = create_feedback_agent(model=model, name="Feedback")
-
-    return LoopAgent(
-        name=name,
-        max_iterations=max_retries + 1,
-        sub_agents=[state_prep, generator, validator, feedback]
-    )
-
-
-# ============================================================================
 # Module exports
 # ============================================================================
 
 __all__ = [
     'create_pvmap_retry_loop',
-    'create_simple_pvmap_retry_loop',
     'StatePreparationAgent',
     'ConditionalFeedbackAgent',
     'MCPErrorResolverAgent',

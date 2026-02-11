@@ -232,3 +232,5 @@ output_adk_test
 output_adk_verify
 ground_truth/*
 output_adk_improved
+http_cache.sqlite
+schema/

@@ -127,6 +127,10 @@ class DataContext:
     is_preformatted_dc: bool = False
     one_shot_example: str = ""
 
+    # === COLUMN REFERENCE (for key-matching accuracy) ===
+    column_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # {col: {dtype, cardinality, null_count, null_pct, sample_values}}
+
     def to_skeleton_summary(self) -> str:
         """
         Generate enriched markdown summary for LLM prompts.
@@ -155,6 +159,22 @@ class DataContext:
         if cols:
             lines.append(f"**ALL column headers (exact, case-sensitive):** `{'`, `'.join(cols)}`")
         lines.append("")
+
+        # === Section 1.5: Column Reference Table ===
+        if self.column_stats:
+            lines.append("## 1.5 COLUMN REFERENCE TABLE (USE EXACT NAMES AS PVMAP KEYS)")
+            lines.append("")
+            lines.append("| Column Header (EXACT) | Type | Unique Values | Sample Values |")
+            lines.append("|------------------------|------|---------------|---------------|")
+            for col, stats in self.column_stats.items():
+                dtype = stats.get('dtype', '?')
+                cardinality = stats.get('cardinality', '?')
+                samples = stats.get('sample_values', [])
+                samples_str = ', '.join(str(v) for v in samples[:5])
+                if len(samples_str) > 50:
+                    samples_str = samples_str[:47] + '...'
+                lines.append(f"| `{col}` | {dtype} | {cardinality} | {samples_str} |")
+            lines.append("")
 
         # === Section 2: Column Classifications ===
         lines.append("## 2. COLUMN CLASSIFICATIONS")
@@ -287,6 +307,8 @@ class DataContext:
             lines.append(f"- Sample Covers: {self.sample_combinations} ({self.coverage_percent:.1f}%)")
         lines.append("")
         lines.append("**IMPORTANT:** Generate PVMAP for ALL dimension combinations, not just those in sample.")
+        lines.append("")
+        lines.append("**KEY MATCHING RULE:** Every key in your PVMAP must EXACTLY match a column header from Section 1.5 (case-sensitive), or be a cell value in COLUMN:VALUE format.")
 
         return "\n".join(lines)
 
@@ -318,6 +340,7 @@ class DataContext:
             'aggregate_values': self.aggregate_values,
             'place_resolution_hints': self.place_resolution_hints,
             'is_preformatted_dc': self.is_preformatted_dc,
+            'column_stats': self.column_stats,
         }
 
     def to_mcp_query_context(self) -> Dict[str, Any]:
@@ -459,9 +482,62 @@ class DataContextGenerator:
             context.geography, df
         )
         context.is_preformatted_dc = self._detect_preformatted_dc(df)
+        context.column_stats = self._build_column_stats(df)
         context.one_shot_example = self._generate_one_shot_example(context, df)
 
         return context
+
+    def _build_column_stats(self, df) -> Dict[str, Dict[str, Any]]:
+        """Build per-column statistics for the reference table.
+
+        Args:
+            df: pandas DataFrame
+
+        Returns:
+            Dict mapping column name to stats dict with:
+            - dtype: String/Integer/Float/Date
+            - cardinality: number of unique non-null values
+            - null_count: number of null values
+            - null_pct: percentage of nulls
+            - sample_values: first 5 unique non-null values as strings
+        """
+        stats = {}
+        n_rows = len(df)
+
+        for col in df.columns:
+            series = df[col]
+            non_null = series.dropna()
+            unique_vals = non_null.unique()
+            null_count = int(series.isna().sum())
+
+            # Infer dtype
+            if self._is_numeric_column(series):
+                # Check if integers
+                try:
+                    numeric_vals = non_null.apply(
+                        lambda x: float(str(x).strip().replace(',', '').replace('%', '').replace('$', ''))
+                    )
+                    if (numeric_vals == numeric_vals.astype(int)).all():
+                        dtype = 'Integer'
+                    else:
+                        dtype = 'Float'
+                except Exception:
+                    dtype = 'Float'
+            else:
+                dtype = 'String'
+
+            # Sample values (first 5 unique)
+            sample_values = [str(v) for v in unique_vals[:5]]
+
+            stats[col] = {
+                'dtype': dtype,
+                'cardinality': len(unique_vals),
+                'null_count': null_count,
+                'null_pct': round(null_count / n_rows * 100, 1) if n_rows > 0 else 0,
+                'sample_values': sample_values,
+            }
+
+        return stats
 
     # === GEO FORMAT → DCID PREFIX LOOKUP ===
     GEO_FORMAT_DCID_MAP = {

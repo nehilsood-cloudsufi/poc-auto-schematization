@@ -29,7 +29,7 @@ from google.adk.agents import SequentialAgent
 from src.agents.discovery_agent import DiscoveryAgent
 from src.agents.sampling_agent import create_sampling_agent
 from src.agents.schema_selection_agent import create_schema_selection_agent
-from src.agents.pvmap_generation_agent import PVMAPGenerationAgent
+from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,6 @@ def create_pipeline_coordinator(
     name: str = "PipelineCoordinator",
     max_retries: int = 2,
     model: str = "gemini-3-pro-preview",
-    use_structured_output: bool = False,
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None
 ) -> SequentialAgent:
@@ -65,7 +64,6 @@ def create_pipeline_coordinator(
         name: Coordinator name (default: "PipelineCoordinator")
         max_retries: Max retries for PVMAP generation (default: 2, for 3 total attempts)
         model: Gemini model to use for LLM agents (default: "gemini-3-pro-preview")
-        use_structured_output: Use JSON structured output for PVMAP generation
         enable_mcp: Enable MCP integration for StatVar discovery (default: False)
         mcp_url: MCP server URL (default: None, uses "http://localhost:3000/mcp" if enable_mcp=True)
 
@@ -122,11 +120,12 @@ def create_pipeline_coordinator(
         sub_agents.append(dc_query)
 
     # Add PVMAP generation and evaluation
-    pvmap_generation = PVMAPGenerationAgent(
-        name="PVMAPGenerationAgent",
-        max_retries=max_retries,
+    pvmap_generation = create_pvmap_retry_loop(
         model=model,
-        use_structured_output=use_structured_output
+        max_retries=max_retries,
+        name="PVMAPRetryLoop",
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
     )
     evaluation = EvaluationAgent(name="EvaluationAgent")
 

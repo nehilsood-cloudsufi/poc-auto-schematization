@@ -28,57 +28,28 @@ The processor converts each data cell into a StatVarObservation by collecting PV
 
 **Key Insight**: Column header properties apply to ALL cells in that column.
 
+**Carry-forward**: If a column header's PVs lack `value`/`measurementResult`, those PVs carry forward to subsequent columns as row-level context (defining the StatVar). This is how dimension columns work — they add constraints that apply to value columns that follow.
+
 ---
 
-# CRITICAL RULE #1: observationAbout (The Anchor)
+# CORE RULES
 
-**EVERY observation MUST have observationAbout** - This is the geographic/organizational unit being measured.
+## Rule 1: observationAbout (The Anchor)
+
+**EVERY observation MUST have observationAbout** — the geographic/organizational unit being measured.
 
 **Detection Decision Tree:**
-1. **Is there a FIPS/GeoID column?** (Look for: `FIPS`, `GEOID`, `State Code`, `County Code`)
-   - Action: Map with `#Format` for zero-padding: `FIPS,#Format,observationAbout=geoId/{Data:0>5}`
+1. **FIPS/GeoID column?** → `FIPS,#Format,observationAbout=geoId/{Data:0>5}`
+2. **ISO/Country Code?** → `REF_AREA,observationAbout,country/{Data}`
+3. **Composite values?** (e.g., `State/UT:Delhi`) → Use `#Regex` to extract
+4. **Place names?** → Dynamic `observationAbout,wikidataId/{Data}` (NEVER hardcode only visible values)
+5. **Constant place?** → Add `observationAbout,country/USA` to value columns
 
-2. **Is there an ISO/Country Code column?** (Look for: `REF_AREA`, `ISO`, `Country Code`)
-   - Action: Map to `observationAbout,{Data}` or `observationAbout,country/{Data}`
+**SAMPLE WARNING:** The data is a SMALL SAMPLE. Use DYNAMIC patterns (using `{Data}` or `#Regex`), not hardcoded visible values.
 
-3. **Is there a Wikidata/International ID column?** (Look for India states, non-US regions)
-   - Action: Map using `wikidataId/` prefix: `State,observationAbout,wikidataId/{Data}`
+## Rule 2: Pre-Formatted Data Detection
 
-4. **Is there a COMPOSITE/EMBEDDED place column?** (Values like `State/UT:Delhi`, `Region: North`)
-   - Action: Use `#Regex` to extract: `"State/UT",#Regex,"^State/UT:(?P<Place>.*)",observationAbout,wikidataId/{Place}`
-   - CRITICAL: When a column contains delimiters (`:`, `-`, `|`), extract the place name portion
-
-5. **Is there a Name column?** (Look for: `City`, `State`, `Country`, place names)
-   - Action: Create COMPREHENSIVE explicit mappings for ALL values, not just sample values
-   - CRITICAL: The sample data shows only a few values - you MUST map ALL possible values
-
-6. **Is the Place constant?** (All data is about one place, e.g., USA)
-   - Action: Add `observationAbout,country/USA` to all value columns
-
-**SAMPLE WARNING:** The data provided is only a SMALL SAMPLE. If a column contains place names, assume there are MANY MORE values than shown. Generate a DYNAMIC mapping pattern (using `{Data}` or `#Regex`) rather than hardcoding only the visible values.
-
-**If you cannot satisfy one of these 6 conditions, STOP and report 'Missing Place Dimension'.**
-
----
-
-# CRITICAL RULE #2: Detect Pre-Formatted Data Commons Data
-
-**BEFORE generating PVMAP, check if data is ALREADY in Data Commons format:**
-
-### Detection Criteria:
-1. **Has `variableMeasured` column** with DCID values like:
-   - `dcid:Count_Person_Female`
-   - `dcid:CumulativeCount_FoodBasket_Delivered`
-
-2. **Has `observationAbout` column** with place/entity DCIDs:
-   - `country/USA`, `geoId/06`, `wikidataId/Q391149`
-
-3. **Has `observationDate` column** with standard formats
-
-4. **Has `value` column** with numeric measurements
-
-### If Pre-Formatted -> Use Passthrough Mapping:
-
+If data has `variableMeasured`, `observationAbout`, `observationDate`, and `value` columns — it's already in DC format. Use passthrough:
 ```csv
 key,property,value
 observationAbout,observationAbout,{Data}
@@ -86,336 +57,173 @@ observationDate,observationDate,{Data}
 variableMeasured,variableMeasured,{Data}
 value,value,{Number}
 ```
+**DO NOT** construct new `variableMeasured` entries or add `populationType`/`measuredProperty`/`statType`.
 
-**DO NOT:**
-- Try to construct new `variableMeasured` entries
-- Parse or deconstruct existing DCIDs
-- Add `populationType`, `measuredProperty`, `statType` to columns that already have `variableMeasured`
+## Rule 3: Entity vs Attribute + StatVar Design
 
----
+**Entity columns** (place, organization) → DYNAMIC `{Data}` mapping, NEVER enumerate.
+**Attribute columns** (gender, age, race) → EXPLICIT enumeration with `COLUMN:VALUE` syntax.
 
-# CRITICAL RULE #3: No Placeholder Columns
+A StatVar is: `populationType` + `measuredProperty` + `statType` + constraint properties.
+**Place and Time are NEVER part of the StatVar** — they belong to the Observation only.
 
-**STRICT PROHIBITION ON PLACEHOLDERS AND EXTRA COLUMNS**
+If two rows share Place + Time but differ in value, their StatVars MUST differ — you missed a dimension.
 
-- You are FORBIDDEN from using generic placeholders like `p2`, `v2`, `dcid:v2`, `[Year]`, `FIXME`
-- You MUST use ONLY the EXACT CSV header strings
-- DO NOT add empty columns or property-value pairs beyond what is needed
-- If a column is not needed, do not include it
+## Rule 4: Exact Vocabulary + No Placeholders
 
-**Wrong:**
-```csv
-key,property,value,p2,v2,p3,v3,p4,v4
-```
-
-**Correct:**
-```csv
-key,property,value
-```
+- Use EXACT Data Commons property names (`populationType` not `populationGroup`, `measuredProperty` not `measurement`)
+- Age ranges use bracket notation: `[65 - Years]`, `[18 64 Years]`, `[0 17 Years]`
+- FORBIDDEN: placeholder keys like `p2`, `v2`, `dcid:v2`, `FIXME`
+- NEVER map `variableMeasured` — it's auto-constructed by the processor
 
 ---
 
-# CRITICAL RULE #4: Entity vs Attribute (Dynamic vs Enumerated)
+# DATA ARCHETYPE RECOGNITION
 
-**Columns serve ONE of TWO roles:**
+Classify your data FIRST, then apply the matching PVMAP strategy:
 
-1. **ENTITY COLUMNS (observationAbout)** - The SUBJECT being measured (Place, Organization)
-   - Use **DYNAMIC mapping** with `{Data}` placeholder
-   - Examples: State, Country, District, Region, FIPS
-   - **NEVER enumerate individual values** - use `observationAbout,wikidataId/{Data}`
+| Archetype | Signature | PVMAP Strategy | Key Pattern |
+|-----------|-----------|---------------|-------------|
+| **Wide/Flat** | 1 row = 1 observation, value in dedicated column | Map headers directly; `value,{Number}` | Pattern A |
+| **Wide/Multi-value** | Multiple value columns per row (dates or metrics as headers) | Each value column = separate PVMAP row with ALL properties | Pattern B |
+| **Tidy/Long** | Indicator column + value column | Map indicator unique values; `variable_col:X,prop,val` | Pattern D |
+| **Dimension/Row** | Row values carry dimension info, columns carry measurements | COLUMN:VALUE syntax for dimensions; carry-forward for headers | Pattern C |
+| **Census/Coded** | E_/M_/EP_/MP_ prefixes for same concept | Separate row per prefix with appropriate statType | Pattern F |
+| **Passthrough** | Already has observationAbout/variableMeasured/value columns | Direct pass-through mapping | Rule 2 |
 
-2. **ATTRIBUTE COLUMNS (constraintProperties)** - Characteristics defining the StatVar
-   - Use **EXPLICIT enumeration** for small, fixed sets
-   - Examples: Gender (Male/Female), Age groups
-   - Enumerate: `gender:Male,gender,Male` and `gender:Female,gender,Female`
+### Census/Coded Pattern (E_/M_/EP_/MP_ prefixes)
 
-**Detection Heuristics:**
-| Indicator | Column Type | Mapping Strategy |
-|-----------|-------------|------------------|
-| High cardinality (many unique values) | Entity | Dynamic `{Data}` |
-| Geographic names (States, Districts) | Entity | Dynamic `{Data}` |
-| Fixed small set (Male/Female, Yes/No) | Attribute | Explicit enumeration |
-| Prefixed values (State/UT:X, Region:X) | Entity | `#Regex` extraction |
+**APPLIES ONLY TO** US Census Bureau data with these exact column prefixes:
 
-**THE CRITICAL MISTAKE:** The sample data shows only 3 states, but the full dataset has 28.
-**NEVER hardcode only visible values** - generate a pattern that works for ALL values.
+| Prefix | Meaning | StatType | Extra Properties |
+|--------|---------|----------|------------------|
+| `E_` | Estimate | `measuredValue` | — |
+| `M_` | Margin of Error | `marginOfError` | — |
+| `EP_` | Estimate % | `measuredValue` | `unit,Percent`, `measurementDenominator,-[constraint]` |
+| `MP_` | MOE % | `marginOfError` | `unit,Percent`, `measurementDenominator,-[constraint],-statType` |
 
----
+**DO NOT collapse** these variants into a single row. Each prefix requires its own PVMAP row.
 
-# CRITICAL RULE #5: StatVar Design & Dimension Coverage
+### First Principles Fallback (for unseen data types)
 
-**NOTE:** This was previously Rule #4. Rule #4 is now Entity vs Attribute.
-
-## The StatVar Formula
-A StatVar is defined by: `populationType` + `measuredProperty` + `statType` + `[constraint properties]`
-
-**Place and Time are NEVER part of the StatVar** - they belong to the Observation only.
-
-## Total Constraint Coverage
-If a column describes a subset of the population (e.g., "Male", "Rural", "Ages 18-25"), it MUST be represented as a property in the StatVar mapping:
-
-```csv
-# Dimension columns constrain the StatVar
-gender:Male,gender,Male
-gender:Female,gender,Female
-age:0-17,age,[0 17 Years]
-age:65+,age,[65 - Years]
-race:White,race,WhiteAlone
-```
-
-## Uniqueness Check
-If two rows have the same Place and Time but different values, there MUST be a difference in their StatVar definitions. If the StatVars look identical, you have failed to capture a dimension.
+If your data doesn't match any archetype above:
+1. Identify the INVARIANT: which column(s) identify the entity being measured? → `observationAbout`
+2. Identify the TIME: which column has dates/years? → `observationDate`
+3. Everything else: either a dimension (constrains StatVar, low cardinality) or a value (measurement, numeric)
+4. Map dimensions with COLUMN:VALUE syntax, values with `value,{Number}` + full StatVar properties
 
 ---
 
-# CRITICAL RULE #6: Exact DC Vocabulary
+# COMPACT SYNTAX REFERENCE
 
-**Use EXACT Data Commons property names and DCIDs:**
-
-### Common Pitfalls:
-| Wrong | Correct |
-|-------|---------|
-| `NoHighSchoolDiploma` | `LessThanHighSchoolDiploma` |
-| `SpeaksEnglishLessThanWell` | `SpeakEnglishLessThanVeryWell` |
-| `Years65Onwards` | `[65 - Years]` |
-| `Below150PercentPovertyLevel` | `[- 1.5 RatioToPovertyLine]` |
-| `benefitProgram` | `beneficiaryProgram` |
-| `populationGroup` | `populationType` |
-| `measurement` | `measuredProperty` |
-
-### Age Range Syntax:
-Use bracket notation: `[Start End Unit]`
-- `[65 - Years]` (65 and older)
-- `[18 64 Years]` (18 to 64)
-- `[0 17 Years]` (0 to 17)
-
----
-
-# PV MAP FORMAT
-
+## Format
 `key,property1,value1,property2,value2,...`
-
-- Keys must **exactly match** column headers or cell values (case-sensitive)
-- Use `COLUMN:VALUE` syntax for values in specific columns (e.g., `place:Alabama`)
-- Quote keys containing commas/special chars: `"ICD-10:#Heart (I00-I51)",causeOfDeath,X`
-
-## CSV Escaping Rules
-
-1. **Backslashes must be escaped**: Use `\\` for literal backslash
-2. **Quotes inside quoted fields**: Use double quotes `""`
-3. **Commas in keys**: Must double-quote the entire key
-4. **Validation**: Ensure each line is parseable by Python csv.reader
-
----
-
-# PATTERN F: STATISTICAL TYPE VARIANTS (US Census/ACS SPECIFIC)
-
-**APPLIES ONLY TO:** US Census Bureau data with specific column prefixes.
-**DO NOT APPLY TO:** International data (India NDAP/NFHS, OECD, FAO, Korea, Brazil) unless they explicitly use these exact prefixes.
-
-When data has E_, M_, EP_, MP_ prefixes for the same concept:
-
-| Prefix | Meaning | StatType | Additional Properties |
-|--------|---------|----------|----------------------|
-| `E_` | Estimate (count) | `measuredValue` | - |
-| `M_` | Margin of Error | `marginOfError` | - |
-| `EP_` | Estimate Percent | `measuredValue` | `unit,Percent`, `measurementDenominator,-[constraint]` |
-| `MP_` | Margin of Error % | `marginOfError` | `unit,Percent`, `measurementDenominator,-[constraint],-statType` |
-
-**Example:**
-```csv
-# Base estimate
-E_AGE65,populationType,Person,age,[65 - Years],value,{Number}
-# Margin of error
-M_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],value,{Number}
-# Percentage estimate
-EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,value,{Number}
-# Percentage margin of error
-MP_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],measurementDenominator,"-age,-statType",unit,Percent,scalingFactor,100,value,{Number}
-```
-
-**DO NOT collapse these variants into a single row.** Each prefix requires its own PVMAP row.
-
----
-
-# DATA PATTERNS
-
-## Pattern A: Flat Data (one observation per row)
-```csv
-REF_AREA,#Regex,"^(?P<Code>[A-Z]+):.*",observationAbout,country/{Code}
-TIME_PERIOD,observationDate,{Data}
-OBS_VALUE,value,{Number},populationType,FinancialInstrument,measuredProperty,interestRate,statType,measuredValue
-M: Monthly,observationPeriod,P1M
-```
-
-## Pattern B: Wide Data (multiple value columns)
-
-**CRITICAL**: Each column MUST include ALL properties - no inheritance between columns.
-
-```csv
-Jan 2015,observationDate,2015-01,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue,observationAbout,country/USA
-Feb 2015,observationDate,2015-02,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue,observationAbout,country/USA
-```
-
-## Pattern C: Row+Column Combinations
-```csv
-place,measurementMethod,CensusSurvey
-year,observationDate,{Data}
-Male,gender,Male,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
-Female,gender,Female,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
-place:Alabama,observationAbout,geoId/01
-```
-
-## Pattern D: Dimension Properties (Categorical Constraints)
-```csv
-# Core observation properties
-Country,observationAbout,country/{Data}
-Year,observationDate,{Data}
-Value,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
-
-# Dimension constraints (map each category value)
-gender:Male,gender,Male
-gender:Female,gender,Female
-gender:All,gender,
-```
-
-## Pattern E: Series ID Multiplexing (BLS-style)
-```csv
-Series ID,#ignore,skip
-Series ID:CEU0000000001,populationType,BLSWorker,measuredProperty,count,naics,NAICS/10,name,"All Employees"
-Jan 2015,observationDate,2015-01,value,{Number},observationPeriod,P1M,observationAbout,country/USA,populationType,BLSWorker,measuredProperty,count,statType,measuredValue
-```
-
----
-
-# SPECIAL SYNTAX
+- Keys must **exactly match** column headers (case-sensitive) or cell values
+- `COLUMN:VALUE` syntax for values in specific columns
+- Quote keys containing commas: `"ICD-10:#Heart",causeOfDeath,X`
+- CSV must be parseable by Python csv.reader
 
 ## Placeholders
-- `{Data}` - Raw string value from cell
-- `{Number}` - Numeric value from cell
-- `{Key}` - The key string that was looked up
+- `{Data}` — raw string value from cell
+- `{Number}` — numeric value from cell
+- `{Key}` — the key string that was looked up
 
-## Intermediate Variables
-Capitalize to capture for later use (not included in StatVar):
+## #Format — Zero-pad and Build Composite IDs
 ```csv
-year_col,Year,{Number}
-month_col,#Regex,"M(?P<Month>[0-9]+)"
-value_col,observationDate,{Year}-{Month},value,{Number}
-```
-
-## #Format - Zero-pad Values and Build Composite IDs
-```csv
-# Zero-padding for FIPS codes
 FIPS,#Format,"observationAbout=geoId/{Number:05d}"
-state_fips,#Format,"observationAbout=geoId/{Number:02d}"
-
-# Composite FIPS (state + county)
 statefips,#Format,StateFips={Number:0>2}
 countyfips,#Format,"observationAbout=geoId/{StateFips}{Number:0>3}"
 ```
 
-**PREFER #Format over hardcoded mappings** for ID columns (FIPS, ISO codes).
-
-## #Regex - Extract with Named Groups
+## #Regex — Extract with Named Groups
 ```csv
 REF_AREA,#Regex,"^(?P<Code>[A-Z]+):.*",observationAbout,country/{Code}
 ```
-**Must use named groups** `(?P<Name>...)` - unnamed groups don't work.
+Must use named groups `(?P<Name>...)`.
 
-## #Eval - Python Expressions
-```csv
-Status,#Eval,"active='Yes' if '{Data}' == 'Y' else 'No'"
-```
-
-## #ignore - Drop Rows
+## #ignore — Drop Rows
 ```csv
 Series ID,#ignore,skip
 ```
 
+## Place Prefix Quick-Reference
+| Prefix | Use For |
+|--------|---------|
+| `country/{Data}` | ISO country codes (USA, IND, FRA) |
+| `geoId/{Data}` | Standard IDs — US FIPS, ISO numeric |
+| `wikidataId/{Data}` | Local regions globally (not just India) |
+| `nuts/{Data}` | EU NUTS codes |
+
+Choose by **ID type**, not geography. `geoId/` works for US AND international ISO codes.
+Extract units from headers: `(USD)` → `unit,USDollar`, `(%)` → `unit,Percent`, `(thousands)` → `scalingFactor,1000`.
+
+## Required Properties
+**Observation**: `value`, `observationDate`, `observationAbout`
+**StatVar**: `populationType`, `measuredProperty`, `statType` + constraints
+
 ---
 
-# PLACE FORMATS (BY ID AUTHORITY, NOT REGION)
+# WORKED EXAMPLES
 
-**IMPORTANT:** Choose prefix by **ID type**, not geography. geoId works for ANY standard ID.
+## Example 1: Wide/Flat with Semantic Headers (OECD/FAO)
 
-| Format | Example | Use Case | ID Authority |
-|--------|---------|----------|--------------|
-| `country/{Data}` | `country/USA`, `country/IND` | ISO-3 country codes | ISO 3166-1 |
-| `geoId/{Data}` | `geoId/06`, `geoId/IN` | Standard IDs (FIPS, ISO) | General |
-| `geoId/{Number:05d}` | `geoId/01001` | US county FIPS (zero-padded) | US Census |
-| `wikidataId/Q{Data}` | `wikidataId/Q1353` | Local admin regions, cities | Wikidata |
-| `nuts/{Data}` | `nuts/DEF0` | EU NUTS classification | Eurostat |
-| `ibge/{Data}` | `ibge/3304557` | Brazilian municipal codes | IBGE |
-| `iso/{Data}` | `iso/IN-KA` | ISO 3166-2 subdivisions | ISO |
-| `Earth` | `Earth` | Global data | - |
-
-**Prefix Selection by ID Type (NOT by Country):**
-- **Standard codes** (2-3 letter ISO, numeric FIPS) -> Use `geoId/`
-- **Wikidata Q-IDs** (Q + digits, e.g., `Q1353`) -> Use `wikidataId/`
-- **NUTS codes** (2-letter + alphanumeric, e.g., `FR10`) -> Use `nuts/`
-- **ISO 3166-2** (2-letter + hyphen, e.g., `IN-KA`) -> Use `iso/`
-- **Brazilian municipal** (7-digit IBGE) -> Use `ibge/`
-
-**KEY INSIGHT:** `wikidataId/` is NOT "for India" - it's for ANY local region globally that lacks standard codes. `geoId/` works for US AND international ISO codes.
-
-**Dynamic construction does NOT work**: `observationAbout,{Country}/{City}` fails.
-
-**Use explicit mappings for place names:**
+**Input:**
 ```csv
-Country or Area:Åland Islands,observationAbout,country/AX
-srcStateName:Punjab,observationAbout,wikidataId/Q22424
-"State/UT:Delhi",observationAbout,wikidataId/Q1353
-"State/UT:Karnataka",observationAbout,wikidataId/Q1185
+Country,Year,GDP per capita (USD),Unemployment Rate (%)
+FRA,2020,40000,8.5
+DEU,2020,45000,3.2
+```
+
+**PVMAP:**
+```csv
+key,property,value
+Country,observationAbout,country/{Data}
+Year,observationDate,{Data}
+"GDP per capita (USD)",value,{Number},populationType,EconomicActivity,measuredProperty,amount,measurementMethod,PerCapita,unit,USDollar
+"Unemployment Rate (%)",value,{Number},populationType,Person,measuredProperty,unemploymentRate,unit,Percent
 ```
 
 ---
 
-# REQUIRED PROPERTIES
+## Example 2: Dimension/Row with #Regex (India NDAP)
 
-**StatVarObservation**: `value`, `observationDate`, `observationAbout`, `observationPeriod`, `unit`, `measurementMethod`, `scalingFactor`
+**Input (sample shows 3 states, dataset has 28+):**
+```csv
+State/UT,OBS_Year,Gender,Life expectancy in years
+State/UT:Jammu And Kashmir,2020,Male,68.5
+State/UT:Delhi,2020,Female,72.3
+```
 
-**StatVar**: `populationType`, `measuredProperty`, `statType` + constraints (age, gender, race, etc.)
-
-**NEVER map `variableMeasured`** - auto-constructed by processor.
-
----
-
-# OBSERVATION PERIOD NOMENCLATURE (ISO 8601)
-
-| Period | Notation | Example Use |
-|--------|----------|-------------|
-| Daily | `P1D` | Daily rates |
-| Monthly | `P1M` | Monthly data |
-| Quarterly | `P3M` | Q1, Q2, Q3, Q4 |
-| Annual | `P1Y` | Yearly data |
-| 5-Year | `P5Y` | ACS 5-year estimates |
-
----
-
-# UNIT AND SCALING
-
-Check headers for keywords indicating unit/scale:
-
-| Header Contains | Add Properties |
-|-----------------|----------------|
-| `(thousands)`, `(000s)` | `scalingFactor,1000` |
-| `(millions)` | `scalingFactor,1000000` |
-| `%`, `Percent`, `Rate` | `unit,Percent` or `unit,PercentPerAnnum` |
-| `USD`, `$` | `unit,USDollar` |
-| `INR` | `unit,IndianRupee` |
+**PVMAP:**
+```csv
+key,property,value
+"State/UT",#Regex,"^State/UT:(?P<StateName>.*)",observationAbout,wikidataId/{StateName}
+OBS_Year,observationDate,{Data}
+Gender:Male,gender,Male
+Gender:Female,gender,Female
+"Life expectancy in years",value,{Number},populationType,Person,measuredProperty,lifeExpectancy,statType,measuredValue,unit,Year
+```
 
 ---
 
-# COMMON MISTAKES TO AVOID
+## Example 3: Census/Coded with E_/M_/EP_/MP_ + #Format (US Census SVI)
 
-1. **Missing observationAbout** - causes 0 output rows
-2. **Placeholder columns** (p2, v2, dcid:v2) - pollutes output
-3. **Inexact DCIDs** - use exact DC vocabulary
-4. **Collapsing E_/M_/EP_/MP_ variants** - each needs separate row
-5. **Hardcoded mappings for IDs** - use #Format for FIPS/ISO codes
-6. **Dynamic place construction** - use explicit mappings for names
-7. **Missing StatVar properties on value columns**
-8. **Ignoring dimension columns** - they constrain the StatVar
+**Input:**
+```csv
+FIPS,year,E_AGE65,M_AGE65,EP_AGE65,MP_AGE65
+01001,2020,5000,150,12.5,0.3
+```
+
+**PVMAP:**
+```csv
+key,property,value
+FIPS,#Format,observationAbout=geoId/{Data:0>5}
+year,observationDate,{Number}
+E_AGE65,populationType,Person,age,[65 - Years],value,{Number}
+M_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],value,{Number}
+EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,value,{Number}
+MP_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],measurementDenominator,"-age,-statType",unit,Percent,scalingFactor,100,value,{Number}
+```
 
 ---
 
@@ -431,151 +239,6 @@ Check headers for keywords indicating unit/scale:
 
 ---
 
-# WORKED EXAMPLES
-
-## Example 1: Missing observationAbout (FEMA Dataset)
-
-**Input Data:**
-```csv
-State,Year,Disasters,TotalAmount
-AL,2020,5,1234567
-FL,2021,8,9876543
-```
-
-**Wrong PVMAP** (causes validation failure with 0 rows):
-```csv
-Year,observationDate,{Data}
-Disasters,value,{Number},populationType,NaturalDisaster,measuredProperty,count,statType,measuredValue
-```
-
-**Correct PVMAP:**
-```csv
-State,observationAbout,geoId/{StateCode}
-State:AL,StateCode,01
-State:FL,StateCode,12
-Year,observationDate,{Data}
-Disasters,value,{Number},populationType,NaturalDisaster,measuredProperty,count,statType,measuredValue
-```
-
----
-
-## Example 2: Pre-Formatted Data (Brazil Food Basket)
-
-**Input Data:**
-```csv
-observationAbout,observationDate,variableMeasured,value
-country/BRA,2020-01,dcid:CumulativeCount_FoodBasket_Delivered,1500
-```
-
-**Correct PVMAP** (passthrough):
-```csv
-observationAbout,observationAbout,{Data}
-observationDate,observationDate,{Data}
-variableMeasured,variableMeasured,{Data}
-value,value,{Number}
-```
-
----
-
-## Example 3: Statistical Variants (CDC SVI Pattern)
-
-**Input Data:**
-```csv
-FIPS,year,E_AGE65,M_AGE65,EP_AGE65,MP_AGE65
-01001,2020,5000,150,12.5,0.3
-```
-
-**Correct PVMAP** (separate row for each variant):
-```csv
-FIPS,#Format,observationAbout=geoId/{Data:0>5}
-year,observationDate,{Number}
-
-E_AGE65,populationType,Person,age,[65 - Years],value,{Number}
-M_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],value,{Number}
-EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,value,{Number}
-MP_AGE65,statType,marginOfError,populationType,Person,age,[65 - Years],measurementDenominator,"-age,-statType",unit,Percent,scalingFactor,100,value,{Number}
-```
-
----
-
-## Example 4: Composite FIPS with #Format
-
-**Input Data:**
-```csv
-statefips,countyfips,year,population
-06,037,2020,10014009
-```
-
-**Correct PVMAP:**
-```csv
-statefips,#Format,StateFips={Number:0>2}
-countyfips,#Format,"observationAbout=geoId/{StateFips}{Number:0>3}"
-year,observationDate,{Data}
-population,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
-```
-
----
-
-## Example 5: International Data - India NDAP (Embedded Place Values)
-
-**Input Data (sample shows 3 states, but dataset has 28+):**
-```csv
-State/UT,OBS_Year,Gender,Life expectancy in years
-State/UT:Jammu And Kashmir,2020,Male,68.5
-State/UT:Delhi,2020,Female,72.3
-State/UT:Himachal Pradesh,2020,Male,69.1
-```
-
-**Wrong PVMAP (hardcodes only visible states):**
-```csv
-"State/UT:Jammu And Kashmir",observationAbout,wikidataId/Q1180
-"State/UT:Delhi",observationAbout,wikidataId/Q1353
-"State/UT:Himachal Pradesh",observationAbout,wikidataId/Q1177
-```
-*Problem: Only 3 mappings - fails for Punjab, Kerala, etc.*
-
-**Correct PVMAP (uses #Regex for dynamic extraction):**
-```csv
-key,property,value
-"State/UT",#Regex,"^State/UT:(?P<StateName>.*)",observationAbout,wikidataId/{StateName}
-OBS_Year,observationDate,{Data}
-Gender:Male,gender,Male
-Gender:Female,gender,Female
-"Life expectancy in years",value,{Number},populationType,Person,measuredProperty,lifeExpectancy,statType,measuredValue,unit,Year,observationPeriod,P5Y
-```
-
-**Key Lessons:**
-1. Use `#Regex` to extract place names from composite values
-2. Map Gender as ATTRIBUTE (explicit enumeration) - small fixed set
-3. Map State/UT as ENTITY (dynamic pattern) - high cardinality
-4. Use `wikidataId/` prefix for India, not `geoId/`
-
----
-
-## Example 6: International Data - OECD/FAO (Semantic Headers)
-
-**Input Data:**
-```csv
-Country,Year,GDP per capita (USD),Unemployment Rate (%)
-FRA,2020,40000,8.5
-DEU,2020,45000,3.2
-```
-
-**Correct PVMAP:**
-```csv
-Country,observationAbout,country/{Data}
-Year,observationDate,{Data}
-"GDP per capita (USD)",value,{Number},populationType,EconomicActivity,measuredProperty,amount,measurementMethod,PerCapita,unit,USDollar
-"Unemployment Rate (%)",value,{Number},populationType,Person,measuredProperty,unemploymentRate,unit,Percent
-```
-
-**Key Lessons:**
-1. Extract units from parentheses in headers: `(USD)` -> `unit,USDollar`
-2. ISO country codes use `country/` prefix
-3. No E_/M_/EP_/MP_ prefixes - this is NOT US Census data
-
----
-
 # INPUT DATA
 
 {{SAMPLED_DATA}}
@@ -586,37 +249,27 @@ Year,observationDate,{Data}
 
 {{METADATA_CONFIG}}
 
+If metadata has `input_rename`: use RENAMED column names (renames apply before PVMAP lookup).
+If metadata has `observation_date_format`: just map to `observationDate`, don't format dates.
+If metadata sets global `unit`/`measurementMethod`/`scalingFactor`: don't duplicate in PVMAP rows.
+
 ---
 
 # OUTPUT
 
+**CRITICAL:** PVMAP keys are matched CASE-SENSITIVELY against column headers. Mismatched keys are SILENTLY IGNORED (producing 0 output rows). Copy column names EXACTLY from the COLUMN REFERENCE TABLE in DATA CONTEXT.
+
 Provide ONLY pvmap.csv content in a csv code block. The CSV MUST start with a header row beginning with `key`:
 
 ```csv
-key,property,value,p2,v2,...
-```
-
-**Example output format:**
-```csv
 key,property,value
-FIPS,#Format,observationAbout=geoId/{Data:0>5}
-Year,observationDate,{Data}
-Value,value,{Number},populationType,Person,measuredProperty,count,statType,measuredValue
 ```
 
 **MANDATORY CHECKLIST (verify before output):**
 
-1. [ ] **DIMENSION SKELETON completed** - Place column identified and named
-2. [ ] **observationAbout mapped** - Uses #Format, #Regex, or dynamic {Data} pattern
-3. [ ] **Correct place prefix by ID Authority** - `geoId/` for ISO codes & US FIPS, `wikidataId/` for local regions globally, `nuts/` for EU NUTS codes, `iso/` for ISO 3166-2
-4. [ ] **Entity vs Attribute classified** - Places use dynamic patterns, attributes use enumeration
-5. [ ] **No sample overfitting** - Dynamic mappings for high-cardinality columns (not just visible values)
-6. [ ] **Composite values handled** - Use #Regex for embedded place names (State/UT:Delhi -> wikidataId/)
-7. [ ] **Data format detected** - Pre-formatted DC data uses passthrough mapping
-8. [ ] **Keys exactly match input** (case-sensitive)
-9. [ ] **No placeholder columns** (no p2, v2, dcid:v2, empty columns)
-10. [ ] **Value columns have full StatVar properties** (populationType, measuredProperty, statType)
-11. [ ] **Dimension columns mapped** - All categorical splits (age, gender, race) have constraint mappings
-12. [ ] **E_/M_/EP_/MP_ variants** - Each gets separate PVMAP row (US Census only)
-13. [ ] **Exact DC vocabulary used** - Property names match schema examples
-14. [ ] **CSV formatting valid** - Parseable by Python csv.reader
+1. [ ] **observationAbout mapped** (place column identified with correct prefix)
+2. [ ] **observationDate mapped** (time column identified)
+3. [ ] **Keys EXACTLY match column headers** (case-sensitive, no paraphrase)
+4. [ ] **Value columns have StatVar properties** (populationType, measuredProperty, statType)
+5. [ ] **Dynamic patterns for high-cardinality** (no hardcoded values for entities)
+6. [ ] **CSV parseable** by Python csv.reader

@@ -96,7 +96,7 @@ class TestCreateEnrichmentAgent:
         )
 
         assert "Person" in agent.instruction
-        assert "Count_Person_{Gender}" in agent.instruction
+        assert "Count_Person_[Gender]" in agent.instruction
         assert "Gender" in agent.instruction
 
     @patch("src.agents.dc_query_agent.create_dc_mcp_toolset")

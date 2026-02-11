@@ -38,6 +38,11 @@ from src.agents.pvmap_generation.helpers import (
 )
 from src.tools.validation_tool import run_validation
 from src.pipeline.validation.feedback_tracker import FeedbackEffectivenessTracker
+from src.pipeline.validation.pvmap_repair import (
+    repair_pvmap,
+    pre_validate_pvmap,
+    generate_key_match_report,
+)
 
 
 class ValidationAgent(BaseAgent):
@@ -143,6 +148,62 @@ class ValidationAgent(BaseAgent):
 
             # Convert to CSV
             pvmap_csv = convert_pvmap_output_to_csv(pvmap_model)
+
+            # =====================================================================
+            # Step 1.5: Repair PVMAP keys + pre-validate structure
+            # =====================================================================
+            input_file_for_repair = None
+            if current_dataset.input_data_files:
+                input_file_for_repair = Path(str(current_dataset.input_data_files[0]))
+
+            if input_file_for_repair and input_file_for_repair.exists():
+                # Repair key mismatches programmatically
+                pvmap_csv, repair_changes = repair_pvmap(pvmap_csv, input_file_for_repair)
+                ctx.session.state["pvmap_repair_changes"] = repair_changes
+                if repair_changes:
+                    changes_preview = "; ".join(repair_changes[:5])
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Auto-repaired {len(repair_changes)} key issues: {changes_preview}")
+                        ])
+                    )
+
+                # Fast pre-validation (milliseconds, not minutes)
+                pre_ok, pre_errors = pre_validate_pvmap(pvmap_csv, input_file_for_repair)
+                if not pre_ok:
+                    # Skip expensive subprocess - feed errors back immediately
+                    error_msg = "PRE-VALIDATION FAILED (skipping subprocess):\n" + "\n".join(pre_errors)
+                    ctx.session.state["validation_success"] = False
+                    ctx.session.state["validation_error"] = error_msg
+                    ctx.session.state["pvmap_csv"] = pvmap_csv
+
+                    # Save attempt artifacts before early return
+                    try:
+                        llm_result = ctx.session.state.get("pvmap_llm_result") or {
+                            'model': ctx.session.state.get('model', 'unknown'),
+                            'text': pvmap_csv or str(pvmap_output),
+                        }
+                        save_attempt_response(
+                            output_dir=Path(current_dataset.output_dir),
+                            attempt=attempt_number,
+                            llm_result=llm_result,
+                            error_feedback=ctx.session.state.get("error_feedback"),
+                            pvmap_csv=pvmap_csv,
+                            validation_result={"success": False, "error": error_msg}
+                        )
+                    except Exception:
+                        pass  # Don't fail validation due to logging errors
+
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Pre-validation FAILED: {'; '.join(pre_errors[:3])}")
+                        ]),
+                        actions=EventActions(escalate=False)
+                    )
+                    return
+
             ctx.session.state["pvmap_csv"] = pvmap_csv
 
             # Save to file
@@ -166,6 +227,24 @@ class ValidationAgent(BaseAgent):
         except Exception as e:
             ctx.session.state["validation_success"] = False
             ctx.session.state["validation_error"] = f"CSV conversion failed: {str(e)}"
+
+            # Save attempt artifacts before early return
+            try:
+                llm_result = ctx.session.state.get("pvmap_llm_result") or {
+                    'model': ctx.session.state.get('model', 'unknown'),
+                    'text': str(pvmap_output),
+                }
+                save_attempt_response(
+                    output_dir=Path(current_dataset.output_dir),
+                    attempt=attempt_number,
+                    llm_result=llm_result,
+                    error_feedback=ctx.session.state.get("error_feedback"),
+                    pvmap_csv=None,
+                    validation_result={"success": False, "error": str(e)}
+                )
+            except Exception:
+                pass  # Don't fail validation due to logging errors
+
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
@@ -202,16 +281,22 @@ class ValidationAgent(BaseAgent):
             )
             return
 
-        # Get metadata file: prefer ground_truth metadata, then discovered metadata_files
+        # Get metadata file: prefer auto-generated config (has merged GT/user values + PVMAP-derived params)
         metadata_file = None
-        if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
-            # Use first CSV in ground_truth metadata dir
-            gt_meta_dir = Path(current_dataset.ground_truth_metadata)
-            gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
-            if gt_meta_files:
-                metadata_file = str(gt_meta_files[0])
+        # Tier 1: Auto-generated config from MetadataGenerationAgent (PVMAP-derived + merged values)
+        generated_config = ctx.session.state.get("generated_config_path")
+        if generated_config and Path(generated_config).exists():
+            metadata_file = generated_config
+        # Tier 2: User-provided metadata (fallback)
         if not metadata_file and current_dataset.use_metadata and current_dataset.metadata_files:
             metadata_file = str(current_dataset.metadata_files[0])
+        # Tier 3: Ground truth metadata (last resort, for benchmarking only)
+        if not metadata_file:
+            if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
+                gt_meta_dir = Path(current_dataset.ground_truth_metadata)
+                gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
+                if gt_meta_files:
+                    metadata_file = str(gt_meta_files[0])
         if not metadata_file:
             # Metadata is optional — validation can proceed without it
             yield Event(
@@ -238,15 +323,22 @@ class ValidationAgent(BaseAgent):
         ctx.session.state["validation_counter_summary"] = result.get("counter_summary", "")
         ctx.session.state["validation_statvar_analysis"] = result.get("statvar_analysis", "")
 
+        # Generate key match report for feedback agent
+        if input_file_for_repair and input_file_for_repair.exists():
+            key_match_report = generate_key_match_report(pvmap_csv, input_file_for_repair)
+            ctx.session.state["key_match_report"] = key_match_report
+        else:
+            ctx.session.state["key_match_report"] = ""
+
         # =====================================================================
         # Step 3: Save attempt artifacts
         # =====================================================================
         try:
             # Build llm_result dict for logging (from generator state if available)
-            llm_result = ctx.session.state.get("pvmap_llm_result", {
+            llm_result = ctx.session.state.get("pvmap_llm_result") or {
                 'model': ctx.session.state.get('model', 'unknown'),
-                'text': str(pvmap_output),
-            })
+                'text': pvmap_csv or str(pvmap_output),
+            }
 
             save_attempt_response(
                 output_dir=Path(current_dataset.output_dir),

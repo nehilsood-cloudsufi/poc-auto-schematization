@@ -4,6 +4,7 @@ import pytest
 from src.agents.template_utils import (
     escape_pvmap_placeholders,
     unescape_pvmap_placeholders,
+    sanitize_for_adk,
 )
 
 
@@ -55,12 +56,28 @@ class TestEscapePvmapPlaceholders:
         """Test handling of empty string."""
         assert escape_pvmap_placeholders("") == ""
 
-    def test_preserves_other_curly_braces(self):
-        """Test that other curly brace content is preserved."""
+    def test_escapes_arbitrary_word_patterns(self):
+        """Test that arbitrary {word} patterns are escaped (catch-all)."""
         text = "some {other_var} text with {Data}"
         result = escape_pvmap_placeholders(text)
-        assert "{other_var}" in result  # Should not be escaped
-        assert "[DATA]" in result  # Should be escaped
+        assert "[other_var]" in result  # Catch-all escapes {word} patterns
+        assert "[DATA]" in result  # Known placeholder escaped
+
+    def test_escapes_llm_feedback_patterns(self):
+        """Test that LLM-generated patterns like {year}, {measurement_type} are escaped."""
+        text = "Map the {year} column to observationDate. Use {measurement_type} as property."
+        result = escape_pvmap_placeholders(text)
+        assert "[year]" in result
+        assert "[measurement_type]" in result
+        assert "{year}" not in result
+        assert "{measurement_type}" not in result
+
+    def test_preserves_json_curly_braces(self):
+        """Test that JSON-like content with spaces/colons is not escaped."""
+        text = '{"key": "value", "list": [1, 2]}'
+        result = escape_pvmap_placeholders(text)
+        # JSON-like patterns with spaces/colons should NOT match {word} regex
+        assert '{"key": "value"' in result
 
     def test_real_pvmap_content(self):
         """Test with realistic PVMAP content."""
@@ -119,6 +136,88 @@ class TestUnescapePvmapPlaceholders:
         assert unescape_pvmap_placeholders("") == ""
 
 
+class TestSanitizeForAdk:
+    """Tests for sanitize_for_adk function."""
+
+    def test_single_brace_identifier(self):
+        """Single-brace identifiers are converted to brackets."""
+        assert sanitize_for_adk("Search for {measurement} data") == "Search for [measurement] data"
+
+    def test_double_brace_identifier(self):
+        """Double-brace identifiers are also converted (ADK strips all braces)."""
+        assert sanitize_for_adk("Search for {{measurement}} data") == "Search for [measurement] data"
+
+    def test_triple_brace_identifier(self):
+        """Triple braces are also caught."""
+        assert sanitize_for_adk("{{{word}}}") == "[word]"
+
+    def test_multiple_patterns(self):
+        """Multiple patterns in one string."""
+        text = "{{measurement}} {{population}} {{constraint}}"
+        result = sanitize_for_adk(text)
+        assert result == "[measurement] [population] [constraint]"
+
+    def test_mixed_single_and_double(self):
+        """Mix of single and double braces."""
+        text = "{Data} and {{measurement}}"
+        result = sanitize_for_adk(text)
+        assert result == "[Data] and [measurement]"
+
+    def test_preserves_json(self):
+        """JSON-like content with spaces/colons is preserved."""
+        text = '{"key": "value", "list": [1, 2]}'
+        result = sanitize_for_adk(text)
+        assert result == '{"key": "value", "list": [1, 2]}'
+
+    def test_preserves_non_identifiers(self):
+        """Non-identifier patterns are left alone."""
+        text = "{key: value} {123abc} {}"
+        result = sanitize_for_adk(text)
+        assert result == "{key: value} {123abc} {}"
+
+    def test_underscore_identifiers(self):
+        """Identifiers with underscores are caught."""
+        text = "{measurement_type} {_private}"
+        result = sanitize_for_adk(text)
+        assert result == "[measurement_type] [_private]"
+
+    def test_none_input(self):
+        assert sanitize_for_adk(None) == ""
+
+    def test_empty_string(self):
+        assert sanitize_for_adk("") == ""
+
+    def test_no_braces(self):
+        text = "Plain text with [brackets] and no braces"
+        assert sanitize_for_adk(text) == text
+
+    def test_real_enrichment_instruction(self):
+        """Test with the actual problematic patterns from ENRICHMENT_BROAD_INSTRUCTION."""
+        text = (
+            '1. Start broad: Search for "{{measurement}} {{population}}"\n'
+            '2. Narrow: "{{measurement}} {{population}} {{constraint}}"'
+        )
+        result = sanitize_for_adk(text)
+        assert "{{" not in result
+        assert "}}" not in result
+        assert "[measurement]" in result
+        assert "[population]" in result
+        assert "[constraint]" in result
+
+    def test_pvmap_content_in_error_resolver(self):
+        """Test that PVMAP content with {Data}/{Number} in substituted values is sanitized."""
+        text = (
+            "Current PVMAP:\n"
+            "Year,observationDate,{Data}\n"
+            "Pop,value,{Number}"
+        )
+        result = sanitize_for_adk(text)
+        assert "{Data}" not in result
+        assert "{Number}" not in result
+        assert "[Data]" in result
+        assert "[Number]" in result
+
+
 class TestEdgeCases:
     """Tests for edge cases and potential issues."""
 
@@ -133,16 +232,17 @@ class TestEdgeCases:
         assert "[DATA]" in result
 
     def test_case_sensitivity(self):
-        """Test that only exact case matches are escaped."""
+        """Test escape behavior across case variants."""
         text = "{data} {DATA} {Data} {number} {NUMBER} {Number}"
         result = escape_pvmap_placeholders(text)
-        # Only {Data} and {Number} (exact case) should be escaped
-        assert "{data}" in result  # lowercase not escaped
-        assert "{DATA}" in result  # uppercase not escaped
+        # {Data} and {Number} are escaped by specific rules to uppercase [DATA]/[NUMBER]
         assert "[DATA]" in result  # proper case escaped
-        assert "{number}" in result  # lowercase not escaped
-        assert "{NUMBER}" in result  # uppercase not escaped
         assert "[NUMBER]" in result  # proper case escaped
+        # Other case variants are caught by the catch-all {word} -> [word]
+        assert "[data]" in result  # catch-all
+        assert "[DATA]" in result  # both specific + catch-all produce this
+        assert "[number]" in result  # catch-all
+        assert "[NUMBER]" in result  # both specific + catch-all produce this
 
     def test_diff_output_with_pvmap_content(self):
         """Test realistic diff output that might contain PVMAP snippets."""

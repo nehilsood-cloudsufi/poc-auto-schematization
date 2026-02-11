@@ -314,3 +314,74 @@ def test_generate_data_context_convenience(population_df):
     assert context.all_columns == list(population_df.columns)
     assert isinstance(context.aggregate_values, dict)
     assert isinstance(context.is_preformatted_dc, bool)
+
+
+# ============================================================================
+# Column Stats & Reference Table Tests
+# ============================================================================
+
+def test_column_stats_populated(generator, population_df):
+    """Test that column_stats is populated for all columns."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    assert len(context.column_stats) == len(population_df.columns)
+    for col in population_df.columns:
+        assert col in context.column_stats
+        stats = context.column_stats[col]
+        assert 'dtype' in stats
+        assert 'cardinality' in stats
+        assert 'null_count' in stats
+        assert 'null_pct' in stats
+        assert 'sample_values' in stats
+
+
+def test_column_stats_dtype_detection(generator, population_df):
+    """Test dtype detection for numeric and string columns."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    # Population column should be Integer
+    assert context.column_stats['Population']['dtype'] == 'Integer'
+    # Gender should be String
+    assert context.column_stats['Gender']['dtype'] == 'String'
+
+
+def test_column_stats_cardinality(generator, population_df):
+    """Test cardinality counts are correct."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    # Gender has 2 unique values: Male, Female
+    assert context.column_stats['Gender']['cardinality'] == 2
+    # AgeGroup has 2 unique values: Under18, 65Plus
+    assert context.column_stats['AgeGroup']['cardinality'] == 2
+
+
+def test_column_stats_sample_values(generator, population_df):
+    """Test sample values include actual data."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    gender_samples = context.column_stats['Gender']['sample_values']
+    assert len(gender_samples) > 0
+    assert any(v in ['Male', 'Female'] for v in gender_samples)
+
+
+def test_skeleton_summary_has_column_reference_table(generator, population_df):
+    """Test that skeleton summary includes Section 1.5 when column_stats populated."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    summary = context.to_skeleton_summary()
+    assert "## 1.5 COLUMN REFERENCE TABLE" in summary
+    assert "USE EXACT NAMES AS PVMAP KEYS" in summary
+    # All columns should appear in backticks in the table
+    for col in population_df.columns:
+        assert f"`{col}`" in summary
+
+
+def test_skeleton_summary_key_matching_rule(generator, population_df):
+    """Test that skeleton summary includes the key matching rule."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    summary = context.to_skeleton_summary()
+    assert "KEY MATCHING RULE" in summary
+    assert "EXACTLY match" in summary
+
+
+def test_column_stats_in_metadata_dict(generator, population_df):
+    """Test that column_stats is included in to_metadata_dict."""
+    context = generator.generate(population_df, dataset_name="test_pop")
+    meta = context.to_metadata_dict()
+    assert 'column_stats' in meta
+    assert len(meta['column_stats']) == len(population_df.columns)

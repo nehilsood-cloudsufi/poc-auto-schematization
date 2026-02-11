@@ -80,6 +80,8 @@ STATE_SCHEMA = {
     "validation_error_logs": "str - Sampled validation error logs",
     "processed_output_file": "Path - statvar_processor output file",
     "validation_output_path": "Path - Directory for validation outputs",
+    "generated_config_path": "str - Path to auto-generated stat_var_processor config CSV",
+    "generated_config_params": "dict - Parameters in the auto-generated config",
 
     # -------------------------------------------------------------------------
     # Evaluation Phase (EvaluationAgent)
