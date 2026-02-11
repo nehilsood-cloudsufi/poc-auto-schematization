@@ -226,6 +226,15 @@ Provide your analysis in this structure:
 
 6. **Rows to PRESERVE**: Identify which existing PVMAP rows are correct and should NOT be changed
 
+**NEVER suggest these changes (they always make things worse):**
+- Removing or changing the observationDate mapping
+- Removing or changing the observationAbout mapping
+- Removing the value/[NUMBER] mapping from measurement columns
+- Hardcoding observationDate to a single year (must use [DATA] or [NUMBER] from column)
+- Hardcoding observationAbout to a single place (must use [DATA] from column)
+- Replacing decomposed property chains with variableMeasured DCIDs
+- Removing dimension columns (COLUMN:VALUE mappings) that correctly constrain StatVars
+
 Keep your response focused and actionable. The generator will read this feedback directly."""
 
 

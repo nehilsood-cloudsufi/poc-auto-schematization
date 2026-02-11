@@ -86,9 +86,10 @@ class QualityEvaluationAgent(BaseAgent):
     PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
     STAGNATION_RATIO: ClassVar[float] = 0.10  # Minimum improvement as fraction of previous accuracy
 
-    def __init__(self, name: str = "QualityEvaluator"):
+    def __init__(self, name: str = "QualityEvaluator", max_retries: int = 2):
         """Initialize QualityEvaluationAgent."""
         super().__init__(name=name)
+        self._max_retries = max_retries
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -156,6 +157,7 @@ class QualityEvaluationAgent(BaseAgent):
         # Only numeric scores are extracted; diff_text is NEVER stored.
         # =====================================================================
         gt_pvmap_path = ctx.session.state.get("gt_pvmap_path_cached")
+        gt_comparison_failed = False
         if gt_pvmap_path:
             gt_scores = self._evaluate_with_ground_truth(ctx, pvmap_csv)
             if gt_scores:
@@ -168,26 +170,39 @@ class QualityEvaluationAgent(BaseAgent):
                         types.Part(text=f"GT scores: Node Acc={gt_node:.1f}%, PV Acc={gt_pv:.1f}%")
                     ])
                 )
+            else:
+                # GT path exists but comparison failed — block heuristic acceptance
+                gt_comparison_failed = True
+                quality_acceptable = False
+                quality_metrics["gt_comparison_failed"] = True
+                quality_metrics["quality_reject_reason"] = "gt_comparison_failed"
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text="GT comparison failed — blocking heuristic acceptance, continuing retries")
+                    ])
+                )
 
         # =====================================================================
         # Step 1b-ii: Re-evaluate quality_acceptable with PV accuracy (Priority 2)
         # PV accuracy < 30% overrides heuristic acceptance when GT is available.
         # =====================================================================
-        gt_pv_accuracy = quality_metrics.get("gt_pv_accuracy")
-        if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
-            quality_acceptable = False  # Override even if heuristic was fine
-            quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
-            if not quality_diff_summary:
-                quality_diff_summary = format_quality_report(
-                    {"total": quality_metrics.get("heuristic_score", 0),
-                     "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
-                     "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
-                     "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
-                     "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
-                     "issues": ""}
-                )
-        elif not quality_acceptable:
-            quality_metrics["quality_reject_reason"] = "heuristic_low"
+        if not gt_comparison_failed:
+            gt_pv_accuracy = quality_metrics.get("gt_pv_accuracy")
+            if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
+                quality_acceptable = False  # Override even if heuristic was fine
+                quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
+                if not quality_diff_summary:
+                    quality_diff_summary = format_quality_report(
+                        {"total": quality_metrics.get("heuristic_score", 0),
+                         "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                         "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                         "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
+                         "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                         "issues": ""}
+                    )
+            elif not quality_acceptable:
+                quality_metrics["quality_reject_reason"] = "heuristic_low"
 
         # =====================================================================
         # Step 1c: Enrich diff summary with counter metrics (when quality low)
@@ -309,6 +324,11 @@ class QualityEvaluationAgent(BaseAgent):
             if reject_reason == "pv_accuracy_low" and gt_pv is not None:
                 message = (
                     f"Quality LOW: PV accuracy {gt_pv:.1f}% < {self.PV_ACCURACY_THRESHOLD}% threshold. "
+                    f"Continuing to feedback."
+                )
+            elif reject_reason == "gt_comparison_failed":
+                message = (
+                    f"Quality LOW: GT comparison failed, heuristic {score_value:.1f}/100. "
                     f"Continuing to feedback."
                 )
             else:

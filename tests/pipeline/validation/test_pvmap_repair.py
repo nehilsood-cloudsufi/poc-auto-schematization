@@ -12,6 +12,9 @@ from pathlib import Path
 import pytest
 
 from src.pipeline.validation.pvmap_repair import (
+    _clean_hallucinated_key,
+    _normalize_date_place_placeholders,
+    _strip_dcid_prefixes,
     build_key_index,
     generate_key_match_report,
     load_input_headers,
@@ -474,3 +477,350 @@ def test_key_match_report_unique_column_rate(simple_csv):
     # 3 unique columns (State, Year, Gender) all match
     assert "100%" in report
     assert "3/3" in report
+
+
+# ============================================================================
+# _clean_hallucinated_key tests
+# ============================================================================
+
+def test_clean_hallucinated_duplicate_description():
+    """Strip duplicate description segments from colon-header keys."""
+    headers = ["REF_AREA:Reference area", "TIME_PERIOD:Time period"]
+    headers_set = set(headers)
+
+    # Duplicate description + appended sample values
+    result = _clean_hallucinated_key(
+        "REF_AREA:Reference area:Reference area:AR: Argentina",
+        headers, headers_set
+    )
+    assert result == "REF_AREA:Reference area"
+
+
+def test_clean_hallucinated_header_prefix_match():
+    """Strip trailing content when key starts with a known colon-header."""
+    headers = ["REF_AREA:Reference area", "FREQ:Frequency"]
+    headers_set = set(headers)
+
+    result = _clean_hallucinated_key(
+        "REF_AREA:Reference area:US",
+        headers, headers_set
+    )
+    assert result == "REF_AREA:Reference area"
+
+    result = _clean_hallucinated_key(
+        "FREQ:Frequency:Annual:A",
+        headers, headers_set
+    )
+    assert result == "FREQ:Frequency"
+
+
+def test_clean_hallucinated_index_suffix():
+    """Strip trailing index suffix from keys like 'Unnamed: 0: 1'."""
+    headers = ["Unnamed: 0", "Unnamed: 1"]
+    headers_set = set(headers)
+
+    result = _clean_hallucinated_key("Unnamed: 0: 1", headers, headers_set)
+    assert result == "Unnamed: 0"
+
+    result = _clean_hallucinated_key("Unnamed: 1: 42", headers, headers_set)
+    assert result == "Unnamed: 1"
+
+
+def test_clean_hallucinated_no_change_simple_key():
+    """Simple keys without colons are returned unchanged."""
+    headers = ["State", "Year"]
+    headers_set = set(headers)
+
+    assert _clean_hallucinated_key("State", headers, headers_set) == "State"
+    assert _clean_hallucinated_key("Year", headers, headers_set) == "Year"
+
+
+def test_clean_hallucinated_no_change_column_value():
+    """Legitimate COLUMN:VALUE keys are not cleaned."""
+    headers = ["Gender", "Year"]
+    headers_set = set(headers)
+
+    # COLUMN:VALUE syntax — should NOT be cleaned
+    assert _clean_hallucinated_key("Gender:Male", headers, headers_set) == "Gender:Male"
+    assert _clean_hallucinated_key("Year:2020", headers, headers_set) == "Year:2020"
+
+
+def test_clean_hallucinated_dedup_to_header():
+    """Dedup segments when result matches a header."""
+    headers = ["A:B:C"]
+    headers_set = set(headers)
+
+    # A:B:C:C → A:B:C (dedup last C)
+    result = _clean_hallucinated_key("A:B:C:C", headers, headers_set)
+    assert result == "A:B:C"
+
+
+# ============================================================================
+# Enhanced repair integration tests
+# ============================================================================
+
+def test_repair_bis_hallucinated_keys(tmp_path):
+    """Repair fixes BIS-style hallucinated key expansions."""
+    csv_file = tmp_path / "input.csv"
+    csv_file.write_text(
+        "REF_AREA:Reference area,TIME_PERIOD:Time period,OBS_VALUE:Observation Value\n"
+        "US,2020,100\n"
+    )
+    pvmap = (
+        "key,property,value\n"
+        "REF_AREA:Reference area:Reference area:AR: Argentina,observationAbout,country/{Data}\n"
+        "TIME_PERIOD:Time period:Time period,observationDate,{Data}\n"
+        "OBS_VALUE:Observation Value,value,{Number}\n"
+    )
+    repaired, changes = repair_pvmap(pvmap, csv_file)
+    assert "REF_AREA:Reference area,observationAbout" in repaired
+    assert "TIME_PERIOD:Time period,observationDate" in repaired
+    assert any("Clean key" in c for c in changes)
+
+
+def test_repair_index_suffix_hallucination(tmp_path):
+    """Repair fixes index suffix hallucination like 'Unnamed: 0: 1'."""
+    csv_file = tmp_path / "input.csv"
+    csv_file.write_text("Unnamed: 0,Year,Value\n1,2020,100\n")
+
+    pvmap = (
+        "key,property,value\n"
+        "Unnamed: 0: 1,observationAbout,geoId/{Data}\n"
+        "Year,observationDate,{Data}\n"
+        "Value,value,{Number}\n"
+    )
+    repaired, changes = repair_pvmap(pvmap, csv_file)
+    assert "Unnamed: 0,observationAbout" in repaired
+    assert any("Clean key" in c for c in changes)
+
+
+def test_repair_preserves_legitimate_column_value(simple_csv):
+    """Repair does NOT strip legitimate COLUMN:VALUE syntax."""
+    pvmap = (
+        "key,property,value\n"
+        "State,observationAbout,geoId/{Data}\n"
+        "Year,observationDate,{Data}\n"
+        "Gender:Male,gender,dcid:Male\n"
+        "Gender:Female,gender,dcid:Female\n"
+        "Population,value,{Number}\n"
+    )
+    repaired, changes = repair_pvmap(pvmap, simple_csv)
+    assert "Gender:Male" in repaired
+    assert "Gender:Female" in repaired
+
+
+# ============================================================================
+# Lower fuzzy threshold tests
+# ============================================================================
+
+def test_fuzzy_match_long_key():
+    """Long keys (>15 chars) use lower fuzzy threshold (0.80)."""
+    headers = ["Employment Status Total"]
+    index = build_key_index(headers)
+    # "Employment Status Totl" has ratio ~0.82 — passes 0.80 but fails 0.85
+    result = match_key_to_header("Employment Status Totl", index, headers)
+    assert result == "Employment Status Total"
+
+
+def test_fuzzy_match_short_key_strict():
+    """Short keys still use strict 0.85 threshold."""
+    headers = ["State"]
+    index = build_key_index(headers)
+    # "Stat" has ratio ~0.89 — passes both thresholds
+    result = match_key_to_header("Stat", index, headers)
+    # With ratio 2*4/9 = 0.89, passes 0.85
+    assert result == "State"
+
+
+# ============================================================================
+# Pre-validate threshold tests
+# ============================================================================
+
+def test_pre_validate_35pct_match_passes(tmp_path):
+    """35% match rate (> 30%) passes pre-validation."""
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("ColA,ColB,ColC,ColD,ColE,ColF,ColG,ColH,ColI,ColJ\n" + ",".join(["1"] * 10) + "\n")
+
+    # 4 out of 10 unique columns match = 40%
+    pvmap = (
+        "key,property,value\n"
+        "ColA,observationAbout,geoId/{Data}\n"
+        "ColB,observationDate,{Data}\n"
+        "ColC,value,{Number}\n"
+        "ColD,populationType,Person\n"
+        "WrongE,measuredProperty,count\n"
+        "WrongF,statType,measuredValue\n"
+        "WrongG,unit,Percent\n"
+        "WrongH,gender,Male\n"
+        "WrongI,age,18\n"
+        "WrongJ,race,White\n"
+    )
+    passes, errors = pre_validate_pvmap(pvmap, csv_path)
+    assert passes is True
+
+
+def test_pre_validate_25pct_match_fails(tmp_path):
+    """25% match rate (< 30%) fails pre-validation."""
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("ColA,ColB,ColC,ColD\n1,2,3,4\n")
+
+    # 1 out of 4 unique columns match = 25%
+    pvmap = (
+        "key,property,value\n"
+        "ColA,observationAbout,geoId/{Data}\n"
+        "WrongB,observationDate,{Data}\n"
+        "WrongC,value,{Number}\n"
+        "WrongD,populationType,Person\n"
+    )
+    passes, errors = pre_validate_pvmap(pvmap, csv_path)
+    assert passes is False
+    assert any("MATCH RATE" in e for e in errors)
+
+
+# ============================================================================
+# _strip_dcid_prefixes tests
+# ============================================================================
+
+def test_strip_dcid_prefix_basic():
+    """dcid:Person -> Person in value position."""
+    lines = [
+        "key,property,value",
+        "Year,populationType,dcid:Person,measuredProperty,dcid:count",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert "dcid:" not in fixed[1]
+    assert "populationType,Person" in fixed[1]
+    assert "measuredProperty,count" in fixed[1]
+    assert len(changes) == 1
+
+
+def test_strip_dcid_prefix_geo():
+    """dcid:geoId/{Data} -> geoId/{Data} in value position."""
+    lines = [
+        "key,property,value",
+        "State,observationAbout,dcid:geoId/{Data}",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert "observationAbout,geoId/{Data}" in fixed[1]
+    assert len(changes) == 1
+
+
+def test_strip_dcid_preserves_properties():
+    """Property names are never stripped even if they contain dcid-like text."""
+    lines = [
+        "key,property,value",
+        "Year,observationDate,{Data}",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert fixed[1] == lines[1]
+    assert len(changes) == 0
+
+
+def test_strip_dcid_preserves_keys():
+    """Key column (index 0) is never modified."""
+    lines = [
+        "key,property,value",
+        "dcid:myKey,populationType,Person",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert fixed[1].startswith("dcid:myKey")
+    assert len(changes) == 0
+
+
+def test_strip_dcid_no_double_strip():
+    """Values without dcid: prefix are left unchanged."""
+    lines = [
+        "key,property,value",
+        "State,observationAbout,geoId/06",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert "geoId/06" in fixed[1]
+    assert len(changes) == 0
+
+
+def test_strip_dcid_header_skipped():
+    """Header row is passed through unchanged."""
+    lines = [
+        "key,property,dcid:value",
+    ]
+    fixed, changes = _strip_dcid_prefixes(lines)
+    assert fixed[0] == lines[0]
+    assert len(changes) == 0
+
+
+# ============================================================================
+# _normalize_date_place_placeholders tests
+# ============================================================================
+
+def test_normalize_observationdate_number_to_data():
+    """{Number} -> {Data} for observationDate."""
+    lines = [
+        "key,property,value",
+        "Year,observationDate,{Number}",
+    ]
+    fixed, changes = _normalize_date_place_placeholders(lines)
+    assert "observationDate,{Data}" in fixed[1]
+    assert len(changes) == 1
+
+
+def test_normalize_observationabout_number_to_data():
+    """{Number} -> {Data} for observationAbout (preserves FIPS leading zeros)."""
+    lines = [
+        "key,property,value",
+        "FIPS,observationAbout,geoId/{Number}",
+    ]
+    fixed, changes = _normalize_date_place_placeholders(lines)
+    assert "observationAbout,geoId/{Data}" in fixed[1]
+    assert len(changes) == 1
+
+
+def test_normalize_preserves_value_number():
+    """value,{Number} is left untouched — correct for measurements."""
+    lines = [
+        "key,property,value",
+        "Population,value,{Number},populationType,Person",
+    ]
+    fixed, changes = _normalize_date_place_placeholders(lines)
+    assert "value,{Number}" in fixed[1]
+    assert len(changes) == 0
+
+
+def test_normalize_preserves_data_placeholder():
+    """observationDate,{Data} already correct — no change."""
+    lines = [
+        "key,property,value",
+        "Year,observationDate,{Data}",
+    ]
+    fixed, changes = _normalize_date_place_placeholders(lines)
+    assert fixed[1] == lines[1]
+    assert len(changes) == 0
+
+
+# ============================================================================
+# Integration: repair_pvmap with dcid + placeholder normalization
+# ============================================================================
+
+def test_repair_pvmap_strips_dcid_and_normalizes_placeholders(simple_csv):
+    """Full integration: repair_pvmap applies dcid stripping and placeholder normalization."""
+    pvmap = (
+        "key,property,value\n"
+        "State,observationAbout,dcid:geoId/{Data}\n"
+        "Year,observationDate,{Number}\n"
+        "Population,value,{Number},populationType,dcid:Person\n"
+    )
+    repaired, changes = repair_pvmap(pvmap, simple_csv)
+
+    # dcid: stripped from values
+    assert "dcid:" not in repaired
+    assert "observationAbout,geoId/{Data}" in repaired
+    assert "populationType,Person" in repaired
+
+    # {Number} normalized to {Data} for observationDate
+    assert "observationDate,{Data}" in repaired
+
+    # value,{Number} preserved
+    assert "value,{Number}" in repaired
+
+    # Changes logged
+    assert any("dcid:" in c.lower() or "Stripped" in c for c in changes)
+    assert any("Number" in c and "Data" in c for c in changes)

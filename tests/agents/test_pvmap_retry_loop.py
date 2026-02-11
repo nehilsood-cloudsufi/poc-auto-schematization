@@ -105,6 +105,17 @@ class TestCreatePvmapRetryLoop:
 
         assert agent_names == expected_order
 
+    def test_quality_evaluator_receives_max_retries(self):
+        """QualityEvaluator should receive max_retries from retry loop."""
+        loop = create_pvmap_retry_loop(max_retries=5)
+        quality_evaluator = None
+        for agent in loop.sub_agents:
+            if agent.name == "QualityEvaluator":
+                quality_evaluator = agent
+                break
+        assert quality_evaluator is not None
+        assert quality_evaluator._max_retries == 5
+
 
 # ============================================================================
 # Test StatePreparationAgent

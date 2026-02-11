@@ -38,7 +38,7 @@ def mock_ctx():
 @pytest.fixture
 def quality_agent():
     """Create QualityEvaluationAgent instance."""
-    return QualityEvaluationAgent(name="TestQualityEvaluator")
+    return QualityEvaluationAgent(name="TestQualityEvaluator", max_retries=2)
 
 
 # ============================================================================
@@ -343,6 +343,7 @@ class TestStagnationDetection:
         events = run_agent(quality_agent, mock_ctx)
 
         assert mock_ctx.session.state["quality_stagnant"] is False
+
 
 
 # ============================================================================
@@ -928,3 +929,56 @@ class TestPVAccuracyRetryTrigger:
         assert any("PV accuracy" in t for t in stagnation_events)
         assert any("10.0%" in t for t in stagnation_events)
         assert any("10.5%" in t for t in stagnation_events)
+
+
+# ============================================================================
+# Test GT Comparison Failure Handling
+# ============================================================================
+
+class TestGTComparisonFailure:
+    """Tests for GT comparison failure blocking heuristic acceptance."""
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_gt_comparison_failure_blocks_heuristic_acceptance(
+        self, mock_heuristic, mock_compare, mock_ctx, mock_dataset, tmp_path
+    ):
+        """GT comparison failure should block heuristic-only acceptance."""
+        agent = QualityEvaluationAgent(name="TestQualityEvaluator", max_retries=2)
+
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+        }
+
+        mock_heuristic.return_value = {
+            "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
+            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": False, "error": "File not found",
+            "counters": {}, "diff_text": None, "accuracy": 0.0, "pv_accuracy": 0.0,
+        }
+
+        events = run_agent(agent, mock_ctx)
+
+        # Despite heuristic=80 (above 70 threshold), should NOT be acceptable
+        assert mock_ctx.session.state["quality_acceptable"] is False
+        metrics = mock_ctx.session.state["quality_metrics"]
+        assert metrics.get("gt_comparison_failed") is True
+        assert metrics.get("quality_reject_reason") == "gt_comparison_failed"
+
+        # Should not escalate
+        final_event = [e for e in events if e.actions][-1]
+        assert final_event.actions.escalate is False

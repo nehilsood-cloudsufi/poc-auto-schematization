@@ -59,7 +59,20 @@ value,value,{Number}
 ```
 **DO NOT** construct new `variableMeasured` entries or add `populationType`/`measuredProperty`/`statType`.
 
-## Rule 3: Entity vs Attribute + StatVar Design
+## Rule 3: Prefer Decomposed Properties Over variableMeasured DCIDs
+
+**DO NOT** use `variableMeasured,dcid:Count_Person_65OrMoreYears` shortcuts.
+**DO** decompose into properties: `populationType,Person,age,[65 - Years],value,{Number}`
+
+The decomposed form:
+- Enables the processor to construct StatVar DCIDs correctly
+- Supports margin-of-error (M_) and percentage (EP_/MP_) variants
+- Works with measurementDenominator for ratio calculations
+- Matches ground truth patterns used across Data Commons
+
+The only exception: pre-formatted data that already has a `variableMeasured` column with valid DCIDs (see Rule 2 above).
+
+## Rule 4: Entity vs Attribute + StatVar Design
 
 **Entity columns** (place, organization) → DYNAMIC `{Data}` mapping, NEVER enumerate.
 **Attribute columns** (gender, age, race) → EXPLICIT enumeration with `COLUMN:VALUE` syntax.
@@ -69,12 +82,13 @@ A StatVar is: `populationType` + `measuredProperty` + `statType` + constraint pr
 
 If two rows share Place + Time but differ in value, their StatVars MUST differ — you missed a dimension.
 
-## Rule 4: Exact Vocabulary + No Placeholders
+## Rule 5: Exact Vocabulary + No Placeholders
 
 - Use EXACT Data Commons property names (`populationType` not `populationGroup`, `measuredProperty` not `measurement`)
 - Age ranges use bracket notation: `[65 - Years]`, `[18 64 Years]`, `[0 17 Years]`
 - FORBIDDEN: placeholder keys like `p2`, `v2`, `dcid:v2`, `FIXME`
-- NEVER map `variableMeasured` — it's auto-constructed by the processor
+- FORBIDDEN: `dcid:` prefix on property values. Write `populationType,Person` NOT `populationType,dcid:Person`. Write `observationAbout,geoId/{Data}` NOT `observationAbout,dcid:geoId/{Data}`. The processor adds dcid: internally.
+- NEVER map `variableMeasured` — it's auto-constructed by the processor (except Rule 2 passthrough)
 
 ---
 
@@ -146,6 +160,28 @@ Must use named groups `(?P<Name>...)`.
 Series ID,#ignore,skip
 ```
 
+## #Aggregate — Combine Duplicate Observations
+When multiple input rows produce the same StatVar+place+date, use `#Aggregate` to combine:
+```csv
+Janeiro,observationDate,{Year}-01,observationPeriod,P1M,value,{Number},#Aggregate,sum
+```
+Supported values: `sum`, `mean`, `max`, `min`. Use `sum` by default for counts.
+
+## Named Variable Capture — Construct Compound Values
+Capture a column value as a named variable for use in other rows:
+```csv
+year,Year,{Number},variableMeasured,Count_FireEvent
+Janeiro,observationDate,{Year}-01,observationPeriod,P1M,value,{Number}
+```
+The first row captures the `year` column value as `{Year}`. The second row constructs `observationDate` as `{Year}-01` (e.g., "2020-01"). Variable names match the column header exactly (case-sensitive).
+
+## #Multiply — Unit Conversion
+When source data is in scaled units (thousands, millions), use `#Multiply` to convert:
+```csv
+"Employment (thousands)",value,{Number},populationType,Person,measuredProperty,count,#Multiply,1000
+```
+This multiplies the cell value by 1000 before creating the observation.
+
 ## Place Prefix Quick-Reference
 | Prefix | Use For |
 |--------|---------|
@@ -156,6 +192,15 @@ Series ID,#ignore,skip
 
 Choose by **ID type**, not geography. `geoId/` works for US AND international ISO codes.
 Extract units from headers: `(USD)` → `unit,USDollar`, `(%)` → `unit,Percent`, `(thousands)` → `scalingFactor,1000`.
+
+**When to enumerate places explicitly:**
+If the place column contains names (not standard codes) that cannot resolve via `{Data}`:
+- Brazilian states → `wikidataId/Q...` (e.g., Acre → `wikidataId/Q40780`)
+- Indian states → `wikidataId/Q...`
+- City names → `wikidataId/Q...`
+
+Use dynamic `{Data}` only when the column contains standardized codes (ISO alpha-2/3, FIPS, NUTS).
+For non-standard names, enumerate each unique place value with its Wikidata DCID.
 
 ## Required Properties
 **Observation**: `value`, `observationDate`, `observationAbout`

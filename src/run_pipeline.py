@@ -278,7 +278,7 @@ def run_dataset_pipeline(
     # Create PVMAP retry loop (ADK LoopAgent-based)
     pvmap_agent = create_pvmap_retry_loop(
         model=model,
-        max_retries=2,  # 3 total attempts
+        max_retries=3,  # 4 total attempts
         name="PVMAPRetryLoop",
         enable_mcp=enable_mcp,
         mcp_url=mcp_url,

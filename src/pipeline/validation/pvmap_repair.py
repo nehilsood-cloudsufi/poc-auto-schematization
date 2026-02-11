@@ -139,9 +139,10 @@ def match_key_to_header(
         if matched != column_part:
             return matched
 
-    # 5. Fuzzy match
+    # 5. Fuzzy match (lower threshold for long keys — more room for partial mutations)
+    cutoff = 0.80 if len(column_part) > 15 else 0.85
     matches = difflib.get_close_matches(
-        column_part, headers, n=1, cutoff=0.85
+        column_part, headers, n=1, cutoff=cutoff
     )
     if matches and matches[0] != column_part:
         return matches[0]
@@ -180,6 +181,165 @@ def _normalize_placeholders(line: str) -> str:
     return line
 
 
+def _clean_hallucinated_key(
+    key: str,
+    headers: List[str],
+    headers_set: set,
+) -> str:
+    """Pre-clean common LLM key hallucination patterns.
+
+    Patterns cleaned (in order):
+    1. Header prefix match: If key starts with a colon-containing header
+       followed by more colons, strip to just the header.
+       e.g., REF_AREA:Reference area:Reference area:AR: Argentina
+             → REF_AREA:Reference area
+    2. Duplicate segment removal: Collapse adjacent identical colon-segments.
+       e.g., A:B:B:C → A:B:C
+    3. Index suffix stripping: Remove trailing ': digits' when the result
+       is a colon-containing header.
+       e.g., Unnamed: 0: 1 → Unnamed: 0
+
+    Args:
+        key: PVMAP key string.
+        headers: List of exact column headers.
+        headers_set: Set of column headers for O(1) lookup.
+
+    Returns:
+        Cleaned key, or original if no cleaning applies.
+    """
+    if not key or ':' not in key:
+        return key
+
+    # 1. Longest colon-header prefix match
+    #    If the key starts with a known header (that contains ':') followed
+    #    by an extra ':', the trailing portion is hallucinated.
+    best_match = None
+    key_lower = key.lower()
+    for h in headers:
+        if ':' not in h:
+            continue
+        h_lower = h.lower()
+        if (key_lower.startswith(h_lower)
+                and len(key) > len(h)
+                and key[len(h)] == ':'):
+            if best_match is None or len(h) > len(best_match):
+                best_match = h
+    if best_match:
+        return best_match
+
+    # 2. Deduplicate adjacent colon-segments (case-insensitive)
+    #    REF_AREA:Reference area:Reference area → REF_AREA:Reference area
+    parts = key.split(':')
+    if len(parts) >= 3:
+        deduped = [parts[0]]
+        for p in parts[1:]:
+            if p.strip().lower() != deduped[-1].strip().lower():
+                deduped.append(p)
+        if len(deduped) < len(parts):
+            candidate = ':'.join(deduped)
+            if candidate in headers_set:
+                return candidate
+            key = candidate  # Use deduped form for further cleaning
+
+    # 3. Strip trailing index suffix (': digits') if result is a colon-header
+    #    Unnamed: 0: 1 → Unnamed: 0
+    m = re.match(r'^(.+?):\s*\d+\s*$', key)
+    if m:
+        candidate = m.group(1).strip()
+        if ':' in candidate and candidate in headers_set:
+            return candidate
+
+    return key
+
+
+def _strip_dcid_prefixes(lines: List[str]) -> Tuple[List[str], List[str]]:
+    """Strip dcid: prefix from PVMAP property values.
+
+    Convention: PVMAP values use bare identifiers, not dcid:-prefixed.
+    GT: populationType,Person  (not dcid:Person)
+    GT: observationAbout,geoId/{Data}  (not dcid:geoId/{Data})
+
+    Only strips from value positions (even indices after key).
+    Preserves property names and keys.
+    """
+    fixed_lines: List[str] = []
+    changes: List[str] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            fixed_lines.append(line)
+            continue
+        try:
+            row = list(csv.reader([line]))[0]
+        except Exception:
+            fixed_lines.append(line)
+            continue
+        if len(row) < 3 or row[0].strip().lower() == 'key':
+            fixed_lines.append(line)
+            continue
+        changed = False
+        for j in range(2, len(row), 2):  # Value positions: 2, 4, 6, ...
+            val = row[j]
+            if val.startswith('dcid:'):
+                row[j] = val[5:]
+                changed = True
+        if changed:
+            buf = io.StringIO()
+            csv.writer(buf, lineterminator='').writerow(row)
+            fixed_lines.append(buf.getvalue())
+            changes.append(f"Line {i + 1}: Stripped dcid: prefix")
+        else:
+            fixed_lines.append(line)
+    return fixed_lines, changes
+
+
+def _normalize_date_place_placeholders(lines: List[str]) -> Tuple[List[str], List[str]]:
+    """Normalize {Number} to {Data} for observationDate and observationAbout.
+
+    For observationDate: {Data} is safer — preserves date strings like "2020-01-15"
+    that {Number} would fail to parse (get_numeric_value returns None).
+
+    For observationAbout: {Data} preserves leading zeros in FIPS codes.
+    {Number} strips them: "06" -> 6 -> geoId/6 (WRONG).
+
+    Leaves value,{Number} untouched (correct for measurements).
+    """
+    fixed_lines: List[str] = []
+    changes: List[str] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            fixed_lines.append(line)
+            continue
+        try:
+            row = list(csv.reader([line]))[0]
+        except Exception:
+            fixed_lines.append(line)
+            continue
+        if len(row) < 3 or row[0].strip().lower() == 'key':
+            fixed_lines.append(line)
+            continue
+        changed = False
+        for j in range(1, len(row) - 1, 2):  # Property positions: 1, 3, 5, ...
+            prop = row[j].strip()
+            val_idx = j + 1
+            if val_idx < len(row) and prop in ('observationDate', 'observationAbout'):
+                val = row[val_idx]
+                if '{Number}' in val:
+                    row[val_idx] = val.replace('{Number}', '{Data}')
+                    changed = True
+        if changed:
+            buf = io.StringIO()
+            csv.writer(buf, lineterminator='').writerow(row)
+            fixed_lines.append(buf.getvalue())
+            changes.append(
+                f"Line {i + 1}: Normalized {{Number}} to {{Data}} for date/place"
+            )
+        else:
+            fixed_lines.append(line)
+    return fixed_lines, changes
+
+
 def repair_pvmap(
     pvmap_csv: str,
     input_data_path: Path,
@@ -207,6 +367,7 @@ def repair_pvmap(
         return pvmap_csv, ["WARNING: Could not read input headers for repair"]
 
     key_index = build_key_index(headers)
+    headers_set = set(headers)
     changes: List[str] = []
     repaired_lines: List[str] = []
 
@@ -260,6 +421,32 @@ def repair_pvmap(
             repaired_lines.append(line)
             continue
 
+        # Pre-clean: fix hallucinated key expansions
+        # (duplicate descriptions, index suffixes, sample value appendages)
+        pre_clean_key = _clean_hallucinated_key(key, headers, headers_set)
+        if pre_clean_key != key:
+            changes.append(
+                f"Line {line_num}: Clean key: '{key}' -> '{pre_clean_key}'"
+            )
+            key = pre_clean_key
+
+            # After cleaning, check if key now matches a header exactly
+            if key in headers_set:
+                row[0] = key
+                output = io.StringIO()
+                writer = csv.writer(output, lineterminator='')
+                writer.writerow(row)
+                repaired_lines.append(output.getvalue())
+                continue
+
+            # Re-split for COLUMN:VALUE after cleaning
+            column_part = key
+            value_suffix = ""
+            if ':' in key:
+                parts = key.split(':', 1)
+                column_part = parts[0]
+                value_suffix = ':' + parts[1]
+
         # Try to match and fix the key
         matched = match_key_to_header(key, key_index, headers)
         if matched is not None:
@@ -280,6 +467,16 @@ def repair_pvmap(
             repaired_lines.append(new_line)
         else:
             repaired_lines.append(line)
+
+    # Post-processing: strip dcid: prefixes from values
+    repaired_lines, dcid_changes = _strip_dcid_prefixes(repaired_lines)
+    changes.extend(dcid_changes)
+
+    # Post-processing: normalize {Number} to {Data} for date/place properties
+    repaired_lines, placeholder_changes = _normalize_date_place_placeholders(
+        repaired_lines
+    )
+    changes.extend(placeholder_changes)
 
     repaired_csv = '\n'.join(repaired_lines)
 
@@ -551,11 +748,13 @@ def pre_validate_pvmap(
     # Check 5: Key match rate (based on unique column parts, not total keys)
     # This prevents COLUMN:VALUE dimension keys (Sex:Male, Sex:Female, Sex:Both)
     # from inflating the denominator — they all reference the same column "Sex"
+    # Threshold: 30% = hard fail, 30-50% = warning (included in errors for
+    # feedback but key_match_report provides detailed diagnostics)
     total_unique_columns = len(matched_columns) + len(unmatched_columns)
     matched_count = len(matched_columns)
     if headers and total_unique_columns > 0:
         match_rate = matched_count / total_unique_columns
-        if match_rate < 0.5:
+        if match_rate < 0.3:
             errors.append(
                 f"LOW KEY MATCH RATE: Only {matched_count}/{total_unique_columns} "
                 f"({match_rate:.0%}) PVMAP column keys match input column headers. "
@@ -581,4 +780,6 @@ __all__ = [
     'repair_pvmap',
     'generate_key_match_report',
     'pre_validate_pvmap',
+    '_strip_dcid_prefixes',
+    '_normalize_date_place_placeholders',
 ]

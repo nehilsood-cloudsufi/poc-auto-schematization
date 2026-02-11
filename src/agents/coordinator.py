@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def create_pipeline_coordinator(
     name: str = "PipelineCoordinator",
-    max_retries: int = 2,
+    max_retries: int = 3,
     model: str = "gemini-3-pro-preview",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None

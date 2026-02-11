@@ -690,6 +690,20 @@ class MaxRetriesCheckAgent(BaseAgent):
 
         attempt = ctx.session.state.get("attempt_number", 0)
 
+        # =====================================================================
+        # Track best attempt by data rows produced (for restoring on max retries)
+        # =====================================================================
+        current_data_rows = ctx.session.state.get("validation_data_rows", 0)
+        best_data_rows = ctx.session.state.get("best_data_rows", -1)
+
+        if current_data_rows > best_data_rows:
+            ctx.session.state["best_data_rows"] = current_data_rows
+            ctx.session.state["best_pvmap_csv"] = ctx.session.state.get("pvmap_csv", "")
+            ctx.session.state["best_attempt_number"] = attempt
+            logger.info(
+                f"New best attempt: {attempt + 1} with {current_data_rows} data rows"
+            )
+
         # Check if we should already have exited (quality acceptable or stagnant)
         quality_acceptable = ctx.session.state.get("quality_acceptable", False)
         quality_stagnant = ctx.session.state.get("quality_stagnant", False)
@@ -708,6 +722,25 @@ class MaxRetriesCheckAgent(BaseAgent):
             return
 
         if attempt >= self._max_retries:
+            # Restore best attempt PVMAP if current attempt is worse
+            best_pvmap = ctx.session.state.get("best_pvmap_csv", "")
+            best_rows = ctx.session.state.get("best_data_rows", 0)
+            best_attempt_num = ctx.session.state.get("best_attempt_number", attempt)
+
+            if best_pvmap and best_rows > current_data_rows:
+                ctx.session.state["pvmap_csv"] = best_pvmap
+                ctx.session.state["validation_data_rows"] = best_rows
+                pvmap_path = ctx.session.state.get("pvmap_path")
+                if pvmap_path:
+                    try:
+                        Path(pvmap_path).write_text(best_pvmap, encoding='utf-8')
+                    except Exception as e:
+                        logger.warning(f"Failed to restore best PVMAP file: {e}")
+                logger.info(
+                    f"Restored best PVMAP from attempt {best_attempt_num + 1} "
+                    f"({best_rows} data rows vs current {current_data_rows})"
+                )
+
             # Max retries reached - set failure state and exit loop
             ctx.session.state["generation_success"] = False
             ctx.session.state["retry_count"] = attempt
@@ -840,7 +873,7 @@ def create_pvmap_retry_loop(
 
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
-    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator")
+    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator", max_retries=max_retries)
     unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model)
     max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
