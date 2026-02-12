@@ -514,10 +514,10 @@ Phase 1.5: Schema Selection (Optional)
     ↓
 Phase 2: PVMAP Generation
     ↓
-Phase 2.5: Metadata Generation (auto_config.csv)
+Phase 2.5: Metadata Generation (output_metadata.csv)
     ↓
-Phase 3: Validation (uses auto_config.csv)
-    ↓ (retry up to 2 times if validation fails — regenerates PVMAP + auto_config each iteration)
+Phase 3: Validation (uses output_metadata.csv)
+    ↓ (retry up to 2 times if validation fails — regenerates PVMAP + output_metadata each iteration)
 Phase 4: Evaluation (Optional)
 ```
 
@@ -740,13 +740,13 @@ The `MetadataGenerationAgent` runs after PVMAP generation and before validation 
    - Existing values override auto-generated ones (via `merge_with_existing()`)
    - Result is a strict superset: everything GT/user has, PLUS PVMAP-derived params
 
-3. **Write `auto_config.csv`** to the output directory
+3. **Write `output_metadata.csv`** to the output directory
 
 4. **Set `generated_config_path`** in session state for the Validator
 
 ### Output
 
-- `auto_config.csv` — enriched 2-column CSV (parameter, value)
+- `output_metadata.csv` — enriched 2-column CSV (parameter, value)
 
 ---
 
@@ -833,13 +833,13 @@ report = generate_key_match_report(pvmap_csv_str, Path("input_data.csv"))
    python3 tools/stat_var_processor.py \
        --input_data=input/{dataset}/test_data/*_input.csv \
        --pv_map=output/{dataset}/generated_pvmap.csv \
-       --config_file=output/{dataset}/auto_config.csv \
+       --config_file=output/{dataset}/output_metadata.csv \
        --generate_statvar_name=True \
        --output_path=output/{dataset}/processed
    ```
 
    **Metadata priority for `--config_file`:**
-   1. **Tier 1:** `auto_config.csv` (auto-generated, has PVMAP-derived params + merged GT/user values)
+   1. **Tier 1:** `output_metadata.csv` (auto-generated, has PVMAP-derived params + merged GT/user values)
    2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
    3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
@@ -968,14 +968,14 @@ The retry loop uses Google ADK's `LoopAgent` with 7 sub-agents:
 LoopAgent (max_iterations=6)
 ├── StatePreparationAgent        — Prepares state, logs feedback presence
 ├── PVMAPGenerationAgent         — Generates PVMAP with accumulated feedback
-├── MetadataGenerationAgent      — Generates auto_config.csv from PVMAP (merged with GT/user)
-├── ValidationAgent              — Runs stat_var_processor with auto_config, extracts StatVar analysis
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
+├── ValidationAgent              — Runs stat_var_processor with output_metadata, extracts StatVar analysis
 ├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
 ├── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
 └── MaxRetriesCheckAgent         — Escalates after max attempts (EventActions.escalate)
 ```
 
-**Key design:** The `MetadataGenerationAgent` runs on every iteration, so when the PVMAP changes during retry, `auto_config.csv` is regenerated with updated parameters. The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent` that determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
+**Key design:** The `MetadataGenerationAgent` runs on every iteration, so when the PVMAP changes during retry, `output_metadata.csv` is regenerated with updated parameters. The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent` that determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
 
 ### Feedback Improvements (2026-02-10)
 
@@ -1017,7 +1017,7 @@ input/{dataset_name}/
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv                # Main output
-├── auto_config.csv                    # Auto-generated metadata config (PVMAP-derived + merged)
+├── output_metadata.csv                    # Auto-generated metadata config (PVMAP-derived + merged)
 ├── generation_notes.md                # LLM reasoning with attempt history
 ├── populated_prompt.txt               # Full prompt
 ├── generated_response/

@@ -97,17 +97,17 @@ Added four new sections to `FEEDBACK_AGENT_INSTRUCTION`:
 Added `MetadataGenerationAgent` (`src/agents/metadata_generation_agent.py`) that runs after PVMAP generation and before validation on every iteration:
 - Extracts PVMAP-derived parameters: `output_columns`, `mapped_rows`, `mapped_columns`, `header_rows`, `drop_statvars_without_svobs`, `generate_statvar_name`
 - Merges with existing GT/user metadata via `merge_with_existing()` (existing values override auto-generated)
-- Writes `auto_config.csv` to the output directory
+- Writes `output_metadata.csv` to the output directory
 - Sets `generated_config_path` in session state
 
 #### 3b. Validation Metadata Priority Reorder (`src/agents/validation_agent.py`)
 
 Changed metadata resolution from GT → user → auto-generated to:
-1. **Tier 1:** Auto-generated config (`auto_config.csv`) — superset with PVMAP-derived params + merged GT/user values
+1. **Tier 1:** Auto-generated config (`output_metadata.csv`) — superset with PVMAP-derived params + merged GT/user values
 2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
 3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
-This ensures `stat_var_processor` always gets the enriched config. Since auto_config already merges GT/user values, the priority change is safe — no information is lost.
+This ensures `stat_var_processor` always gets the enriched config. Since output_metadata already merges GT/user values, the priority change is safe — no information is lost.
 
 #### 3c. Model Tracking Fix (`src/run_pipeline.py`)
 
@@ -258,8 +258,8 @@ Only captures calls from `"Generator"` / `"PVMAPGenerator"` agents. `ValidationA
 LoopAgent (max_iterations=6)
 ├── StatePreparationAgent        — Prepares state, logs feedback presence
 ├── PVMAPGenerationAgent         — Generates PVMAP with error feedback
-├── MetadataGenerationAgent      — Generates auto_config.csv from PVMAP (merged with GT/user)
-├── ValidationAgent              — Runs stat_var_processor with auto_config, extracts StatVar analysis
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
+├── ValidationAgent              — Runs stat_var_processor with output_metadata, extracts StatVar analysis
 ├── QualityEvaluationAgent       — Computes heuristic + GT metrics, sets reject reason
 ├── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
 │   ├── Path A: Validation failed → structural error feedback
@@ -276,7 +276,7 @@ LoopAgent (max_iterations=6)
 - `schema_vocab_content` — compressed schema vocabulary JSON
 - `schema_category` — selected schema category name
 - `skeleton_summary` — column classification from sampling
-- `generated_config_path` — path to auto_config.csv (set by MetadataGenerationAgent)
+- `generated_config_path` — path to output_metadata.csv (set by MetadataGenerationAgent)
 - `generated_config_params` — dict of auto-generated config parameters
 - `pvmap_repair_changes` — list of key repairs applied by pvmap_repair module
 - `key_match_report` — markdown report of PVMAP key match status (matched/fixed/unmatched/unmapped)

@@ -295,7 +295,7 @@ input/bis_bis_central_bank_policy_rate/
 
 output/bis_bis_central_bank_policy_rate/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
-├── auto_config.csv               # Auto-generated metadata config (PVMAP-derived + merged GT/user values)
+├── output_metadata.csv               # Auto-generated metadata config (PVMAP-derived + merged GT/user values)
 ├── generation_notes.md           # LLM reasoning
 ├── populated_prompt.txt          # Full prompt sent to LLM
 ├── agentic_sampled.csv           # Sampled data

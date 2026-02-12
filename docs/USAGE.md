@@ -174,24 +174,24 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 ### Phase 2.5: Metadata Generation
 
 **What it does:**
-- Automatically generates `auto_config.csv` from the PVMAP on every iteration
+- Automatically generates `output_metadata.csv` from the PVMAP on every iteration
 - Extracts PVMAP-derived parameters: `output_columns`, `mapped_rows`, `mapped_columns`, `header_rows`, `drop_statvars_without_svobs`, `generate_statvar_name`
 - Merges with any existing GT/user metadata (existing values override auto-generated)
 - Sets `generated_config_path` in session state for the Validator
 
 **Output:**
-- `auto_config.csv` — enriched metadata config used by stat_var_processor
+- `output_metadata.csv` — enriched metadata config used by stat_var_processor
 
 ### Phase 3: Validation
 
 **What it does:**
 - Runs `stat_var_processor.py` to validate generated PVMAP on the **full dataset**
-- Passes `auto_config.csv` as `--config_file` (preferred over GT/user metadata)
+- Passes `output_metadata.csv` as `--config_file` (preferred over GT/user metadata)
 - Extracts StatVar MCF analysis for semantic feedback
 - If validation fails: Provides error feedback for retry (up to 2 retries)
 
 **Metadata Priority (for `--config_file`):**
-1. **Tier 1:** Auto-generated config (`auto_config.csv`) — has PVMAP-derived params + merged values
+1. **Tier 1:** Auto-generated config (`output_metadata.csv`) — has PVMAP-derived params + merged values
 2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
 3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
@@ -331,7 +331,7 @@ python src/run_pipeline.py \
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
-├── auto_config.csv               # Auto-generated metadata config (PVMAP-derived + merged)
+├── output_metadata.csv               # Auto-generated metadata config (PVMAP-derived + merged)
 ├── generation_notes.md           # LLM analysis and reasoning
 ├── populated_prompt.txt          # Full prompt sent to LLM
 ├── generated_response/           # LLM response history
