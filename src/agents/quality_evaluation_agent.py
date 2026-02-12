@@ -18,6 +18,7 @@ Key ADK features used:
 import sys
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Any, List, Optional, ClassVar
+from pydantic import PrivateAttr
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -86,9 +87,18 @@ class QualityEvaluationAgent(BaseAgent):
     PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
     STAGNATION_RATIO: ClassVar[float] = 0.10  # Minimum improvement as fraction of previous accuracy
 
-    def __init__(self, name: str = "QualityEvaluator"):
-        """Initialize QualityEvaluationAgent."""
+    # Private attribute for min_attempts enforcement (not a Pydantic field)
+    _min_attempts: Optional[int] = PrivateAttr(default=None)
+
+    def __init__(self, name: str = "QualityEvaluator", min_attempts: Optional[int] = None):
+        """Initialize QualityEvaluationAgent.
+
+        Args:
+            name: Agent name
+            min_attempts: Minimum attempts before allowing quality exit (optional)
+        """
         super().__init__(name=name)
+        self._min_attempts = min_attempts
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -240,6 +250,28 @@ class QualityEvaluationAgent(BaseAgent):
                     author=self.name,
                     content=types.Content(parts=[
                         types.Part(text=f"Stagnation detected: {stagnation_detail} improved only {stagnation_delta:.1f}% (need >= {stagnation_threshold:.1f}%)")
+                    ])
+                )
+
+        # =====================================================================
+        # Step 2b: Enforce min_attempts (prevent early exit before N attempts)
+        # =====================================================================
+        if self._min_attempts and attempt_number < (self._min_attempts - 1):
+            if quality_acceptable:
+                quality_acceptable = False
+                quality_metrics["quality_reject_reason"] = "min_attempts_not_met"
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Quality acceptable but min_attempts={self._min_attempts} not reached (attempt {attempt_number + 1}). Continuing.")
+                    ])
+                )
+            if quality_stagnant:
+                quality_stagnant = False
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Stagnation detected but min_attempts={self._min_attempts} not reached (attempt {attempt_number + 1}). Continuing.")
                     ])
                 )
 

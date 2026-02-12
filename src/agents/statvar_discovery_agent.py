@@ -104,6 +104,7 @@ class StatVarDiscoveryAgent(BaseAgent):
                 create_enrichment_agent,
                 run_mcp_query,
                 parse_statvars,
+                build_structured_summary,
             )
 
             # Create attempt-aware enrichment agent
@@ -119,7 +120,11 @@ class StatVarDiscoveryAgent(BaseAgent):
             # Build query based on attempt
             if attempt == 0:
                 search_terms = self._extract_search_terms(current_dataset, ctx)
+                place_samples = self._extract_place_samples(ctx)
                 query = f"Search for statistical variables related to: {', '.join(search_terms[:5])}"
+                if place_samples:
+                    query += f". Dataset places include: {', '.join(place_samples[:5])}"
+                    query += ". Use these as the 'places' parameter in search_indicators."
             else:
                 query = (
                     f"Refine StatVar discovery for {current_dataset.name}. "
@@ -130,8 +135,9 @@ class StatVarDiscoveryAgent(BaseAgent):
             # Run the query
             result_text = await run_mcp_query(mcp_url, enrichment_agent, query)
 
-            # Parse results
+            # Parse results and build structured summary
             discovered = parse_statvars(result_text)
+            structured_summary = build_structured_summary(discovered)
 
             # Build enrichment context (structured)
             enrichment_context = {
@@ -142,9 +148,9 @@ class StatVarDiscoveryAgent(BaseAgent):
                 "mode": "broad" if attempt == 0 else "refinement",
             }
 
-            # Update state
+            # Update state — use structured summary instead of raw text
             ctx.session.state["discovered_statvars"] = discovered
-            ctx.session.state["statvar_summary"] = result_text
+            ctx.session.state["statvar_summary"] = structured_summary or result_text
             ctx.session.state["discovery_success"] = True
             ctx.session.state["mcp_enrichment_context"] = enrichment_context
 
@@ -165,6 +171,31 @@ class StatVarDiscoveryAgent(BaseAgent):
             yield Event(author=self.name, content=types.Content(
                 parts=[types.Part(text=f"Discovery failed (continuing without): {str(e)[:100]}")]
             ))
+
+    def _extract_place_samples(self, ctx) -> list:
+        """
+        Extract sample place values from data_context for place-aware queries.
+
+        Looks at column_roles to find place columns, then extracts sample values
+        from dimension_domains.
+
+        Returns:
+            List of place name strings (up to 5)
+        """
+        data_context = ctx.session.state.get("data_context", {})
+        if not data_context:
+            return []
+
+        place_samples = []
+        column_roles = data_context.get("column_roles", {})
+        place_columns = [col for col, role in column_roles.items() if role == "place"]
+
+        for col in place_columns:
+            domain_vals = data_context.get("dimension_domains", {}).get(col, [])
+            place_samples.extend(str(v) for v in domain_vals[:3])
+
+        # Deduplicate
+        return list(dict.fromkeys(place_samples))[:5]
 
     def _extract_search_terms(self, dataset, ctx) -> list:
         """

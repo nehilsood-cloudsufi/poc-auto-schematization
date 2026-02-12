@@ -14,9 +14,12 @@ Key ADK features used:
 - Feedback tracker for effectiveness analysis
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -170,7 +173,15 @@ class ValidationAgent(BaseAgent):
                     )
 
                 # Fast pre-validation (milliseconds, not minutes)
-                pre_ok, pre_errors = pre_validate_pvmap(pvmap_csv, input_file_for_repair)
+                property_vocabulary = ctx.session.state.get("property_vocabulary", {})
+                pre_ok, pre_errors = pre_validate_pvmap(
+                    pvmap_csv, input_file_for_repair,
+                    property_vocabulary=property_vocabulary if property_vocabulary else None
+                )
+                # Surface informational warnings even when pre-validation passes
+                if pre_ok and pre_errors:
+                    ctx.session.state["pre_validation_warnings"] = "\n".join(pre_errors)
+
                 if not pre_ok:
                     # Skip expensive subprocess - feed errors back immediately
                     error_msg = "PRE-VALIDATION FAILED (skipping subprocess):\n" + "\n".join(pre_errors)
@@ -323,12 +334,35 @@ class ValidationAgent(BaseAgent):
         ctx.session.state["validation_counter_summary"] = result.get("counter_summary", "")
         ctx.session.state["validation_statvar_analysis"] = result.get("statvar_analysis", "")
 
+        # Track best attempt — prefer validated attempts, then most data rows
+        current_data_rows = result.get("data_rows", 0)
+        best_data_rows = ctx.session.state.get("best_data_rows", 0)
+        best_was_valid = ctx.session.state.get("best_validation_passed", False)
+        current_is_valid = result["success"]
+
+        # Update best if: (a) more data rows, OR (b) current is valid and best wasn't
+        should_update = (
+            current_data_rows > best_data_rows
+            or (current_is_valid and not best_was_valid)
+        )
+        if should_update:
+            ctx.session.state["best_data_rows"] = current_data_rows
+            ctx.session.state["best_pvmap_csv"] = pvmap_csv
+            ctx.session.state["best_attempt_number"] = attempt_number
+            ctx.session.state["best_validation_passed"] = current_is_valid
+
         # Generate key match report for feedback agent
         if input_file_for_repair and input_file_for_repair.exists():
             key_match_report = generate_key_match_report(pvmap_csv, input_file_for_repair)
-            ctx.session.state["key_match_report"] = key_match_report
         else:
-            ctx.session.state["key_match_report"] = ""
+            key_match_report = ""
+
+        # Append pre-validation warnings (ENUM, schema.org) to key_match_report
+        pre_warnings = ctx.session.state.get("pre_validation_warnings", "")
+        if pre_warnings:
+            key_match_report += f"\n\n## Vocabulary Warnings\n{pre_warnings}"
+
+        ctx.session.state["key_match_report"] = key_match_report
 
         # =====================================================================
         # Step 3: Save attempt artifacts

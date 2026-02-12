@@ -90,7 +90,8 @@ def create_runner(
     root_agent,
     output_dir: Path,
     dataset_name: Optional[str] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    extra_plugins: Optional[list] = None,
 ) -> Runner:
     """
     Create ADK runner with full logging setup.
@@ -125,6 +126,10 @@ def create_runner(
         all_plugins = base_plugins + [artifact_plugin]
     else:
         all_plugins = base_plugins
+
+    # Add extra plugins (e.g., progress tracking for UI)
+    if extra_plugins:
+        all_plugins = all_plugins + list(extra_plugins)
 
     # Create runner with auto_create_session
     runner = Runner(
@@ -215,6 +220,8 @@ def run_dataset_pipeline(
     model: str = "gemini-3-pro-preview",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
+    enable_schemaorg_mcp: bool = False,
+    schemaorg_mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
     force_resample: bool = False,
     skip_schema_selection: bool = False,
@@ -228,6 +235,12 @@ def run_dataset_pipeline(
     metadata_file_path: Optional[str] = None,
     schema_file: Optional[str] = None,
     use_schema_examples: bool = True,
+    human_feedback: Optional[str] = None,
+    min_attempts: Optional[int] = None,
+    max_retries: int = 2,
+    extra_plugins: Optional[list] = None,
+    thinking_level: Optional[str] = None,
+    prompt_version: str = "v2",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -253,6 +266,10 @@ def run_dataset_pipeline(
         metadata_file_path: Explicit metadata file path (auto-enables use_metadata)
         schema_file: Explicit schema file override
         use_schema_examples: If True (default), inject schema examples into PVMAP prompt
+        human_feedback: Optional human feedback text to inject as initial error_feedback
+        min_attempts: Minimum pipeline attempts before allowing quality exit
+        max_retries: Max retry attempts after initial generation (default: 2, for 3 total)
+        extra_plugins: Additional ADK plugins (e.g., progress tracking for UI)
 
     Returns:
         Final state dictionary
@@ -272,16 +289,21 @@ def run_dataset_pipeline(
     # Create Sampling agent (agentic sampling with LLM)
     sampling_agent = SamplingAgentWrapper(
         name="Sampling",
-        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro"),
+        thinking_level=thinking_level,
     )
 
     # Create PVMAP retry loop (ADK LoopAgent-based)
     pvmap_agent = create_pvmap_retry_loop(
         model=model,
-        max_retries=2,  # 3 total attempts
+        max_retries=max_retries,
         name="PVMAPRetryLoop",
         enable_mcp=enable_mcp,
         mcp_url=mcp_url,
+        min_attempts=min_attempts,
+        thinking_level=thinking_level,
+        enable_schemaorg_mcp=enable_schemaorg_mcp,
+        schemaorg_mcp_url=schemaorg_mcp_url,
     )
     logger.info("Using ADK LoopAgent-based PVMAP retry loop")
     if enable_mcp and mcp_url:
@@ -322,7 +344,8 @@ def run_dataset_pipeline(
         root_agent=pipeline_agent,
         output_dir=output_dir,
         dataset_name=dataset_name,
-        session_id=session_id
+        session_id=session_id,
+        extra_plugins=extra_plugins,
     )
 
     # Auto-enable use_metadata if metadata_file_path is provided
@@ -406,7 +429,14 @@ def run_dataset_pipeline(
         "schema_file": schema_file,
         # Schema examples control
         "use_schema_examples": use_schema_examples,
+        # Prompt version (v1 or v2)
+        "prompt_version": prompt_version,
     }
+
+    # Inject human feedback if provided (for UI re-runs)
+    if human_feedback:
+        initial_state["error_feedback"] = human_feedback
+        initial_state["human_feedback_provided"] = True
 
     # Always set schema_base_dir in state (agents need it for tool calls)
     if schema_base_dir:
@@ -419,6 +449,12 @@ def run_dataset_pipeline(
         initial_state["mcp_enabled"] = True
         initial_state["mcp_url"] = mcp_url
         logger.info(f"MCP enabled with URL: {mcp_url}")
+
+    # Add Schema.org MCP state if enabled
+    if enable_schemaorg_mcp and schemaorg_mcp_url:
+        initial_state["schemaorg_mcp_enabled"] = True
+        initial_state["schemaorg_mcp_url"] = schemaorg_mcp_url
+        logger.info(f"Schema.org MCP enabled with URL: {schemaorg_mcp_url}")
 
     # Log sampling configuration
     if skip_sampling:
@@ -538,6 +574,10 @@ if __name__ == "__main__":
                         help="Input directory (default: input/)")
     parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
                         help="Gemini model to use (default: gemini-3-pro-preview)")
+    parser.add_argument("--thinking-level", type=str,
+                        choices=["low", "medium", "high", "minimal", "none"],
+                        default="high",
+                        help="Thinking level for Gemini models (default: high). Use 'none' to disable.")
     # MCP integration flags
     parser.add_argument("--enable-mcp", action="store_true",
                         help="Enable MCP integration for Data Commons StatVar discovery")
@@ -582,6 +622,10 @@ if __name__ == "__main__":
                         help="Skip injecting schema examples into PVMAP generation prompt")
     parser.add_argument("--schema-base-dir", type=str, default=None,
                         help="Override schema examples base directory")
+    # Prompt version (A/B testing)
+    parser.add_argument("--prompt-version", type=str, choices=["v1", "v2"],
+                        default="v2",
+                        help="PVMAP prompt template version (default: v2)")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
@@ -700,6 +744,26 @@ if __name__ == "__main__":
                     enable_mcp = False
                     mcp_manager = None
 
+        # Start Schema.org MCP server if enabled
+        enable_schemaorg_mcp = getattr(args, 'enable_schemaorg_mcp', False)
+        schemaorg_mcp_manager = None
+        schemaorg_mcp_url = None
+        if enable_schemaorg_mcp:
+            try:
+                from src.data_commons.api.schemaorg_mcp_manager import SchemaOrgMCPManager
+                print("Starting Schema.org MCP server...")
+                schemaorg_mcp_manager = SchemaOrgMCPManager(port=3001)
+                if schemaorg_mcp_manager.start(timeout=30):
+                    schemaorg_mcp_url = schemaorg_mcp_manager.mcp_url
+                    print(f"Schema.org MCP server started at: {schemaorg_mcp_url}")
+                else:
+                    print("WARNING: Schema.org MCP server failed to start. Continuing without it.")
+                    enable_schemaorg_mcp = False
+                    schemaorg_mcp_manager = None
+            except Exception as e:
+                print(f"WARNING: Schema.org MCP unavailable: {e}")
+                enable_schemaorg_mcp = False
+
         final_state = run_dataset_pipeline(
             dataset_name=dataset_name,
             input_dir=input_dir,
@@ -707,6 +771,8 @@ if __name__ == "__main__":
             model=args.model,
             enable_mcp=enable_mcp,
             mcp_url=mcp_url,
+            enable_schemaorg_mcp=enable_schemaorg_mcp,
+            schemaorg_mcp_url=schemaorg_mcp_url,
             skip_sampling=args.skip_sampling,
             force_resample=args.force_resample,
             skip_schema_selection=args.skip_schema_selection,
@@ -721,6 +787,8 @@ if __name__ == "__main__":
             schema_file=args.schema_file,
             use_schema_examples=not args.no_schema_examples,
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
+            thinking_level=args.thinking_level,
+            prompt_version=getattr(args, 'prompt_version', 'v2'),
         )
 
         print("\n" + "=" * 60)
@@ -766,8 +834,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     finally:
-        # Clean up MCP server
+        # Clean up MCP servers
         if mcp_manager:
             print("\nStopping MCP server...")
             mcp_manager.stop()
             print("MCP server stopped.")
+        if schemaorg_mcp_manager:
+            print("Stopping Schema.org MCP server...")
+            schemaorg_mcp_manager.stop()
+            print("Schema.org MCP server stopped.")

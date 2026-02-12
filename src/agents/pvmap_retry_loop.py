@@ -6,11 +6,12 @@ This module creates a LoopAgent that orchestrates:
 2. [StatVarDiscoveryAgent] - MCP-based StatVar discovery (if MCP enabled)
 3. PVMAPGeneratorAgent - Generates PVMAP with structured output
 4. MetadataGenerationAgent - Auto-generates stat_var_processor config
-5. ValidationAgent - Validates PVMAP (sets validation_passed flag)
-6. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
-7. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
-8. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
-9. MaxRetriesCheckAgent - Checks if max retries exceeded
+5. [MCPSpotCheckAgent] - Quick pre-validation against DC data (if MCP enabled)
+6. ValidationAgent - Validates PVMAP (sets validation_passed flag)
+7. [MCPErrorResolverAgent] - MCP-based error resolution (if MCP enabled)
+8. QualityEvaluationAgent - Evaluates quality (escalates if acceptable/stagnant)
+9. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
+10. MaxRetriesCheckAgent - Checks if max retries exceeded
 
 The loop exits when:
 - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
@@ -35,6 +36,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import logging
+
+from pydantic import PrivateAttr
 
 from google.adk.agents import LoopAgent, BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -106,9 +109,16 @@ class StatePreparationAgent(BaseAgent):
         # =====================================================================
         if attempt == 0:
             ctx.session.state["quality_metrics_history"] = []
-            ctx.session.state["error_feedback"] = ""
+            # Preserve human feedback if injected (for UI re-runs)
+            if not ctx.session.state.get("human_feedback_provided"):
+                ctx.session.state["error_feedback"] = ""
             ctx.session.state["exit_reason"] = None
             ctx.session.state["validation_counter_summary"] = ""
+            # Initialize best-attempt tracking
+            ctx.session.state["best_data_rows"] = 0
+            ctx.session.state["best_pvmap_csv"] = None
+            ctx.session.state["best_attempt_number"] = None
+            ctx.session.state["best_validation_passed"] = False
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
@@ -165,6 +175,10 @@ class StatePreparationAgent(BaseAgent):
                                 from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
                                 vocab = json.loads(vocab_path.read_text(encoding="utf-8"))
                                 schema_content = format_schema_vocab_for_prompt(vocab)
+                                # Cache property_vocabulary for enum validation
+                                pv = vocab.get("property_vocabulary", {})
+                                if pv:
+                                    ctx.session.state["property_vocabulary"] = pv
                             except Exception:
                                 pass
                 # 3. Fallback: file on disk (for --schema-file override or legacy files)
@@ -180,9 +194,38 @@ class StatePreparationAgent(BaseAgent):
                 )
             ctx.session.state["schema_examples"] = schema_content
 
+        # Cache property_vocabulary for enum validation (if not already cached)
+        if not ctx.session.state.get("property_vocabulary"):
+            schema_category_raw = ctx.session.state.get("schema_category", "")
+            resolved_cat = ""
+            for cat in ["Health", "Demographics", "Economy", "Education", "Employment", "Energy", "School"]:
+                if schema_category_raw and cat.lower() in schema_category_raw.lower():
+                    resolved_cat = cat
+                    break
+            schema_base = ctx.session.state.get("schema_base_dir", "")
+            if resolved_cat and schema_base:
+                vocab_path = Path(schema_base) / resolved_cat / "schema_vocab.json"
+                if vocab_path.exists():
+                    try:
+                        import json
+                        vocab_data = json.loads(vocab_path.read_text(encoding="utf-8"))
+                        pv = vocab_data.get("property_vocabulary", {})
+                        if pv:
+                            ctx.session.state["property_vocabulary"] = pv
+                            logger.info(f"Cached property_vocabulary: {len(pv)} properties for {resolved_cat}")
+                    except Exception as e:
+                        logger.debug(f"Failed to cache property_vocabulary: {e}")
+                else:
+                    logger.debug(f"Vocab file not found: {vocab_path}")
+            else:
+                logger.debug(f"Cannot resolve property_vocabulary: category='{schema_category_raw}' base='{schema_base}'")
+        else:
+            logger.debug(f"property_vocabulary already in state: {len(ctx.session.state.get('property_vocabulary', {}))} properties")
+
         # Read sampled_data if not already in state
         if "sampled_data" not in ctx.session.state or not ctx.session.state["sampled_data"]:
             sampled_data = ""
+            using_raw_fallback = False
             # Resolve sampled data path from multiple sources
             sampled_path = ctx.session.state.get("sampled_data_path")
             if not sampled_path or not Path(sampled_path).exists():
@@ -191,9 +234,30 @@ class StatePreparationAgent(BaseAgent):
                     sampled_path = str(fallback)
                 elif current_dataset.sampled_data_files:
                     sampled_path = str(current_dataset.sampled_data_files[0])
+            # Level 4: Fallback to raw input file (first N rows)
+            if not sampled_path or not Path(sampled_path).exists():
+                input_files = getattr(current_dataset, "input_data_files", None)
+                if input_files and isinstance(input_files, (list, tuple)) and len(input_files) > 0:
+                    raw_path = Path(input_files[0])
+                    if raw_path.exists():
+                        sampled_path = str(raw_path)
+                        using_raw_fallback = True
             if sampled_path and Path(sampled_path).exists():
                 try:
-                    sampled_data = Path(sampled_path).read_text(encoding='utf-8')
+                    content = Path(sampled_path).read_text(encoding='utf-8')
+                    if using_raw_fallback:
+                        # Truncate to first ~100 data rows to stay within token budget
+                        lines = content.split('\n')
+                        header = lines[0] if lines else ''
+                        data_lines = lines[1:101]  # First 100 data rows
+                        sampled_data = '\n'.join([header] + data_lines)
+                        logger.warning(
+                            f"Using raw input fallback (first {len(data_lines)} rows) "
+                            f"— sampling was not available"
+                        )
+                        ctx.session.state["using_raw_input_fallback"] = True
+                    else:
+                        sampled_data = content
                 except Exception as e:
                     sampled_data = f"(Error reading sampled data: {e})"
             ctx.session.state["sampled_data"] = sampled_data
@@ -225,6 +289,57 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["gt_score_section"] = ""
 
         # =====================================================================
+        # Emergency skeleton generation when skeleton_summary is empty
+        # =====================================================================
+        if not ctx.session.state.get("skeleton_summary") and ctx.session.state.get("sampled_data"):
+            try:
+                import pandas as pd
+                import io
+                data_text = ctx.session.state["sampled_data"]
+                df = pd.read_csv(io.StringIO(data_text), nrows=100)
+                if len(df.columns) > 1:  # Sanity check: valid CSV
+                    from src.pipeline.sampling.data_context import generate_data_context
+                    emergency_context = generate_data_context(
+                        df, dataset_name=current_dataset.name
+                    )
+                    ctx.session.state["skeleton_summary"] = emergency_context.to_skeleton_summary()
+                    logger.info(
+                        f"Generated emergency skeleton_summary "
+                        f"({len(df.columns)} columns, {len(df)} rows)"
+                    )
+            except Exception as e:
+                logger.warning(f"Emergency skeleton generation failed: {e}")
+                # Still better than empty — provide column list
+                try:
+                    first_line = ctx.session.state["sampled_data"].split('\n')[0]
+                    cols = first_line.split(',')
+                    ctx.session.state["skeleton_summary"] = (
+                        f"## Column Headers\n"
+                        f"The dataset has {len(cols)} columns: "
+                        f"{', '.join(f'`{c.strip()}`' for c in cols)}\n"
+                    )
+                except Exception:
+                    pass  # Truly nothing we can do
+
+        # =====================================================================
+        # Warn if critical data is missing after all fallbacks
+        # =====================================================================
+        if not ctx.session.state.get("sampled_data") and not ctx.session.state.get("skeleton_summary"):
+            logger.error(
+                f"CRITICAL: Both sampled_data and skeleton_summary are empty for "
+                f"{current_dataset.name}. PVMAP generation will likely fail."
+            )
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text=(
+                        "WARNING: No sampled data or skeleton summary available. "
+                        "The LLM will generate with minimal context."
+                    ))
+                ])
+            )
+
+        # =====================================================================
         # CRITICAL: Escape PVMAP placeholders in feedback to prevent templating errors
         # The generator instruction uses {error_feedback},
         # which may contain PVMAP snippets with {Data}/{Number} from LLM analysis
@@ -251,12 +366,107 @@ class StatePreparationAgent(BaseAgent):
                     ])
                 )
 
+        # =====================================================================
+        # Populate prompt template and store in state
+        # =====================================================================
+        # Load improved_pvmap_prompt.txt, fill {{...}} placeholders with state
+        # values, then escape all {word} patterns to [word] so ADK doesn't
+        # try to resolve them as state variables.
+        self._populate_prompt_template(ctx)
+
         yield Event(
             author=self.name,
             content=types.Content(parts=[
                 types.Part(text=f"State prepared for attempt {attempt + 1}")
             ])
         )
+
+    def _populate_prompt_template(self, ctx: InvocationContext) -> None:
+        """
+        Load PVMAP prompt template, populate placeholders, escape, and store.
+
+        Selects template based on prompt_version state variable:
+        - v1: improved_pvmap_prompt.txt (777-line original)
+        - v2: improved_pvmap_prompt_v2.txt (restructured ~315 lines)
+
+        This makes the template the single source of truth for the generator
+        instruction. The populated and escaped result is stored in state as
+        'populated_pvmap_prompt', which the generator's instruction
+        ({populated_pvmap_prompt}) resolves at runtime.
+
+        Template placeholders ({{...}}) are filled with state values.
+        PVMAP placeholders ({Data}, {Number}, {Year}, etc.) are then escaped
+        to [DATA], [NUMBER], [Year] to prevent ADK template resolution errors.
+        """
+        prompt_version = ctx.session.state.get("prompt_version", "v2")
+        if prompt_version == "v1":
+            template_name = "improved_pvmap_prompt.txt"
+        else:
+            template_name = "improved_pvmap_prompt_v2.txt"
+
+        template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
+
+        # Fallback to v1 if v2 doesn't exist yet
+        if not template_path.exists() and prompt_version == "v2":
+            template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
+            logger.warning("Prompt v2 not found, falling back to v1")
+
+        if not template_path.exists():
+            logger.error(f"Prompt template not found: {template_path}")
+            ctx.session.state["populated_pvmap_prompt"] = (
+                "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+            )
+            return
+
+        try:
+            template = template_path.read_text(encoding="utf-8")
+
+            # Populate double-brace template placeholders with state values
+            populated = template.replace(
+                "{{DATA_CONTEXT}}",
+                ctx.session.state.get("skeleton_summary", "")
+            )
+            populated = populated.replace(
+                "{{SCHEMA_EXAMPLES}}",
+                ctx.session.state.get("schema_examples", "")
+            )
+            populated = populated.replace(
+                "{{SAMPLED_DATA}}",
+                ctx.session.state.get("sampled_data", "")
+            )
+            populated = populated.replace(
+                "{{METADATA_CONFIG}}",
+                ctx.session.state.get("metadata", "")
+            )
+            populated = populated.replace(
+                "{{ERROR_FEEDBACK}}",
+                ctx.session.state.get("error_feedback", "")
+            )
+            populated = populated.replace(
+                "{{STATVAR_SUMMARY}}",
+                ctx.session.state.get("statvar_summary", "")
+            )
+            populated = populated.replace(
+                "{{MCP_TOOLS_INSTRUCTION}}",
+                ctx.session.state.get("mcp_tools_instruction", "")
+            )
+
+            # Escape ALL {word} patterns to prevent ADK template resolution.
+            # This converts {Data}→[DATA], {Number}→[NUMBER], {Year}→[Year], etc.
+            # The escape is idempotent (already-escaped [WORD] content is unaffected).
+            populated = escape_pvmap_placeholders(populated)
+
+            ctx.session.state["populated_pvmap_prompt"] = populated
+            logger.info(
+                f"Populated prompt template ({template_name}): {len(populated)} chars "
+                f"(from {len(template)} char template)"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to populate prompt template: {e}")
+            ctx.session.state["populated_pvmap_prompt"] = (
+                "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+            )
 
     def _discover_and_cache_ground_truth(self, ctx: InvocationContext) -> None:
         """
@@ -427,7 +637,8 @@ class ConditionalFeedbackAgent(BaseAgent):
     def __init__(
         self,
         name: str = "UnifiedFeedback",
-        model: str = "gemini-2.5-flash"
+        model: str = "gemini-2.5-flash",
+        thinking_level: Optional[str] = None,
     ):
         """
         Initialize ConditionalFeedbackAgent.
@@ -435,8 +646,9 @@ class ConditionalFeedbackAgent(BaseAgent):
         Args:
             name: Agent name
             model: Gemini model for the inner LlmAgent
+            thinking_level: Thinking level for Gemini models
         """
-        feedback_agent = create_feedback_agent(model=model)
+        feedback_agent = create_feedback_agent(model=model, thinking_level=thinking_level)
         super().__init__(
             name=name,
             feedback_agent=feedback_agent,
@@ -465,8 +677,19 @@ class ConditionalFeedbackAgent(BaseAgent):
                 ])
             )
 
-            async for event in self.feedback_agent.run_async(ctx):
-                yield event
+            try:
+                async for event in self.feedback_agent.run_async(ctx):
+                    yield event
+            except Exception as e:
+                logger.error("Feedback LlmAgent crashed: %s", e, exc_info=True)
+                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Feedback agent error (continuing): {str(e)[:150]}")
+                    ]),
+                    actions=EventActions(escalate=False)
+                )
 
             # Log feedback preview
             error_feedback = ctx.session.state.get("error_feedback", "")
@@ -507,8 +730,19 @@ class ConditionalFeedbackAgent(BaseAgent):
                 ])
             )
 
-            async for event in self.feedback_agent.run_async(ctx):
-                yield event
+            try:
+                async for event in self.feedback_agent.run_async(ctx):
+                    yield event
+            except Exception as e:
+                logger.error("Feedback LlmAgent crashed (quality path): %s", e, exc_info=True)
+                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Feedback agent error (continuing): {str(e)[:150]}")
+                    ]),
+                    actions=EventActions(escalate=False)
+                )
 
             # Log feedback preview
             error_feedback = ctx.session.state.get("error_feedback", "")
@@ -538,6 +772,99 @@ class ConditionalFeedbackAgent(BaseAgent):
                 ]),
                 actions=EventActions(escalate=False)
             )
+
+    def _build_deterministic_feedback(self, ctx: InvocationContext, error: Exception) -> str:
+        """Build structured feedback from session state when the feedback LLM crashes.
+
+        Assembles actionable feedback from already-computed state variables
+        instead of returning a generic canned message.
+
+        Args:
+            ctx: Invocation context with session state.
+            error: The exception that caused the LLM to crash.
+
+        Returns:
+            Structured feedback string for the next generation attempt.
+        """
+        sections = []
+        sections.append(f"[Feedback LLM failed: {str(error)[:200]}]")
+        sections.append("")
+
+        # Validation error (the actual error from subprocess)
+        validation_error = ctx.session.state.get("validation_error", "")
+        if validation_error:
+            sections.append("## Validation Error")
+            sections.append(str(validation_error)[:1000])
+            sections.append("")
+
+        # Key match report (column matching analysis)
+        key_match_report = ctx.session.state.get("key_match_report", "")
+        if key_match_report:
+            sections.append("## Key Match Report")
+            sections.append(str(key_match_report)[:1500])
+            sections.append("")
+
+        # Counter summary (processing metrics)
+        counter_summary = ctx.session.state.get("validation_counter_summary", "")
+        if counter_summary:
+            sections.append("## Processing Metrics")
+            sections.append(str(counter_summary)[:500])
+            sections.append("")
+
+        # Pre-validation warnings (schema/eval warnings)
+        pre_warnings = ctx.session.state.get("pre_validation_warnings", "")
+        if pre_warnings:
+            sections.append("## Pre-Validation Warnings")
+            sections.append(str(pre_warnings)[:500])
+            sections.append("")
+
+        # Auto-generated high-impact fixes based on error signals
+        sections.append("## High-Impact Fixes")
+        error_text = str(validation_error).lower()
+        fixes = []
+
+        if "0 rows" in error_text or "0 data rows" in error_text:
+            fixes.append(
+                "- CRITICAL: 0 output rows — PVMAP keys likely don't match column headers. "
+                "Check exact column names (case, whitespace, special characters)."
+            )
+
+        if "#eval" in error_text or "eval" in error_text:
+            fixes.append(
+                "- #Eval expressions may be broken — use simple Python only. "
+                "NO f-strings, NO nested double quotes, NO imports. "
+                "Split complex logic into per-row #Eval with named variables."
+            )
+
+        if "observationabout" in error_text:
+            fixes.append(
+                "- observationAbout mapping issue — ensure a place/geo column "
+                "is mapped to observationAbout with the correct format (geoId/, country/, etc.)."
+            )
+
+        if "observationdate" in error_text:
+            fixes.append(
+                "- observationDate mapping issue — ensure a date/year column "
+                "is mapped to observationDate."
+            )
+
+        if "key not found" in error_text or "undefined property" in error_text:
+            fixes.append(
+                "- Key mismatch — PVMAP keys must exactly match column headers. "
+                "Check case sensitivity and whitespace."
+            )
+
+        if not fixes:
+            fixes.append(
+                "- Review the validation error above and fix the specific issues mentioned."
+            )
+            fixes.append(
+                "- Ensure all PVMAP keys exactly match column headers from the input data."
+            )
+
+        sections.extend(fixes)
+
+        return "\n".join(sections)
 
     def _prepare_feedback_state(self, ctx: InvocationContext) -> None:
         """
@@ -582,10 +909,18 @@ class ConditionalFeedbackAgent(BaseAgent):
         ctx.session.state.setdefault("validation_statvar_analysis", "")
         ctx.session.state.setdefault("key_match_report", "")
 
+        # Format pvmap_repair_changes from list to string for template rendering
+        repair_changes = ctx.session.state.get("pvmap_repair_changes", [])
+        if isinstance(repair_changes, list) and repair_changes:
+            repair_str = "\n".join(f"- {c}" for c in repair_changes)
+            ctx.session.state["pvmap_repair_changes"] = repair_str
+        elif not repair_changes:
+            ctx.session.state["pvmap_repair_changes"] = "No auto-repairs were needed."
+
         # Escape all PVMAP-containing state
         for key in ["pvmap_csv", "validation_error", "sampled_data",
                      "structure_warnings", "mcp_resolved_context",
-                     "quality_diff_summary"]:
+                     "quality_diff_summary", "pvmap_repair_changes"]:
             val = ctx.session.state.get(key, "")
             if val:
                 # structure_warnings can be a list from the validator
@@ -679,6 +1014,8 @@ class MaxRetriesCheckAgent(BaseAgent):
     to exit the loop.
     """
 
+    _max_retries: int = PrivateAttr(default=3)
+
     def __init__(self, name: str = "MaxRetriesCheck", max_retries: int = 3):
         super().__init__(name=name)
         self._max_retries = max_retries
@@ -708,32 +1045,89 @@ class MaxRetriesCheckAgent(BaseAgent):
             return
 
         if attempt >= self._max_retries:
-            # Max retries reached - set failure state and exit loop
-            ctx.session.state["generation_success"] = False
+            # Restore best attempt if current is worse
+            current_rows = ctx.session.state.get("validation_data_rows", 0)
+            best_rows = ctx.session.state.get("best_data_rows", 0)
+            best_csv = ctx.session.state.get("best_pvmap_csv")
+            best_was_valid = ctx.session.state.get("best_validation_passed", False)
+            current_valid = ctx.session.state.get("validation_passed", False)
+            restored_best = False
+            # Restore if: (a) best has more rows, OR (b) best was valid and current is not
+            should_restore = best_csv and (
+                best_rows > current_rows
+                or (best_was_valid and not current_valid)
+            )
+            if should_restore:
+                ctx.session.state["pvmap_csv"] = best_csv
+                ctx.session.state["validation_data_rows"] = best_rows
+                best_attempt = ctx.session.state.get("best_attempt_number", "?")
+                restored_best = True
+                logger.info(
+                    f"Restored best attempt #{best_attempt} "
+                    f"({best_rows} rows vs current {current_rows} rows, "
+                    f"best_valid={best_was_valid}, current_valid={current_valid})"
+                )
+                # Re-save best PVMAP to file
+                try:
+                    current_dataset = ctx.session.state.get("current_dataset")
+                    if current_dataset:
+                        pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                        pvmap_path.write_text(best_csv, encoding='utf-8')
+                except Exception as e:
+                    logger.warning(f"Failed to re-save best PVMAP: {e}")
+
+            # If we restored a validated best attempt, mark as success
+            if restored_best and best_was_valid:
+                ctx.session.state["generation_success"] = True
+                ctx.session.state["validation_passed"] = True
+                ctx.session.state["exit_reason"] = "best_attempt_restored"
+                logger.info(
+                    f"Best attempt was validated — marking generation_success=True"
+                )
+            else:
+                ctx.session.state["generation_success"] = False
+                ctx.session.state["exit_reason"] = "max_retries"
+
             ctx.session.state["retry_count"] = attempt
-            ctx.session.state["exit_reason"] = "max_retries"
 
-            # Determine error message based on what type of feedback we had
+            # Determine error/success message
             error_feedback = ctx.session.state.get("error_feedback", "")
+            generation_success = ctx.session.state.get("generation_success", False)
 
-            if error_feedback:
-                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Last feedback: {error_feedback[:500]}"
+            if generation_success:
+                # Best attempt was restored and was valid
+                best_attempt = ctx.session.state.get("best_attempt_number", "?")
+                msg = (
+                    f"Max retries ({self._max_retries + 1}) exceeded, but restored "
+                    f"validated attempt #{best_attempt} ({best_rows} data rows). "
+                    f"Marking as SUCCESS."
+                )
+                ctx.session.state["error"] = None
+            elif error_feedback:
+                msg = f"Max retries ({self._max_retries + 1}) exceeded. Last feedback: {error_feedback[:500]}"
+                ctx.session.state["error"] = msg
             else:
                 quality_metrics = ctx.session.state.get("quality_metrics", {})
                 if isinstance(quality_metrics, dict):
                     score = quality_metrics.get("heuristic_score", 0)
                 else:
                     score = ctx.session.state.get("quality_score", 0)
-                error_msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
+                msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
+                ctx.session.state["error"] = msg
 
-            ctx.session.state["error"] = error_msg
-
-            # Update generation notes with final failure status
+            # Update generation notes with final status
             try:
                 from src.agents.pvmap_generation.helpers import update_generation_notes
                 current_dataset = ctx.session.state.get("current_dataset")
                 if current_dataset:
                     validation_passed = ctx.session.state.get("validation_passed", False)
+                    if generation_success:
+                        final_status = (
+                            f"PASSED (restored best attempt #{ctx.session.state.get('best_attempt_number', '?')}) "
+                            f"after {self._max_retries + 1} attempts (exit_reason: best_attempt_restored)"
+                        )
+                    else:
+                        final_status = f"FAILED after {self._max_retries + 1} attempts (exit_reason: max_retries)"
                     update_generation_notes(
                         output_dir=Path(current_dataset.output_dir),
                         dataset_name=current_dataset.name,
@@ -744,7 +1138,7 @@ class MaxRetriesCheckAgent(BaseAgent):
                             "success": validation_passed,
                             "error": error_feedback if not validation_passed else ""
                         },
-                        final_status=f"FAILED after {self._max_retries + 1} attempts (exit_reason: max_retries)"
+                        final_status=final_status
                     )
             except Exception:
                 pass  # Don't fail on logging errors
@@ -752,7 +1146,7 @@ class MaxRetriesCheckAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Max retries ({self._max_retries + 1}) exceeded. Exiting loop with failure.")
+                    types.Part(text=msg)
                 ]),
                 actions=EventActions(escalate=True)  # Exit loop
             )
@@ -774,6 +1168,10 @@ def create_pvmap_retry_loop(
     name: str = "PVMAPRetryLoop",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
+    min_attempts: Optional[int] = None,
+    thinking_level: Optional[str] = None,
+    enable_schemaorg_mcp: bool = False,
+    schemaorg_mcp_url: Optional[str] = None,
 ) -> LoopAgent:
     """
     Create PVMAP generation retry loop with quality-based retries.
@@ -803,6 +1201,9 @@ def create_pvmap_retry_loop(
         name: Loop agent name (default: PVMAPRetryLoop)
         enable_mcp: Enable MCP integration (default: False)
         mcp_url: MCP server URL (required if enable_mcp=True)
+        min_attempts: Minimum attempts before allowing quality exit (optional)
+        enable_schemaorg_mcp: Enable Schema.org MCP toolset (default: False)
+        schemaorg_mcp_url: Schema.org MCP server URL (default: http://localhost:3001/mcp)
 
     Returns:
         Configured LoopAgent
@@ -833,15 +1234,20 @@ def create_pvmap_retry_loop(
         generator = create_pvmap_generator(
             model=model, name="Generator",
             enable_mcp=enable_mcp, mcp_url=mcp_url,
+            thinking_level=thinking_level,
+            enable_schemaorg_mcp=enable_schemaorg_mcp,
+            schemaorg_mcp_url=schemaorg_mcp_url,
         )
     else:
         from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
-        generator = create_pvmap_generator_without_schema(model=model, name="Generator")
+        generator = create_pvmap_generator_without_schema(
+            model=model, name="Generator", thinking_level=thinking_level,
+        )
 
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
-    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator")
-    unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model)
+    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator", min_attempts=min_attempts)
+    unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model, thinking_level=thinking_level)
     max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
     # Build sub_agents list
@@ -859,6 +1265,14 @@ def create_pvmap_retry_loop(
 
     sub_agents.append(generator)
     sub_agents.append(metadata_generator)
+
+    # Insert MCPSpotCheckAgent between metadata_generator and validator when MCP enabled
+    if enable_mcp and mcp_url:
+        from src.agents.mcp_spot_check_agent import MCPSpotCheckAgent
+        spot_check = MCPSpotCheckAgent(name="MCPSpotCheck")
+        sub_agents.append(spot_check)
+        logger.info("MCPSpotCheckAgent added to retry loop (MCP enabled)")
+
     sub_agents.append(validator)
 
     # Insert MCPErrorResolverAgent when MCP enabled

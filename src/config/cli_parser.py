@@ -123,6 +123,83 @@ def create_parser() -> argparse.ArgumentParser:
         default='gemini-3-pro-preview',
         help='Gemini model to use (default: gemini-3-pro-preview)'
     )
+    parser.add_argument(
+        '--thinking-level',
+        type=str,
+        choices=['low', 'medium', 'high', 'minimal', 'none'],
+        default='high',
+        help='Thinking level for Gemini models (default: high). Use "none" to disable.'
+    )
+
+    # MCP integration
+    parser.add_argument(
+        '--enable-mcp',
+        action='store_true',
+        help='Enable Data Commons MCP integration for StatVar discovery'
+    )
+    parser.add_argument(
+        '--enable-schemaorg-mcp',
+        action='store_true',
+        help='Enable Schema.org MCP server for vocabulary lookup'
+    )
+
+    # Schema examples
+    parser.add_argument(
+        '--no-schema-examples',
+        action='store_true',
+        help='Skip schema example injection into PVMAP prompt'
+    )
+
+    # Input modes
+    parser.add_argument(
+        '--input-file',
+        type=str,
+        help='Standalone input file (no dataset folder required)'
+    )
+    parser.add_argument(
+        '--use-metadata',
+        action='store_true',
+        help='Use metadata files for prompt building (default: off)'
+    )
+    parser.add_argument(
+        '--metadata-file-path',
+        type=str,
+        help='Explicit metadata file path (auto-enables --use-metadata)'
+    )
+    parser.add_argument(
+        '--schema-file',
+        type=str,
+        help='Explicit schema file override'
+    )
+
+    # Prompt version
+    parser.add_argument(
+        '--prompt-version',
+        type=str,
+        choices=['v1', 'v2'],
+        default='v2',
+        help='PVMAP prompt template version (default: v2)'
+    )
+
+    # Structured output
+    parser.add_argument(
+        '--structured-output',
+        action='store_true',
+        default=True,
+        help='Use structured output (deterministic CSV) [default: True]'
+    )
+    parser.add_argument(
+        '--no-structured-output',
+        action='store_true',
+        help='Disable structured output'
+    )
+
+    # Verbose
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose logging'
+    )
 
     return parser
 

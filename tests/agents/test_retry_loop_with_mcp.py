@@ -47,8 +47,8 @@ class TestCreatePvmapRetryLoop:
             "MaxRetriesCheck",
         ]
 
-    def test_with_mcp_9_agents(self):
-        """With MCP, loop has 9 sub-agents (adds StatVarDiscovery + MCPErrorResolver)."""
+    def test_with_mcp_10_agents(self):
+        """With MCP, loop has 10 sub-agents (adds StatVarDiscovery, MCPSpotCheck, MCPErrorResolver)."""
         loop = create_pvmap_retry_loop(
             model="gemini-2.5-flash",
             max_retries=3,
@@ -56,13 +56,14 @@ class TestCreatePvmapRetryLoop:
             mcp_url="http://localhost:3000/mcp",
         )
 
-        assert len(loop.sub_agents) == 9
+        assert len(loop.sub_agents) == 10
         agent_names = [a.name for a in loop.sub_agents]
         assert agent_names == [
             "StatePrep",
             "StatVarDiscovery",
             "Generator",
             "MetadataGenerator",
+            "MCPSpotCheck",
             "Validator",
             "MCPErrorResolver",
             "QualityEvaluator",
