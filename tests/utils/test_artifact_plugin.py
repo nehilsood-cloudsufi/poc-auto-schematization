@@ -291,10 +291,9 @@ class TestArtifactLoggingPlugin:
         assert self.plugin._model_call_start is None
         assert self.plugin._request_config == {}
 
-    async def test_before_model_enables_thinking_config(self):
-        """before_model_callback should inject ThinkingConfig if not already set."""
+    async def test_before_model_does_not_inject_thinking_config(self):
+        """before_model_callback should NOT inject ThinkingConfig (thinking disabled)."""
         req = _make_llm_request(model="gemini-2.5-pro", temperature=0.0)
-        # Ensure config has thinking_config attribute (starts as None)
         req.config.thinking_config = None
         ctx = _make_callback_context("Generator")
 
@@ -302,26 +301,7 @@ class TestArtifactLoggingPlugin:
             callback_context=ctx, llm_request=req
         )
 
-        assert req.config.thinking_config is not None
-        assert req.config.thinking_config.include_thoughts is True
-
-    async def test_before_model_preserves_existing_thinking_config(self):
-        """before_model_callback should not overwrite existing ThinkingConfig."""
-        from google.genai import types as genai_types
-        req = _make_llm_request(model="gemini-2.5-pro", temperature=0.0)
-        existing_config = genai_types.ThinkingConfig(
-            include_thoughts=True, thinking_budget=4096
-        )
-        req.config.thinking_config = existing_config
-        ctx = _make_callback_context("Generator")
-
-        await self.plugin.before_model_callback(
-            callback_context=ctx, llm_request=req
-        )
-
-        # Should not be replaced
-        assert req.config.thinking_config is existing_config
-        assert req.config.thinking_config.thinking_budget == 4096
+        assert req.config.thinking_config is None
 
     # ---- model fallback chain ----
 

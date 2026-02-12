@@ -213,7 +213,7 @@ print_summary() {
 
     if [[ ${#FAIL_LIST[@]} -gt 0 ]]; then
         echo "--- FAILED datasets ---"
-        for d in "${FAIL_LIST[@]}"; do
+        for d in ${FAIL_LIST[@]+"${FAIL_LIST[@]}"}; do
             echo "  - $d"
         done
         echo ""
@@ -221,7 +221,7 @@ print_summary() {
 
     if [[ ${#PASS_LIST[@]} -gt 0 ]]; then
         echo "--- PASSED datasets ---"
-        for d in "${PASS_LIST[@]}"; do
+        for d in ${PASS_LIST[@]+"${PASS_LIST[@]}"}; do
             echo "  - $d"
         done
         echo ""
@@ -295,7 +295,7 @@ if [[ "$SKIP_SMOKE" == false ]]; then
 
     # Check smoke results — abort only on crashes (exit 1), not validation failures (exit 2)
     crash_count=0
-    for d in "${FAIL_LIST[@]}"; do
+    for d in ${FAIL_LIST[@]+"${FAIL_LIST[@]}"}; do
         smoke_log="${BATCH_OUTPUT_DIR}/${d}/run.log"
         # Check if this was a crash (exit 1) vs validation failure (exit 2)
         if grep -q "Pipeline failed" "$smoke_log" 2>/dev/null; then

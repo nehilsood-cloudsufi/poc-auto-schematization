@@ -318,7 +318,7 @@ def generate_processor_config(
         pvmap_csv_content: Raw PVMAP CSV text.
         data_context: Data context from sampling (optional).
         input_file: Path to input CSV for header detection (optional).
-        output_dir: Directory to write auto_config.csv (optional).
+        output_dir: Directory to write output_metadata.csv (optional).
         existing_metadata_path: Path to existing metadata CSV (optional).
         llm_enrichment: Dict of LLM-suggested params (optional).
 
@@ -378,7 +378,7 @@ def generate_processor_config(
         config_path = None
         if output_dir:
             config_path = write_config_csv(
-                final_params, str(Path(output_dir) / "auto_config.csv")
+                final_params, str(Path(output_dir) / "output_metadata.csv")
             )
 
         return {

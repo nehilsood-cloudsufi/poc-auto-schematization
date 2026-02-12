@@ -309,12 +309,12 @@ class TestGenerateProcessorConfig:
         assert params["mapped_rows"] == 3
 
     def test_writes_to_output_dir(self, tmp_path):
-        """File at output/{dataset}/auto_config.csv."""
+        """File at output/{dataset}/output_metadata.csv."""
         result = generate_processor_config(
             pvmap_csv_content=SIMPLE_PVMAP,
             output_dir=str(tmp_path),
         )
-        assert result["config_path"].endswith("auto_config.csv")
+        assert result["config_path"].endswith("output_metadata.csv")
 
     def test_empty_pvmap(self):
         """Empty PVMAP → graceful error."""

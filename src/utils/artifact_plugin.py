@@ -59,12 +59,6 @@ class ArtifactLoggingPlugin(BasePlugin):
                 llm_request.config, 'max_output_tokens', None
             )
 
-            # Enable thinking output so the model returns thought parts
-            if not llm_request.config.thinking_config:
-                llm_request.config.thinking_config = genai_types.ThinkingConfig(
-                    include_thoughts=True
-                )
-
         if llm_request.model:
             self._request_config['model'] = llm_request.model
 

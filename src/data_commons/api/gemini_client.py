@@ -141,11 +141,6 @@ class GeminiClient:
         if max_output_tokens:
             config_params["max_output_tokens"] = max_output_tokens
 
-        # Enable thinking output
-        config_params["thinking_config"] = types.ThinkingConfig(
-            include_thoughts=True
-        )
-
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt,
