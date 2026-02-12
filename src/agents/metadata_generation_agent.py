@@ -26,6 +26,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
 
+from src.agents.prompt_loader import load_prompt
 from src.agents.pvmap_generation.helpers import convert_pvmap_output_to_csv
 from src.agents.pvmap_generation.schemas import PVMAPOutput, PVMAPRow, PropertyValuePair
 from src.agents.template_utils import escape_pvmap_placeholders
@@ -33,37 +34,7 @@ from src.tools.metadata_tools import generate_processor_config
 
 logger = logging.getLogger(__name__)
 
-_ENRICHMENT_INSTRUCTION = '''Analyze the PVMAP and data context to suggest stat_var_processor config parameters.
-
-PVMAP CSV:
-{pvmap_csv}
-
-Skeleton Summary:
-{skeleton_summary}
-
-Data Context:
-{data_context_str}
-
-Based on this analysis, output a JSON object with ONLY the parameters you're confident about:
-{{
-  "schemaless": true/false,
-  "drop_statvars_without_svobs": 0 or 1,
-  "description": "Brief dataset description"
-}}
-
-Rules for schemaless:
-- true if PVMAP contains dimension/defining properties beyond the standard StatVarObs set
-  (e.g., gender, age, income, healthOutcome, populationType, measuredProperty)
-  This means we are DEFINING new StatVars, not mapping to existing DCIDs
-- false if PVMAP only maps to existing variableMeasured DCIDs without defining properties
-
-Rules for drop_statvars_without_svobs:
-- Default 1 (drop). Set 0 only for clearly sparse data where many dimension combos have no values
-
-Rules for description:
-- 1-sentence summary under 100 chars describing the dataset
-
-Output ONLY valid JSON, no explanation.'''
+_ENRICHMENT_INSTRUCTION = load_prompt("metadata_enrichment.txt")
 
 
 def _create_enrichment_agent(model: str) -> LlmAgent:
@@ -97,7 +68,7 @@ class MetadataGenerationAgent(BaseAgent):
         - attempt_number: int - Current attempt
 
     State Outputs:
-        - generated_config_path: str - Path to auto_config.csv
+        - generated_config_path: str - Path to output_metadata.csv
         - generated_config_params: dict - Parameters written
 
     Metadata Priority (3-tier):

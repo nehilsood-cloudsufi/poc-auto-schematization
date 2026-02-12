@@ -138,6 +138,16 @@ def prepare_state_for_templating(ctx, state_keys: list[str]) -> None:
             ctx.session.state[key] = escape_pvmap_placeholders(value)
 
 
+def build_thinking_config(thinking_level: Optional[str] = None, model: Optional[str] = None):
+    """Build a ThinkingConfig from a string level, or return None.
+
+    Thinking is currently disabled across the pipeline to avoid
+    compatibility issues with models that don't support it (e.g.
+    gemini-2.5-flash). Always returns None.
+    """
+    return None
+
+
 # ============================================================================
 # Module exports
 # ============================================================================
@@ -147,4 +157,5 @@ __all__ = [
     'unescape_pvmap_placeholders',
     'prepare_state_for_templating',
     'sanitize_for_adk',
+    'build_thinking_config',
 ]

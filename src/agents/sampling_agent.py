@@ -60,141 +60,16 @@ from src.tools.sampling_tools import (
     check_coverage,
     generate_context,
 )
+from src.agents.template_utils import build_thinking_config
 
 
 # ============================================================================
 # Agent Instruction
 # ============================================================================
 
-SAMPLING_AGENT_INSTRUCTION = """
-You are a Data Sampling Agent for Data Commons PVMAP generation.
+from src.agents.prompt_loader import load_prompt
 
-Your job: Understand the data SKELETON and create a strategic sample that
-demonstrates how dimensions define unique StatVarObservations.
-
-## IMPORTANT: Check Session State First
-
-Before doing any work, check the session state for:
-- `skip_sampling`: If True, skip all work and report success
-- `force_resample`: If True, always create new samples even if they exist
-- `current_dataset`: The dataset to process (contains path and file info)
-
-## PROCESS
-
-### Step 1: Check Skip Flag
-If `skip_sampling` is True in the session state, immediately report success
-without doing any work.
-
-### Step 2: Preview Data
-Call `preview_data` on the input file to see structure. Look for:
-- Column names that suggest place (State, FIPS, Country, geoId)
-- Column names that suggest time (Year, Date, Period)
-- Wide vs Tall format (are dimensions in headers or rows?)
-
-### Step 3: Analyze Columns (Get Evidence)
-Call `analyze_columns` to get statistical evidence:
-- Cardinality ratio < 0.1 → likely DIMENSION
-- Cardinality ratio > 0.5 + numeric → likely VALUE
-- `looks_like_place` = True → likely PLACE
-- `looks_like_date` = True → likely TIME
-
-### Step 4: Classify Columns (Your Decision)
-Based on evidence, classify EACH column as:
-- **place**: Geographic identifier → maps to `observationAbout`
-- **time**: Temporal identifier → maps to `observationDate`
-- **dimension**: Categorical constraint → defines StatVar uniqueness
-- **value**: Numeric measurement → maps to `value`
-- **metadata**: Descriptive (source, unit) → context only
-
-### Step 5: Form Hypothesis
-Identify which columns form the SKELETON:
-"Rows are unique by: Place + Time + [Dimension1, Dimension2, ...]"
-
-### Step 6: Design Sampling Strategy
-Based on data format:
-- **Tall data with dimensions**: Use `fixed_pivot` mode
-  - Fix one place + time, vary all dimensions
-  - Shows LLM how dimensions define StatVar
-- **Wide data (values in headers)**: Use `head` mode
-  - Structure is visible in column names
-- **High-cardinality dimensions**: Use `stratified` mode
-  - Ensure every dimension value appears
-
-Call `sample_rows` with your chosen strategy:
-- mode: "random" | "head" | "stratified" | "fixed_pivot"
-- target_rows: 60-100 rows (default 80)
-- stratify_by: List of dimension columns (for stratified)
-- pivot_config: {"fix": {col: val}, "vary": [cols]} (for fixed_pivot)
-
-### Step 7: Validate Hypothesis
-Call `check_coverage` with your dimension hypothesis:
-- If `is_unique=True` → hypothesis correct
-- If `is_unique=False` → missed a dimension, revise and retry
-
-### Step 8: Generate Context
-Call `generate_context` with your classifications.
-This creates the skeleton_summary for PVMAP generation.
-
-Store results in session state:
-- `sampled_data_files`: List of sampled file paths
-- `combined_sampled_data`: Path to main sampled file
-- `sampling_success`: True
-- `data_context`: Dict from generate_context
-- `skeleton_summary`: String from generate_context
-- `column_roles`: Your classification dict
-- `dimension_columns`: List of dimension column names
-
-## DATA COMMONS UNIQUENESS RULE
-
-> StatVarObservation = Place + Time + StatVar
-> StatVar = Measurement + Dimensions (constraints)
-
-If two rows have same Place + Time but different values, there MUST be
-a dimension column that differentiates them (gender, age, race, etc.)
-
-## IMPORTANT GUIDELINES
-
-- Tools give EVIDENCE, YOU make DECISIONS
-- Don't assume domain - let data tell you
-- Target 60-100 rows in sample
-- Skeleton sample is MORE important than random coverage
-
-## EDGE CASE: No Clear Dimensions
-
-If analyze_columns shows all columns are unique or highly numeric (no low-cardinality
-categorical columns):
-1. Use simple `head` sampling (first 60-80 rows)
-2. Still provide your analysis of what the columns likely represent
-3. Note in context: "No clear dimension columns detected"
-4. Let PVMAP agent make the final determination
-
-## EDGE CASE: Pre-formatted Data Commons Data
-
-If columns include `observationAbout`, `observationDate`, `variableMeasured`, `value`:
-1. This is already DC-formatted data
-2. Use simple `head` sampling
-3. Set column_roles to match the DC format
-4. Note in context: "Pre-formatted Data Commons data detected"
-
-## OUTPUT FORMAT
-
-After completing all steps, summarize:
-1. Column classifications you made
-2. Sampling strategy used
-3. Coverage statistics
-4. Any issues or warnings
-
-Example:
-```
-Sampling complete for dataset_name:
-- Place column: state_fips
-- Time column: year
-- Dimensions: gender, age_group (2 columns)
-- Values: population_count, estimate (2 columns)
-- Strategy: stratified by [gender, age_group]
-- Sampled: 78 rows covering 95% of dimension combinations
-```
-"""
+SAMPLING_AGENT_INSTRUCTION = load_prompt("sampling_agent.txt")
 
 
 # ============================================================================
@@ -204,6 +79,7 @@ Sampling complete for dataset_name:
 def create_sampling_agent(
     name: str = "SamplingAgent",
     model: Optional[str] = None,
+    thinking_level: Optional[str] = None,
 ) -> LlmAgent:
     """Create an agentic Data Sampling Agent with forced tool calling.
 
@@ -244,13 +120,17 @@ def create_sampling_agent(
     # Force tool calling with mode=ANY
     # This ensures the LLM MUST call at least one tool per turn,
     # guaranteeing it follows the complete workflow including generate_context
-    generate_content_config = types.GenerateContentConfig(
+    config_kwargs = dict(
         tool_config=types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(
                 mode=types.FunctionCallingConfigMode.ANY
             )
         )
     )
+    thinking_config = build_thinking_config(thinking_level, model=model)
+    if thinking_config:
+        config_kwargs["thinking_config"] = thinking_config
+    generate_content_config = types.GenerateContentConfig(**config_kwargs)
 
     # Create LlmAgent with forced tool calling
     agent = LlmAgent(
@@ -277,14 +157,16 @@ class SamplingAgent:
     For new code, use create_sampling_agent() directly.
     """
 
-    def __init__(self, name: str = "SamplingAgent", model: Optional[str] = None):
+    def __init__(self, name: str = "SamplingAgent", model: Optional[str] = None,
+                 thinking_level: Optional[str] = None):
         """Initialize SamplingAgent wrapper.
 
         Args:
             name: Agent name
             model: LLM model to use
+            thinking_level: Thinking level for Gemini models
         """
-        self._agent = create_sampling_agent(name=name, model=model)
+        self._agent = create_sampling_agent(name=name, model=model, thinking_level=thinking_level)
         self.name = name
 
     @property
@@ -330,6 +212,7 @@ class SamplingAgentWrapper(BaseAgent):
         self,
         name: str = "SamplingAgent",
         model: Optional[str] = None,
+        thinking_level: Optional[str] = None,
     ):
         """
         Initialize SamplingAgentWrapper.
@@ -338,9 +221,11 @@ class SamplingAgentWrapper(BaseAgent):
             name: Agent name
             model: LLM model to use (default: from SAMPLING_AGENT_MODEL env var
                    or "gemini-2.5-pro")
+            thinking_level: Thinking level for Gemini models
         """
         super().__init__(name=name)
         self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
+        self._thinking_level = thinking_level
         self._fallback_model = "gemini-2.5-flash"
         self._timeout = float(os.getenv("SAMPLING_AGENT_TIMEOUT", "300"))
 
@@ -402,7 +287,10 @@ class SamplingAgentWrapper(BaseAgent):
                 yield self._create_event(f"Failed to load cached context: {e}, re-running sampling")
 
         # Create the inner LlmAgent
-        sampling_llm = create_sampling_agent(name=f"{self.name}_LLM", model=self._model)
+        sampling_llm = create_sampling_agent(
+            name=f"{self.name}_LLM", model=self._model,
+            thinking_level=self._thinking_level,
+        )
 
         # Construct message with file paths for the LLM
         message_text = f"""

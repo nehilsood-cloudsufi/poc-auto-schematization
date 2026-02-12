@@ -1,0 +1,31 @@
+Analyze the PVMAP and data context to suggest stat_var_processor config parameters.
+
+PVMAP CSV:
+{pvmap_csv}
+
+Skeleton Summary:
+{skeleton_summary}
+
+Data Context:
+{data_context_str}
+
+Based on this analysis, output a JSON object with ONLY the parameters you're confident about:
+{{
+  "schemaless": true/false,
+  "drop_statvars_without_svobs": 0 or 1,
+  "description": "Brief dataset description"
+}}
+
+Rules for schemaless:
+- true if PVMAP contains dimension/defining properties beyond the standard StatVarObs set
+  (e.g., gender, age, income, healthOutcome, populationType, measuredProperty)
+  This means we are DEFINING new StatVars, not mapping to existing DCIDs
+- false if PVMAP only maps to existing variableMeasured DCIDs without defining properties
+
+Rules for drop_statvars_without_svobs:
+- Default 1 (drop). Set 0 only for clearly sparse data where many dimension combos have no values
+
+Rules for description:
+- 1-sentence summary under 100 chars describing the dataset
+
+Output ONLY valid JSON, no explanation.

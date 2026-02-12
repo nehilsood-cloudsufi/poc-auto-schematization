@@ -34,181 +34,24 @@ if str(PROJECT_ROOT) not in sys.path:
 from google.adk.agents import LlmAgent
 
 from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
+from src.agents.prompt_loader import load_prompt_json
 from src.agents.template_utils import sanitize_for_adk
 
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Instruction Templates
+# Instruction Templates (loaded from src/resources/prompts/dc_query_instructions.json)
 # =============================================================================
 
-# Default instruction for DC Query Agent
-DC_QUERY_AGENT_INSTRUCTION = """You are a Data Commons expert assistant. Your role is to help
-discover and query statistical data from the Data Commons knowledge graph.
+_DC_INSTRUCTIONS = load_prompt_json("dc_query_instructions.json")
 
-You have access to MCP tools for querying Data Commons:
-
-1. **search_indicators**: Search for statistical variables (StatVars) and topics
-   - Use this to find what variables are available for a given topic or place
-   - Parameters: query (required), places (optional), parent_place (optional)
-   - Example: Search for "population" indicators for "California, USA"
-
-2. **get_observations**: Fetch actual statistical data
-   - Use this AFTER finding valid DCIDs from search_indicators
-   - Parameters: variable_dcid (required), place_dcid (required), date (optional)
-   - Example: Get observations for Count_Person in geoId/06 (California)
-
-**CRITICAL WORKFLOW**:
-1. ALWAYS call search_indicators FIRST to discover valid variable DCIDs
-2. NEVER guess DCIDs - they must come from search results
-3. Then use those DCIDs with get_observations to fetch data
-
-**Place DCIDs**:
-- US states: geoId/XX (e.g., geoId/06 for California)
-- US counties: geoId/XXXXX (e.g., geoId/06075 for San Francisco)
-- Countries: country/XXX (e.g., country/USA, country/IND)
-- World: Earth
-
-**Response Format**:
-- Report exact DCIDs you found (e.g., Count_Person, UnemploymentRate_Person)
-- Include values and dates for observations
-- Be concise but include key data points
-- If no results found, suggest alternative searches
-"""
-
-# Shorter instruction for specific use cases
-STATVAR_DISCOVERY_INSTRUCTION = """You discover existing Data Commons statistical variables.
-
-Use search_indicators to find variables matching the query.
-Report only the variable DCIDs and brief descriptions.
-Be concise - list format preferred.
-"""
-
-OBSERVATION_FETCH_INSTRUCTION = """You fetch statistical data from Data Commons.
-
-Use search_indicators first to find the correct variable DCID.
-Then use get_observations to fetch the data.
-Report the value, date, and place for each observation.
-"""
-
-# Enrichment: Broad discovery (attempt 0)
-ENRICHMENT_BROAD_INSTRUCTION = """You discover existing Data Commons statistical variables for a dataset.
-
-Your goal: Find StatVars that EXACTLY match what this dataset measures.
-
-{context_section}
-
-**Search Strategy (P+M+C formula):**
-1. Start broad: Search for "{{measurement}} {{population}}" (e.g., "Count Person")
-2. Narrow with dimensions: "{{measurement}} {{population}} {{constraint}}" (e.g., "Count Person Male")
-3. Use `places` parameter when the dataset has known place types (e.g., US states)
-4. Try `get_observations` for top matches to validate they return data for the dataset's places/dates
-
-**Output Format:**
-For each discovered variable:
-- DCID: <variable_dcid>
-  Name: <human readable name>
-  Description: <brief description>
-  Match confidence: HIGH/MEDIUM
-  Observation check: <CONFIRMED if get_observations returned data, UNCHECKED otherwise>
-
-List up to 10 most relevant matches. Be selective and concise.
-Only include HIGH or MEDIUM confidence matches."""
-
-# Enrichment: Error-driven refinement (attempt 1+)
-ENRICHMENT_REFINEMENT_INSTRUCTION = """You refine Data Commons StatVar discovery based on validation errors.
-
-The previous PVMAP generation attempt failed or had low quality.
-Use the error context below to make TARGETED MCP queries.
-
-{context_section}
-
-**Previous Validation Error:**
-{validation_error}
-
-**Previous Error Feedback:**
-{error_feedback}
-
-**Refinement Strategy:**
-1. Identify which StatVars were incorrectly mapped or missing
-2. Search for correct DCIDs using error context clues
-3. If "key not found" errors: search for variables matching those column names
-4. If "observationAbout" errors: search for place-related variables
-5. Use `get_observations` to CONFIRM found variables return data for known places
-6. If no better matches found, say so clearly - don't force incorrect matches
-
-**Output Format:**
-- DCID: <variable_dcid>
-  Name: <human readable name>
-  Description: <brief description>
-  Match confidence: HIGH/MEDIUM
-  Fixes: <which error this resolves>
-
-List only variables that ADDRESS the errors. Be precise."""
-
-# Error resolver: Post-validation targeted resolution
-ERROR_RESOLVER_INSTRUCTION = """You resolve PVMAP validation errors using Data Commons queries.
-
-A PVMAP was generated but validation failed. Classify the errors and make targeted queries.
-
-**Validation Error:**
-{validation_error}
-
-**Current PVMAP (that failed):**
-```csv
-{pvmap_csv}
-```
-
-**Error Classification & Resolution:**
-
-1. **StatVar naming errors** (wrong DCID format):
-   - Search for correct DCIDs using search_indicators
-   - Example: "Count_Person_Female" might need to be "dcid:Count_Person_Female"
-
-2. **Place resolution errors** (observationAbout mapping wrong):
-   - Search for place-related variables to understand expected DCID format
-   - Use get_observations with a sample place DCID to confirm data exists
-
-3. **Missing property errors** (required properties not mapped):
-   - Identify which properties are missing from error
-   - Search for similar StatVars to see their property patterns
-
-4. **Value format errors** (wrong data type):
-   - Check if numeric vs string handling is correct
-   - Verify observation format matches DC expectations
-
-**Output:**
-For each error resolved:
-- Error: <original error description>
-  Resolution: <what the correct mapping should be>
-  DCID: <correct DCID if applicable>
-  Evidence: <what MCP query confirmed this>
-
-Be specific and actionable. Only suggest fixes backed by MCP query results."""
-
-# MCP tools instruction for the generator (injected when MCP enabled)
-MCP_TOOLS_INSTRUCTION = """
-## Live Data Commons Tools
-
-You have DIRECT ACCESS to Data Commons MCP tools during generation:
-
-1. **search_indicators(query, places?, parent_place?)**: Search for StatVar DCIDs
-   - Use when you need to verify a StatVar DCID exists
-   - Use when you're unsure about the correct DCID naming convention
-
-2. **get_observations(variable_dcid, place_dcid, date?)**: Fetch real data
-   - Use to validate that a StatVar+Place combination returns data
-   - Use to check the expected data format
-
-**When to use these tools:**
-- Uncertain about a StatVar DCID: Call search_indicators
-- Want to verify your mapping: Call get_observations with a sample place
-- Error feedback mentions unknown DCIDs: Search for correct ones
-
-**When NOT to use:**
-- You're confident in standard DCIDs (Count_Person, etc.)
-- The dataset is pre-formatted Data Commons data (passthrough mapping)
-"""
+DC_QUERY_AGENT_INSTRUCTION = _DC_INSTRUCTIONS["dc_query_agent"]
+STATVAR_DISCOVERY_INSTRUCTION = _DC_INSTRUCTIONS["statvar_discovery"]
+OBSERVATION_FETCH_INSTRUCTION = _DC_INSTRUCTIONS["observation_fetch"]
+ENRICHMENT_BROAD_INSTRUCTION = _DC_INSTRUCTIONS["enrichment_broad"]
+ENRICHMENT_REFINEMENT_INSTRUCTION = _DC_INSTRUCTIONS["enrichment_refinement"]
+ERROR_RESOLVER_INSTRUCTION = _DC_INSTRUCTIONS["error_resolver"]
+MCP_TOOLS_INSTRUCTION = _DC_INSTRUCTIONS["mcp_tools"]
 
 
 # =============================================================================
@@ -421,33 +264,81 @@ def parse_statvars(text: str) -> List[Dict]:
 
     Handles multiple output formats:
     - DCID: <value> / Description: <value> / Match confidence: HIGH/MEDIUM
+    - Properties: populationType=X, measuredProperty=Y, ...
+    - Place types: Country|State|County|...
+    - Copy-Paste PVMAP Reference: <DCID>: prop1,val1,...
     - Bullet list format: - <dcid> - <description>
 
     Args:
         text: Raw text output from discovery agent
 
     Returns:
-        List of dicts with keys: dcid, description, confidence
+        List of dicts with keys: dcid, description, confidence, properties,
+        place_types, pvmap_reference, observation_check, fixes
     """
     statvars = []
     lines = text.split('\n')
     current = {}
+    in_pvmap_ref = False
+    pvmap_ref_lines = []
 
     for line in lines:
         line = line.strip()
+
+        # Detect Copy-Paste PVMAP Reference section header
+        if re.match(r'^[-*]?\s*\**Copy-Paste PVMAP Reference\**:?\s*$', line, re.IGNORECASE):
+            in_pvmap_ref = True
+            continue
+
+        # Collect PVMAP reference lines (DCID: prop,val,prop,val format)
+        if in_pvmap_ref:
+            if line and not line.startswith('- DCID:') and not line.startswith('DCID:'):
+                pvmap_ref_lines.append(line)
+                continue
+            else:
+                in_pvmap_ref = False
+                # Fall through to normal parsing
 
         # Match "DCID: <value>" or "- DCID: <value>"
         dcid_match = re.match(r'^[-*]?\s*DCID:\s*(.+)', line, re.IGNORECASE)
         if dcid_match:
             if current.get('dcid'):
                 statvars.append(current)
-            current = {'dcid': dcid_match.group(1).strip(), 'description': '', 'confidence': 'MEDIUM'}
+            current = {
+                'dcid': dcid_match.group(1).strip(),
+                'description': '',
+                'confidence': 'MEDIUM',
+                'properties': {},
+                'place_types': [],
+                'pvmap_reference': '',
+                'observation_check': '',
+            }
             continue
 
         # Match "Description: <value>" or "Name: <value>"
         desc_match = re.match(r'^[-*]?\s*(?:Description|Name):\s*(.+)', line, re.IGNORECASE)
         if desc_match and current.get('dcid'):
             current['description'] = desc_match.group(1).strip()
+            continue
+
+        # Match "Properties: populationType=X, measuredProperty=Y, ..."
+        props_match = re.match(r'^[-*]?\s*Properties:\s*(.+)', line, re.IGNORECASE)
+        if props_match and current.get('dcid'):
+            props_str = props_match.group(1).strip()
+            props = {}
+            for pair in props_str.split(','):
+                pair = pair.strip()
+                if '=' in pair:
+                    k, v = pair.split('=', 1)
+                    props[k.strip()] = v.strip()
+            current['properties'] = props
+            continue
+
+        # Match "Place types: Country|State|County|..."
+        place_match = re.match(r'^[-*]?\s*Place types?:\s*(.+)', line, re.IGNORECASE)
+        if place_match and current.get('dcid'):
+            place_str = place_match.group(1).strip()
+            current['place_types'] = [p.strip() for p in re.split(r'[|,]', place_str) if p.strip()]
             continue
 
         # Match "Match confidence: HIGH/MEDIUM"
@@ -468,11 +359,88 @@ def parse_statvars(text: str) -> List[Dict]:
             current['observation_check'] = obs_match.group(1).strip()
             continue
 
+        # Match "Verification: <value>"
+        ver_match = re.match(r'^[-*]?\s*Verification:\s*(.+)', line, re.IGNORECASE)
+        if ver_match and current.get('dcid'):
+            current['observation_check'] = ver_match.group(1).strip()
+            continue
+
     # Don't forget last entry
     if current.get('dcid'):
         statvars.append(current)
 
+    # Attach PVMAP reference lines to matching statvars
+    for ref_line in pvmap_ref_lines:
+        ref_match = re.match(r'^(.+?):\s*(.+)$', ref_line)
+        if ref_match:
+            ref_dcid = ref_match.group(1).strip()
+            ref_mapping = ref_match.group(2).strip()
+            for sv in statvars:
+                if sv['dcid'] == ref_dcid:
+                    sv['pvmap_reference'] = ref_mapping
+                    break
+
     return statvars
+
+
+def build_structured_summary(statvars: List[Dict]) -> str:
+    """
+    Build a structured markdown summary from parsed StatVars.
+
+    Creates a prompt-friendly summary with:
+    1. Copy-Paste Reference section for PVMAP generation
+    2. Details section with DCID, confidence, observation status
+    3. Summary counts
+
+    Args:
+        statvars: List of parsed StatVar dicts from parse_statvars()
+
+    Returns:
+        Formatted markdown string for injection into PVMAP prompt
+    """
+    if not statvars:
+        return ""
+
+    lines = []
+    high_count = sum(1 for sv in statvars if sv.get('confidence') == 'HIGH')
+    confirmed_count = sum(1 for sv in statvars if 'CONFIRMED' in sv.get('observation_check', '').upper())
+
+    lines.append(f"Found {len(statvars)} relevant StatVars ({high_count} HIGH confidence, {confirmed_count} observation-confirmed).")
+    lines.append("")
+
+    # Section 1: Copy-Paste PVMAP Reference
+    refs = [sv for sv in statvars if sv.get('pvmap_reference') or sv.get('properties')]
+    if refs:
+        lines.append("### Copy-Paste Reference for PVMAP")
+        for sv in refs:
+            dcid = sv['dcid']
+            if sv.get('pvmap_reference'):
+                lines.append(f"- {dcid}: {sv['pvmap_reference']}")
+            elif sv.get('properties'):
+                props = sv['properties']
+                pairs = ','.join(f"{k},{v}" for k, v in props.items())
+                lines.append(f"- {dcid}: {pairs}")
+        lines.append("")
+
+    # Section 2: Details
+    lines.append("### StatVar Details")
+    for sv in statvars:
+        dcid = sv['dcid']
+        conf = sv.get('confidence', 'MEDIUM')
+        obs = sv.get('observation_check', 'UNCHECKED')
+        desc = sv.get('description', '')
+        places = ', '.join(sv.get('place_types', [])) if sv.get('place_types') else ''
+
+        detail = f"- **{dcid}** [{conf}]"
+        if obs:
+            detail += f" — {obs}"
+        if desc:
+            detail += f"\n  {desc}"
+        if places:
+            detail += f"\n  Place types: {places}"
+        lines.append(detail)
+
+    return '\n'.join(lines)
 
 
 def _build_context_section(data_context: dict) -> str:
@@ -630,6 +598,7 @@ __all__ = [
     # Shared helpers
     'run_mcp_query',
     'parse_statvars',
+    'build_structured_summary',
     # MCP tools instruction for generator
     'MCP_TOOLS_INSTRUCTION',
     # Legacy
