@@ -559,12 +559,16 @@ def format_schema_vocab_for_prompt(vocab: dict) -> str:
     # Property vocabulary
     prop_vocab = vocab.get("property_vocabulary", {})
     if prop_vocab:
-        lines.append("**Properties and valid values:**")
+        lines.append("**VALID ENUM VALUES (use these EXACT identifiers for dimension properties):**")
         for prop, values in prop_vocab.items():
-            vals_str = ", ".join(values[:10])
-            if len(values) > 10:
-                vals_str += ", ..."
+            if len(values) <= 30:
+                vals_str = ", ".join(values)
+            else:
+                vals_str = ", ".join(values[:25]) + f" ... ({len(values)} total)"
             lines.append(f"- {prop}: {vals_str}")
+        lines.append("")
+        lines.append("When mapping dimension values, use ONLY identifiers from this list for the corresponding property.")
+        lines.append("If a data value doesn't match verbatim, pick the closest semantic match from this list.")
         lines.append("")
 
     # Examples
@@ -576,6 +580,16 @@ def format_schema_vocab_for_prompt(vocab: dict) -> str:
             mapping = ex.get("mapping", "")
             lines.append(f"{i}. \"{label}\" → {mapping}")
         lines.append("")
+
+    # Add schema.org context if available
+    schema_org = vocab.get("schema_org")
+    if schema_org:
+        primary = schema_org.get("primary_type", "")
+        hierarchy = " → ".join(schema_org.get("type_hierarchy", []))
+        dc_only = schema_org.get("dc_only_properties", [])
+        lines.append(f"\nSchema.org base: {hierarchy}")
+        if dc_only:
+            lines.append(f"DC extensions: {', '.join(dc_only[:8])}")
 
     return "\n".join(lines)
 

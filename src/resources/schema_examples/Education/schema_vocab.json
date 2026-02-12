@@ -88,5 +88,21 @@
       "label": "Count of Student: Male",
       "mapping": "gender:Male, populationType:Student"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "EducationalOrganization",
+    "type_hierarchy": [
+      "EducationalOrganization",
+      "Organization",
+      "Thing",
+      "CivicStructure"
+    ],
+    "schemaorg_properties": {},
+    "dc_only_properties": [
+      "age",
+      "censusACSTableId",
+      "educationalAttainment",
+      "race"
+    ]
+  }
 }

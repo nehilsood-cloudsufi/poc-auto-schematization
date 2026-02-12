@@ -200,5 +200,37 @@
       "label": "Population: 0 - 4 Years, Male",
       "mapping": "age:Years0To4, gender:Male"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "gender": {
+        "range": [
+          "Text",
+          "GenderType"
+        ],
+        "desc": "Gender of something, typically a [[Person]], but possibly also fictional characters, animals, etc. W"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "citizenship",
+      "dateOfEntry",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "maritalStatus",
+      "nativity",
+      "periodOfMilitaryService",
+      "placeOfBirth",
+      "race",
+      "residenceType",
+      "veteranStatus"
+    ]
+  }
 }

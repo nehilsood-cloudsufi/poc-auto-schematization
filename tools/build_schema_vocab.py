@@ -25,8 +25,22 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
 SCHEMA_BASE_DIR = PROJECT_ROOT / "src" / "resources" / "schema_examples"
 
+# Add project root for SchemaOrgVocab import
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 # Categories with .txt files (School has no .txt)
 CATEGORIES = ["Demographics", "Economy", "Education", "Employment", "Energy", "Health"]
+
+# Category to primary schema.org type mapping
+CATEGORY_SCHEMAORG_TYPES = {
+    "Demographics": "Person",
+    "Economy": "Organization",
+    "Education": "EducationalOrganization",
+    "Employment": "Person",
+    "Energy": "Place",
+    "Health": "Person",
+}
 
 # WHO opaque IDs to filter out — these are magic numbers the LLM can't reason about
 WHO_OPAQUE_PATTERN = re.compile(r"^who/[A-Z0-9_]+$")
@@ -261,6 +275,63 @@ def _select_diverse_examples(
     return examples
 
 
+def enrich_with_schemaorg(vocab: dict) -> dict:
+    """Add schema_org section to vocab dict.
+
+    Adds schema.org context: primary type, hierarchy, relevant properties,
+    and DC-only extensions. Keeps the section under 2KB.
+    """
+    category = vocab.get("category", "")
+    primary_type = CATEGORY_SCHEMAORG_TYPES.get(category)
+    if not primary_type:
+        return vocab
+
+    try:
+        from src.data_commons.schema.schemaorg_vocab import SchemaOrgVocab
+        sov = SchemaOrgVocab.instance()
+
+        hierarchy = sov.get_type_hierarchy(primary_type) or []
+
+        # Get schema.org properties for this type (with inheritance)
+        all_props = sov.get_properties_for_type(primary_type, inherited=True) or []
+
+        # Filter to relevant properties (properties that are also in the vocab's skeletons)
+        skeleton_props = set()
+        for pop_type_props in vocab.get("stat_var_skeletons", {}).values():
+            skeleton_props.update(pop_type_props)
+
+        # Schema.org properties that appear in the vocab
+        relevant_schemaorg_props = {}
+        for prop_name in all_props:
+            if prop_name.lower() in {p.lower() for p in skeleton_props}:
+                prop_info = sov.get_property(prop_name)
+                if prop_info:
+                    relevant_schemaorg_props[prop_name] = {
+                        "range": prop_info.get("range", [])[:3],  # Limit range entries
+                        "desc": prop_info.get("description", "")[:100],
+                    }
+
+        # DC-only properties (in vocab but not in schema.org)
+        dc_only = []
+        for prop_name in sorted(skeleton_props):
+            if not sov.get_property(prop_name) and sov.is_known_dc_property(prop_name):
+                dc_only.append(prop_name)
+
+        schema_org_section = {
+            "primary_type": primary_type,
+            "type_hierarchy": [primary_type] + hierarchy[:3],  # Limit depth
+            "schemaorg_properties": relevant_schemaorg_props,
+            "dc_only_properties": dc_only,
+        }
+
+        vocab["schema_org"] = schema_org_section
+
+    except Exception as e:
+        print(f"  WARNING: Could not enrich with schema.org: {e}")
+
+    return vocab
+
+
 def write_vocab_file(category: str, vocab: dict, dry_run: bool = False) -> Path:
     """Write vocab JSON to schema_vocab.json in the category directory."""
     output_path = SCHEMA_BASE_DIR / category / "schema_vocab.json"
@@ -300,6 +371,7 @@ def main():
         print(f"Processing {category}...")
         vocab = build_vocab_for_category(category)
         if vocab:
+            vocab = enrich_with_schemaorg(vocab)
             output_path = write_vocab_file(category, vocab, dry_run=args.dry_run)
             results[category] = {
                 "skeletons": len(vocab["stat_var_skeletons"]),

@@ -229,5 +229,31 @@
       "label": "Dtp3 Immunization Coverage Among One-Year-Olds (%), Urban",
       "mapping": "measuredProperty:who/dptv, placeOfResidenceClassification:Urban, populationType:Thing"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "gender": {
+        "range": [
+          "Text",
+          "GenderType"
+        ],
+        "desc": "Gender of something, typically a [[Person]], but possibly also fictional characters, animals, etc. W"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "causeOfDeath",
+      "healthInsurance",
+      "incomeStatus",
+      "medicalCondition",
+      "placeOfResidenceClassification",
+      "race"
+    ]
+  }
 }

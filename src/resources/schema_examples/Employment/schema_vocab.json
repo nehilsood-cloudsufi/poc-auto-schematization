@@ -20,5 +20,21 @@
       "label": "Public Administration Workers",
       "mapping": "naics:NAICS/92, populationType:BLSWorker"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "naics": {
+        "range": [
+          "Text"
+        ],
+        "desc": "The North American Industry Classification System (NAICS) code for a particular organization or busi"
+      }
+    },
+    "dc_only_properties": []
+  }
 }

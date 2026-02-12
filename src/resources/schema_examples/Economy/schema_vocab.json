@@ -219,5 +219,32 @@
       "label": "Median Income for Family Households",
       "mapping": "householdType:FamilyHousehold, incomeStatus:WithIncome, measuredProperty:income, populationType:Household, statType:medianValue"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "Organization",
+    "type_hierarchy": [
+      "Organization",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "naics": {
+        "range": [
+          "Text"
+        ],
+        "desc": "The North American Industry Classification System (NAICS) code for a particular organization or busi"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "employmentStatus",
+      "householdType",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "placeOfResidenceClassification",
+      "povertyStatus",
+      "race"
+    ]
+  }
 }

@@ -629,7 +629,7 @@ class TestFormatSchemaVocabForPrompt:
         assert "StatVar Skeletons" in formatted
         assert "MortalityEvent: causeOfDeath, gender" in formatted
         assert "Person: healthOutcome, measuredProperty" in formatted
-        assert "Properties and valid values" in formatted
+        assert "VALID ENUM VALUES" in formatted
         assert "causeOfDeath: Diabetes, HeartDisease" in formatted
         assert "Representative examples" in formatted
         assert "Heart Disease Deaths" in formatted
@@ -650,8 +650,8 @@ class TestFormatSchemaVocabForPrompt:
 
         assert "### Schema Vocabulary: Empty" in formatted
 
-    def test_format_truncates_long_value_lists(self):
-        """Test that property values are truncated at 10 items."""
+    def test_format_shows_all_values_when_30_or_less(self):
+        """Test that all property values are shown when count <= 30."""
         from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
 
         vocab = {
@@ -665,4 +665,41 @@ class TestFormatSchemaVocabForPrompt:
 
         formatted = format_schema_vocab_for_prompt(vocab)
 
-        assert "..." in formatted
+        # All 15 values should be shown (no truncation for <=30)
+        assert "val14" in formatted
+        assert "..." not in formatted.split("prop:")[1].split("\n")[0]
+
+    def test_format_truncates_over_30_values(self):
+        """Test that property values are truncated when count > 30."""
+        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+
+        vocab = {
+            "category": "Test",
+            "stat_var_skeletons": {},
+            "property_vocabulary": {
+                "prop": [f"val{i}" for i in range(35)]
+            },
+            "examples": []
+        }
+
+        formatted = format_schema_vocab_for_prompt(vocab)
+
+        assert "35 total" in formatted
+
+    def test_format_includes_compliance_instruction(self):
+        """Test that compliance instruction is added after property vocabulary."""
+        from src.pipeline.schema_selection.schema_selector import format_schema_vocab_for_prompt
+
+        vocab = {
+            "category": "Test",
+            "stat_var_skeletons": {},
+            "property_vocabulary": {
+                "gender": ["Male", "Female"]
+            },
+            "examples": []
+        }
+
+        formatted = format_schema_vocab_for_prompt(vocab)
+
+        assert "VALID ENUM VALUES" in formatted
+        assert "use ONLY identifiers from this list" in formatted

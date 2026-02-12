@@ -117,5 +117,16 @@
       "label": "Renewable energy share in the total final energy consumption",
       "mapping": "footnote:Includes data from the following sources: Energy Balances, measuredProperty:value, populationType:SDG_EG_FEC_RNEW"
     }
-  ]
+  ],
+  "schema_org": {
+    "primary_type": "Place",
+    "type_hierarchy": [
+      "Place",
+      "Thing"
+    ],
+    "schemaorg_properties": {},
+    "dc_only_properties": [
+      "energySource"
+    ]
+  }
 }

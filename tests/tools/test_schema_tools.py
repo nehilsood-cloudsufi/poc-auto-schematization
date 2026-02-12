@@ -483,6 +483,6 @@ def test_read_schema_vocab_formatted_output_structure(temp_dir):
     assert 'StatVar Skeletons' in formatted
     assert 'BLSEstablishment' in formatted
     assert 'EconomicActivity' in formatted
-    assert 'Properties and valid values' in formatted
+    assert 'VALID ENUM VALUES' in formatted
     assert 'Representative examples' in formatted
     assert 'Construction Establishments' in formatted
