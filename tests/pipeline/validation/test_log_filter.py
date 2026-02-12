@@ -13,6 +13,7 @@ from src.pipeline.validation.log_filter import (
     _classify_value,
     _analyze_value_patterns,
     _get_fix_suggestion,
+    _fragmentation_interpretation,
 )
 
 
@@ -320,7 +321,7 @@ class TestFilteredLogsSummary:
         )
         summary = logs.to_summary()
 
-        assert '## Unmapped Value Analysis' in summary
+        assert '## Unmapped Value Pattern Analysis' in summary
         assert 'state_code' in summary
         assert '100' in summary
         assert 'AL' in summary
@@ -497,3 +498,428 @@ class TestIntegrationWithRealCountersFile:
 
         finally:
             counters_path.unlink()
+
+
+class TestEnhancedExtraction:
+    """Tests for rich signal extraction (new fields added to FilteredLogs)."""
+
+    def test_property_cardinality_extracted(self):
+        """Test output-svobs-unique-* counters are extracted as property cardinality."""
+        counters_content = '''"key","value"
+"output-svobs-unique-#input",168
+"output-svobs-unique-observationAbout",24
+"output-svobs-unique-observationDate",1
+"output-svobs-unique-typeOf",1
+"output-svobs-unique-value",167
+"output-svobs-unique-variableMeasured",7
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert result.property_cardinality == {
+                'observationAbout': 24,
+                'observationDate': 1,
+                'value': 167,
+                'variableMeasured': 7,
+            }
+            # #input and typeOf should be filtered out
+            assert '#input' not in result.property_cardinality
+            assert 'typeOf' not in result.property_cardinality
+        finally:
+            counters_path.unlink()
+
+    def test_fragmentation_ratio_computed(self):
+        """Test fragmentation ratio = statvars / observations."""
+        counters_content = '''"key","value"
+"generated-unique-statvars",10
+"generated-svobs",100
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert result.statvars_generated == 10
+            assert result.observations_generated == 100
+            assert abs(result.fragmentation_ratio - 0.1) < 0.001
+        finally:
+            counters_path.unlink()
+
+    def test_fragmentation_ratio_zero_when_no_obs(self):
+        """Test no ZeroDivisionError when observations is 0."""
+        counters_content = '''"key","value"
+"generated-unique-statvars",5
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert result.fragmentation_ratio == 0.0
+        finally:
+            counters_path.unlink()
+
+    def test_dropped_statvars_extracted(self):
+        """Test dropped-statvars-without-svobs_* are collected."""
+        counters_content = '''"key","value"
+"dropped-statvars-without-svobs_Count_Person_Asthma",1
+"dropped-statvars-without-svobs_Prevalence_Person_Asthma",1
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'Count_Person_Asthma' in result.dropped_statvars
+            assert 'Prevalence_Person_Asthma' in result.dropped_statvars
+        finally:
+            counters_path.unlink()
+
+    def test_statvars_with_obs_extracted(self):
+        """Test svobs-added_dcid:* counters populate statvars_with_obs."""
+        counters_content = '''"key","value"
+"svobs-added_dcid:Count_Person_Employed",24
+"svobs-added_dcid:Count_Establishment",12
+"svobs-added_dcid:Count_Person_Employed_Female",24
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert len(result.statvars_with_obs) == 3
+            # Sorted descending by count
+            assert result.statvars_with_obs[0][1] >= result.statvars_with_obs[-1][1]
+            names = [sv for sv, _ in result.statvars_with_obs]
+            assert 'Count_Person_Employed' in names
+            assert 'Count_Establishment' in names
+        finally:
+            counters_path.unlink()
+
+    def test_statvars_generated_counts_extracted(self):
+        """Test generated-statvars_* counters populate statvars_generated_counts."""
+        counters_content = '''"key","value"
+"generated-statvars_Count_Person",48
+"generated-statvars_Count_Establishment",24
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert len(result.statvars_generated_counts) == 2
+            # Sorted descending
+            assert result.statvars_generated_counts[0] == ('Count_Person', 48)
+            assert result.statvars_generated_counts[1] == ('Count_Establishment', 24)
+        finally:
+            counters_path.unlink()
+
+    def test_unresolved_refs_from_prefixed(self):
+        """Test unresolved_refs extracted from prefixed warning-unresolved-value-ref_*."""
+        counters_content = '''"key","value"
+"1:process_input_warning-unresolved-value-ref",82
+"1:process_input_warning-unresolved-value-ref_Data",1
+"1:process_input_warning-unresolved-value-ref_Number",81
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'Data' in result.unresolved_refs
+            assert 'Number' in result.unresolved_refs
+            assert result.unresolved_refs['Data'] == 1
+            assert result.unresolved_refs['Number'] == 81
+        finally:
+            counters_path.unlink()
+
+    def test_top_missing_keys_extracted(self):
+        """Test top_missing_keys contains all unmapped values sorted by count."""
+        counters_content = '''"key","value"
+"warning-missing-property-key_2020",50
+"warning-missing-property-key_AL",10
+"warning-missing-property-key_Male",5
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert len(result.top_missing_keys) == 3
+            # Sorted by count descending
+            assert result.top_missing_keys[0] == ('2020', 50)
+            assert result.top_missing_keys[1] == ('AL', 10)
+            assert result.top_missing_keys[2] == ('Male', 5)
+        finally:
+            counters_path.unlink()
+
+    def test_place_failure_statvars_from_prefixed(self):
+        """Test place_failure_statvars from prefixed dropped-svobs-unresolved-place_*."""
+        counters_content = '''"key","value"
+"1:process_input_dropped-svobs-unresolved-place_Count_Person_Female",19
+"1:process_input_dropped-svobs-unresolved-place_Count_Person_Male",15
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'Count_Person_Female' in result.place_failure_statvars
+            assert result.place_failure_statvars['Count_Person_Female'] == 19
+            assert result.place_failure_statvars['Count_Person_Male'] == 15
+        finally:
+            counters_path.unlink()
+
+    def test_missing_place_statvars_from_prefixed(self):
+        """Test missing_place_statvars from prefixed warning-svobs-missing-place_*."""
+        counters_content = '''"key","value"
+"1:process_input_warning-svobs-missing-place_dcid:Count_Person_Rural",19
+"1:process_input_warning-svobs-missing-place_dcid:Count_Person_Urban",10
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert len(result.missing_place_statvars) == 2
+            names = [sv for sv, _ in result.missing_place_statvars]
+            assert 'dcid:Count_Person_Rural' in names
+        finally:
+            counters_path.unlink()
+
+    def test_input_structure_extracted(self):
+        """Test input-header-rows, input-data-rows, input-sections extraction from prefixed."""
+        counters_content = '''"key","value"
+"1:process_input_input-header-rows",2
+"1:process_input_input-header-rows_file.csv",2
+"1:process_input_input-data-rows",100
+"1:process_input_input-data-rows_file.csv",100
+"1:process_input_input-sections",3
+"1:process_input_input-sections_file.csv",3
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert result.input_header_rows == 2
+            assert result.input_data_rows == 100
+            assert result.input_sections == 3
+        finally:
+            counters_path.unlink()
+
+    def test_spell_check_and_mcf_drops(self):
+        """Test error-spell-words and dropped-output-statvars-mcf extraction."""
+        counters_content = '''"key","value"
+"error-spell-words",5
+"dropped-output-statvars-mcf",2
+"existing-nodes-from-api",3
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert result.spell_check_errors == 5
+            assert result.dropped_mcf_statvars == 2
+            assert result.existing_nodes_from_api == 3
+        finally:
+            counters_path.unlink()
+
+    def test_summary_includes_all_new_sections(self):
+        """Test to_summary() includes all new section headers when data present."""
+        logs = FilteredLogs(
+            input_rows=100,
+            output_rows=80,
+            coverage_pct=80.0,
+            statvars_generated=10,
+            observations_generated=80,
+            input_header_rows=1,
+            input_data_rows=99,
+            input_sections=1,
+            property_cardinality={'observationAbout': 50, 'observationDate': 5, 'value': 75},
+            fragmentation_ratio=0.125,
+            statvars_with_obs=[('Count_Person', 40), ('Count_Establishment', 40)],
+            dropped_statvars=['Unused_StatVar'],
+            unresolved_refs={'Number': 5},
+            place_failure_statvars={'Count_Person': 10},
+            missing_place_statvars=[('dcid:Count_Person', 10)],
+            top_missing_keys=[('2020', 50), ('AL', 10)],
+            spell_check_errors=2,
+            dropped_mcf_statvars=1,
+            existing_nodes_from_api=3,
+        )
+        summary = logs.to_summary()
+
+        assert '## Input Structure' in summary
+        assert '## Output Property Cardinality' in summary
+        assert '## StatVar Observation Breakdown' in summary
+        assert '## Unresolved Placeholder References' in summary
+        assert '## Place Resolution Failures' in summary
+        assert '## Top Unmatched Input Values' in summary
+        assert '## Spelling Issues' in summary
+        assert '## MCF Output' in summary
+
+    def test_summary_property_cardinality_warns_on_single_value(self):
+        """Test that observationAbout=1 gets CRITICAL annotation in summary."""
+        logs = FilteredLogs(
+            input_rows=100,
+            output_rows=80,
+            coverage_pct=80.0,
+            property_cardinality={'observationAbout': 1, 'observationDate': 10, 'value': 80},
+        )
+        summary = logs.to_summary()
+        assert 'CRITICAL' in summary
+        assert 'Only 1 place resolved' in summary
+
+    def test_summary_fragmentation_interpretation(self):
+        """Test fragmentation ratio gets correct interpretation label."""
+        # Very compact
+        assert 'very compact' in _fragmentation_interpretation(0.01)
+        # Healthy
+        assert 'healthy' in _fragmentation_interpretation(0.15)
+        # Moderate
+        assert 'moderate fragmentation' in _fragmentation_interpretation(0.5)
+        # Nearly 1:1
+        assert 'nearly 1 StatVar' in _fragmentation_interpretation(0.9)
+
+    def test_real_oecd_style_counters(self):
+        """Integration test with realistic OECD-style counter data."""
+        counters_content = '''"key","value"
+"1:process_input_generated-svobs",468
+"1:process_input_input-rows-processed",50
+"1:process_input_input-header-rows",1
+"1:process_input_input-data-rows",49
+"1:process_input_input-sections",1
+"1:process_input_warning-unresolved-value-ref",9
+"1:process_input_warning-unresolved-value-ref_Data",3
+"1:process_input_warning-unresolved-value-ref_Number",6
+"output-svobs-csv-rows",468
+"output-svobs-unique-observationAbout",1
+"output-svobs-unique-observationDate",13
+"output-svobs-unique-value",373
+"output-svobs-unique-variableMeasured",41
+"generated-unique-statvars",41
+"generated-svobs",468
+"svobs-added",468
+"svobs-added_dcid:Count_Person_25To34Years",13
+"svobs-added_dcid:Count_Person_25To64Years",13
+"svobs-added_dcid:Count_Person_Female_25To34Years",13
+"generated-statvars_Count_Person_25To34Years",13
+"generated-statvars_Count_Person_25To64Years",13
+"generated-statvars_Count_Person_Female_25To34Years",13
+"error-spell-words",0
+"dropped-output-statvars-mcf",0
+"existing-nodes-from-api",2
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+
+            # Property cardinality
+            assert result.property_cardinality['observationAbout'] == 1
+            assert result.property_cardinality['variableMeasured'] == 41
+
+            # Fragmentation
+            assert abs(result.fragmentation_ratio - 41/468) < 0.001
+
+            # Per-StatVar observations
+            assert len(result.statvars_with_obs) == 3
+
+            # Unresolved refs from prefixed
+            assert result.unresolved_refs.get('Data') == 3
+            assert result.unresolved_refs.get('Number') == 6
+
+            # Input structure
+            assert result.input_header_rows == 1
+            assert result.input_data_rows == 49
+            assert result.input_sections == 1
+
+            # Summary should warn about observationAbout=1
+            summary = result.to_summary()
+            assert 'CRITICAL' in summary
+            assert 'Only 1 place resolved' in summary
+        finally:
+            counters_path.unlink()
+
+    def test_real_india_style_counters(self):
+        """Integration test with India-NDAP-style counter data (place failures, drops)."""
+        counters_content = '''"key","value"
+"1:process_input_generated-svobs",200
+"1:process_input_input-rows-processed",50
+"1:process_input_input-header-rows",1
+"1:process_input_input-data-rows",49
+"1:process_input_input-sections",1
+"1:process_input_dropped-svobs-unresolved-place_Count_Person_Rural",19
+"1:process_input_dropped-svobs-unresolved-place_Count_Person_Urban",15
+"1:process_input_warning-svobs-missing-place_dcid:Count_Person_Rural",19
+"output-svobs-csv-rows",166
+"output-svobs-unique-observationAbout",10
+"output-svobs-unique-observationDate",5
+"output-svobs-unique-value",150
+"output-svobs-unique-variableMeasured",8
+"generated-unique-statvars",8
+"generated-svobs",200
+"svobs-added",166
+"svobs-added_dcid:Count_Person_Rural",10
+"svobs-added_dcid:Count_Person_Urban",10
+"dropped-statvars-without-svobs_Count_Person_Asthma",1
+"dropped-statvars-without-svobs_Prevalence_Asthma",1
+"error-spell-words",1
+"warning-missing-property-key_Uttar Pradesh",20
+"warning-missing-property-key_Maharashtra",15
+"warning-missing-property-key_2018",40
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+
+            # Place failure statvars
+            assert 'Count_Person_Rural' in result.place_failure_statvars
+            assert result.place_failure_statvars['Count_Person_Rural'] == 19
+
+            # Missing place statvars
+            names = [sv for sv, _ in result.missing_place_statvars]
+            assert 'dcid:Count_Person_Rural' in names
+
+            # Dropped statvars
+            assert 'Count_Person_Asthma' in result.dropped_statvars
+            assert 'Prevalence_Asthma' in result.dropped_statvars
+
+            # Top missing keys
+            assert len(result.top_missing_keys) == 3
+            assert result.top_missing_keys[0] == ('2018', 40)
+
+            # Summary should include place failures and drops
+            summary = result.to_summary()
+            assert '## Place Resolution Failures' in summary
+            assert 'Count_Person_Rural' in summary
+            assert '## StatVar Observation Breakdown' in summary
+            assert 'Count_Person_Asthma' in summary
+            assert '## Top Unmatched Input Values' in summary
+            assert 'Uttar Pradesh' in summary
+        finally:
+            counters_path.unlink()
+
+    def test_summary_no_sections_when_empty(self):
+        """Test that sections are omitted when corresponding data is empty."""
+        logs = FilteredLogs(
+            input_rows=100,
+            output_rows=80,
+            coverage_pct=80.0,
+        )
+        summary = logs.to_summary()
+        assert '## Input Structure' not in summary
+        assert '## Output Property Cardinality' not in summary
+        assert '## StatVar Observation Breakdown' not in summary
+        assert '## Unresolved Placeholder References' not in summary
+        assert '## Place Resolution Failures' not in summary
+        assert '## Top Unmatched Input Values' not in summary
+        assert '## Spelling Issues' not in summary
+        assert '## MCF Output' not in summary

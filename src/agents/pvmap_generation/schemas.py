@@ -17,8 +17,9 @@ class PropertyValuePair(BaseModel):
     )
     value: str = Field(
         description=(
-            "Property value - use {Data} for pass-through string, "
-            "{Number} for numeric, or dcid:XXX for Data Commons DCIDs"
+            "Property value - use [DATA] for pass-through string, "
+            "[NUMBER] for numeric, or bare identifiers like Person, Male, count "
+            "(NO dcid: prefix)"
         )
     )
 
@@ -89,7 +90,7 @@ PVMAP_OUTPUT_SCHEMA = {
                                 },
                                 "value": {
                                     "type": "string",
-                                    "description": "Property value ({Data}, {Number}, or dcid:XXX)"
+                                    "description": "Property value - bare identifier (Person, Male, count), {Data} for strings, {Number} for numerics. NO dcid: prefix."
                                 }
                             },
                             "required": ["property", "value"]

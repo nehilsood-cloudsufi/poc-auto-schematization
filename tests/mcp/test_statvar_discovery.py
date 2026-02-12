@@ -242,7 +242,7 @@ def test_without_mcp():
 
 
 def test_prompt_injection():
-    """Test that discovered StatVars are injected into the prompt."""
+    """Test that discovered StatVars are injected into the prompt via {{STATVAR_SUMMARY}}."""
     from src.agents.pvmap_generation.helpers import build_prompt_with_feedback
     from pathlib import Path
 
@@ -255,7 +255,7 @@ def test_prompt_injection():
         print(f"Template not found: {template_path}")
         return False
 
-    # Test with EXACT match discovered StatVars (should be injected)
+    # Test with EXACT match discovered StatVars (should be injected via {{STATVAR_SUMMARY}})
     discovered_statvars = """- DCID: Count_Person
   Description: Total population count
   Match confidence: HIGH
@@ -272,14 +272,15 @@ def test_prompt_injection():
         discovered_statvars=discovered_statvars
     )
 
-    # Check that StatVars section was injected (confidence-weighted)
-    assert "DISCOVERED DATA COMMONS VARIABLES" in prompt, "Missing StatVars section"
+    # Check that StatVars content was substituted into {{STATVAR_SUMMARY}} placeholder
     assert "Count_Person" in prompt, "Missing Count_Person DCID"
     assert "HIGH confidence matches" in prompt, "Missing confidence-based guidance"
+    # Template heading should always be present
+    assert "Discovered StatVars (from Data Commons)" in prompt
 
     print("PASSED: Exact match StatVars injected into prompt correctly")
 
-    # Test without discovered StatVars
+    # Test without discovered StatVars — heading still present but content empty
     prompt_no_statvars = build_prompt_with_feedback(
         template_path=template_path,
         schema_content="Test schema content",
@@ -289,10 +290,10 @@ def test_prompt_injection():
         discovered_statvars=None
     )
 
-    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_no_statvars
-    print("PASSED: No StatVars section when none discovered")
+    assert "Total population count" not in prompt_no_statvars
+    print("PASSED: No StatVars content when none discovered")
 
-    # Test with "not found" StatVars (should NOT be injected)
+    # Test with "not found" StatVars — content is substituted as-is
     not_found_statvars = """The specific BIS Central Bank Policy Rate variables were not found in Data Commons.
 However, related interest rate variables are available:
 - DCID: worldBank/FR_INR_LEND
@@ -307,28 +308,9 @@ However, related interest rate variables are available:
         discovered_statvars=not_found_statvars
     )
 
-    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_not_found, \
-        "StatVars section should NOT be injected when variables 'not found'"
-    print("PASSED: 'Not found' StatVars correctly filtered out")
-
-    # Test with "no exact matches" (should NOT be injected)
-    no_matches_statvars = """No exact matches found for this dataset.
-Related variables that may be of interest:
-- DCID: someVariable
-  Description: Some description"""
-
-    prompt_no_matches = build_prompt_with_feedback(
-        template_path=template_path,
-        schema_content="Test schema content",
-        sampled_data_content="col1,col2\nval1,val2",
-        metadata_content="param,value\nname,test",
-        error_feedback=None,
-        discovered_statvars=no_matches_statvars
-    )
-
-    assert "DISCOVERED DATA COMMONS VARIABLES" not in prompt_no_matches, \
-        "StatVars section should NOT be injected when 'no exact matches'"
-    print("PASSED: 'No exact matches' StatVars correctly filtered out")
+    # With template-based substitution, content is always included
+    assert "worldBank/FR_INR_LEND" in prompt_not_found
+    print("PASSED: 'Not found' StatVars content substituted into template")
 
     return True
 

@@ -75,49 +75,14 @@ def build_prompt_with_feedback(
             "Please analyze the sampled data below to understand the dataset structure._"
         )
 
-    # Replace placeholders
+    # Replace all template placeholders
     prompt = template.replace("{{DATA_CONTEXT}}", data_context)
     prompt = prompt.replace("{{SCHEMA_EXAMPLES}}", schema_content)
     prompt = prompt.replace("{{SAMPLED_DATA}}", sampled_data_content)
     prompt = prompt.replace("{{METADATA_CONFIG}}", metadata_content)
-
-    # Inject discovered StatVars before OUTPUT section (confidence-weighted)
-    if discovered_statvars and discovered_statvars.strip():
-        # Check if discovery found any matches at all
-        lower_summary = discovered_statvars.lower()
-        has_no_matches = (
-            "no exact matches" in lower_summary or
-            "not found" in lower_summary or
-            "were not found" in lower_summary
-        )
-
-        if not has_no_matches:
-            statvars_section = (
-                "\n\n---\n\n"
-                "# DISCOVERED DATA COMMONS VARIABLES\n\n"
-                "The following variables were found via live Data Commons search.\n\n"
-                f"{discovered_statvars}\n\n"
-                "**Usage guidance:**\n"
-                "- **HIGH confidence matches**: Use these DCIDs directly in your PVMAP\n"
-                "- **MEDIUM confidence**: Reference for property naming conventions\n"
-                "- **No good matches**: Generate StatVar definition from schema examples above\n"
-            )
-            # Insert before "# OUTPUT" section
-            if "# OUTPUT" in prompt:
-                prompt = prompt.replace("# OUTPUT", statvars_section + "# OUTPUT")
-            else:
-                prompt += statvars_section
-
-    # Add error feedback if retrying
-    if error_feedback:
-        prompt = (
-            f"{prompt}\n\n"
-            f"---\n\n"
-            f"# PREVIOUS ERROR - PLEASE FIX\n\n"
-            f"The previous PVMAP generation had errors during validation:\n\n"
-            f"```\n{error_feedback}\n```\n\n"
-            f"Please fix the PVMAP to address these errors."
-        )
+    prompt = prompt.replace("{{ERROR_FEEDBACK}}", error_feedback or "")
+    prompt = prompt.replace("{{STATVAR_SUMMARY}}", discovered_statvars or "")
+    prompt = prompt.replace("{{MCP_TOOLS_INSTRUCTION}}", "")
 
     return prompt
 
@@ -511,9 +476,13 @@ def escape_csv_value(value: str) -> str:
     """
     Escape a value for CSV format.
 
-    Also translates placeholder values:
-    - PASSTHROUGH_DATA -> {Data}
-    - PASSTHROUGH_NUMBER -> {Number}
+    Translates escaped PVMAP placeholders back to brace syntax:
+    - [DATA] / [DATA:format] -> {Data} / {Data:format}
+    - [NUMBER] / [NUMBER:format] -> {Number} / {Number:format}
+    - [KEY] -> {Key}
+    - [Year], [Month], [Fips], etc. -> {Year}, {Month}, {Fips}
+
+    Also strips dcid:/dcs: prefixes (processor adds these automatically).
 
     Args:
         value: The string value to escape
@@ -524,12 +493,40 @@ def escape_csv_value(value: str) -> str:
     if not value:
         return ""
 
-    # Translate placeholder values (used to avoid ADK instruction templating)
-    # Support both old (PASSTHROUGH_*) and new ([DATA]/[NUMBER]) syntax
+    # Legacy placeholder syntax
     value = value.replace("PASSTHROUGH_DATA", "{Data}")
     value = value.replace("PASSTHROUGH_NUMBER", "{Number}")
-    value = value.replace("[DATA]", "{Data}")
-    value = value.replace("[NUMBER]", "{Number}")
+
+    # Convert escaped PVMAP placeholders back to brace syntax.
+    # escape_pvmap_placeholders converts {Data}→[DATA], {Number}→[NUMBER],
+    # {Year}→[Year], etc. This reverses that transformation.
+    # Safe: age brackets like [65 - Years] start with digit/hyphen → not matched.
+    def _unescape_bracket(m: re.Match) -> str:
+        content = m.group(1)
+        # Special case: DATA → Data (escape_pvmap_placeholders uppercases it)
+        if content == "DATA" or content.startswith("DATA:"):
+            return '{' + content.replace("DATA", "Data", 1) + '}'
+        # Special case: NUMBER → Number
+        if content == "NUMBER" or content.startswith("NUMBER:"):
+            return '{' + content.replace("NUMBER", "Number", 1) + '}'
+        # Special case: KEY → Key
+        if content == "KEY":
+            return '{Key}'
+        # All other named variables: preserve case as-is
+        return '{' + content + '}'
+
+    value = re.sub(
+        r'\[([A-Za-z][A-Za-z0-9_]*(?::[^\]]*)?)\]',
+        _unescape_bracket,
+        value
+    )
+
+    # Strip dcid: and dcs: prefixes — the processor adds these automatically.
+    # LLMs often add them despite instructions not to.
+    if value.startswith("dcid:") and not value.startswith("dcid:{"):
+        value = value[5:]
+    elif value.startswith("dcs:") and not value.startswith("dcs:{"):
+        value = value[4:]
 
     # Quote if contains comma, quote, or newline
     if ',' in value or '"' in value or '\n' in value:
@@ -571,7 +568,15 @@ def convert_pvmap_output_to_csv(output: "PVMAPOutput") -> str:
 
         for mapping in row.mappings:
             parts.append(escape_csv_value(mapping.property))
-            parts.append(escape_csv_value(mapping.value))
+            # Strip dcid:/dcs: prefix before escaping (defense-in-depth;
+            # escape_csv_value also strips, but we catch it early here
+            # so the raw PVMAPOutput object is clean for any other consumers).
+            val = mapping.value
+            if val.startswith("dcid:") and not val.startswith("dcid:{"):
+                val = val[5:]
+            elif val.startswith("dcs:") and not val.startswith("dcs:{"):
+                val = val[4:]
+            parts.append(escape_csv_value(val))
 
         # Pad with empty values if fewer mappings than max
         # Note: We could trim trailing empty columns, but keeping them
@@ -625,22 +630,13 @@ def validate_pvmap_structure(output: "PVMAPOutput") -> List[str]:
             if prop == "value":
                 has_value_mapping = True
 
-            # Properties that should use dcid: prefix (unless using {Data} or {Number})
-            dcid_properties = ["unit", "populationType", "measuredProperty", "statType",
-                             "observationPeriod", "measurementMethod"]
-
-            if prop in dcid_properties:
-                # Skip if using placeholder
-                if val.startswith("{") and val.endswith("}"):
-                    continue
-
-                # Warn if missing dcid: prefix for known DCID values
-                if not val.startswith("dcid:") and not val.startswith("{"):
-                    # Check if it looks like a DCID value (CamelCase or known pattern)
-                    if val and val[0].isupper() and " " not in val:
-                        issues.append(
-                            f"Row {i}: {prop} value '{val}' may need dcid: prefix"
-                        )
+            # Warn if dcid: prefix is present — the processor adds these
+            # automatically, and including them causes validation issues
+            if val.startswith("dcid:") or val.startswith("dcs:"):
+                issues.append(
+                    f"Row {i}: {prop} value '{val}' has dcid:/dcs: prefix "
+                    f"which should be removed (processor adds it automatically)"
+                )
 
     # Check for required mappings
     if not has_observation_about:

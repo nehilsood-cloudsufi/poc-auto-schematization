@@ -8,8 +8,16 @@ import pytest
 from pathlib import Path
 from src.agents.pvmap_generation.helpers import (
     build_prompt_with_feedback,
+    convert_pvmap_output_to_csv,
+    escape_csv_value,
     extract_csv,
     read_file_content
+)
+from src.agents.pvmap_generation.schemas import (
+    PVMAP_OUTPUT_SCHEMA,
+    PropertyValuePair,
+    PVMAPOutput,
+    PVMAPRow,
 )
 
 
@@ -65,12 +73,15 @@ def test_build_prompt_with_feedback_missing_schema(temp_dir):
 
 
 def test_build_prompt_with_error_feedback(temp_dir):
-    """Test prompt building with error feedback injection."""
+    """Test prompt building with error feedback injection via {{ERROR_FEEDBACK}}."""
     template_path = temp_dir / "template.txt"
-    template_path.write_text("Generate PVMAP for {{SAMPLED_DATA}}")
-    
+    template_path.write_text(
+        "Generate PVMAP for {{SAMPLED_DATA}}\n"
+        "Feedback: {{ERROR_FEEDBACK}}"
+    )
+
     error_feedback = "Error: Missing property mapping for column 'population'"
-    
+
     prompt = build_prompt_with_feedback(
         template_path=template_path,
         schema_content="schema",
@@ -78,8 +89,7 @@ def test_build_prompt_with_error_feedback(temp_dir):
         metadata_content="metadata",
         error_feedback=error_feedback
     )
-    
-    assert "PREVIOUS ERROR - PLEASE FIX" in prompt
+
     assert "Missing property mapping" in prompt
     assert error_feedback in prompt
 
@@ -315,3 +325,205 @@ def test_build_prompt_data_context_default(temp_dir):
 
     assert "{{DATA_CONTEXT}}" not in prompt
     assert "Data context analysis not available" in prompt
+
+
+# =============================================================================
+# Phase 1 regression tests: dcid: prefix prevention
+# =============================================================================
+
+
+class TestDcidPrefixPrevention:
+    """Regression tests for dcid: prefix hallucination bug."""
+
+    def test_schema_description_no_dcid_xxx(self):
+        """PVMAP_OUTPUT_SCHEMA must NOT contain 'dcid:XXX' pattern that teaches LLM to produce dcid: prefixes."""
+        import json
+        schema_str = json.dumps(PVMAP_OUTPUT_SCHEMA)
+        assert "dcid:XXX" not in schema_str, (
+            "PVMAP_OUTPUT_SCHEMA still contains 'dcid:XXX' — "
+            "this teaches the LLM to produce dcid: prefixes"
+        )
+
+    def test_schema_description_says_no_dcid(self):
+        """PVMAP_OUTPUT_SCHEMA value description should explicitly say NO dcid: prefix."""
+        value_desc = (
+            PVMAP_OUTPUT_SCHEMA["properties"]["pvmap_rows"]["items"]
+            ["properties"]["mappings"]["items"]["properties"]["value"]["description"]
+        )
+        assert "NO dcid:" in value_desc or "no dcid:" in value_desc.lower()
+
+    def test_pydantic_schema_no_dcid(self):
+        """Pydantic PropertyValuePair description should not contain dcid:XXX."""
+        field_info = PropertyValuePair.model_fields["value"]
+        assert "dcid:XXX" not in field_info.description
+
+    def test_convert_pvmap_output_strips_dcid_prefix(self):
+        """convert_pvmap_output_to_csv must strip dcid: prefix from values."""
+        output = PVMAPOutput(
+            format_detected="raw",
+            pvmap_rows=[
+                PVMAPRow(key="Year", mappings=[
+                    PropertyValuePair(property="observationDate", value="{Number}")
+                ]),
+                PVMAPRow(key="Population", mappings=[
+                    PropertyValuePair(property="populationType", value="dcid:Person"),
+                    PropertyValuePair(property="measuredProperty", value="dcid:count"),
+                    PropertyValuePair(property="value", value="{Number}"),
+                ]),
+            ],
+            validation_notes="test",
+            confidence="high",
+        )
+
+        csv = convert_pvmap_output_to_csv(output)
+        assert "dcid:Person" not in csv
+        assert "dcid:count" not in csv
+        assert "Person" in csv
+        assert "count" in csv
+
+    def test_convert_pvmap_output_strips_dcs_prefix(self):
+        """convert_pvmap_output_to_csv must strip dcs: prefix from values."""
+        output = PVMAPOutput(
+            format_detected="raw",
+            pvmap_rows=[
+                PVMAPRow(key="Pop", mappings=[
+                    PropertyValuePair(property="populationType", value="dcs:Person"),
+                    PropertyValuePair(property="value", value="{Number}"),
+                ]),
+            ],
+            validation_notes="test",
+            confidence="high",
+        )
+
+        csv = convert_pvmap_output_to_csv(output)
+        assert "dcs:Person" not in csv
+        assert "Person" in csv
+
+    def test_escape_csv_value_strips_dcid(self):
+        """escape_csv_value must strip dcid: and dcs: prefixes."""
+        assert escape_csv_value("dcid:Person") == "Person"
+        assert escape_csv_value("dcs:Person") == "Person"
+        # Should NOT strip when followed by { (placeholder)
+        assert escape_csv_value("dcid:{Data}") == "dcid:{Data}"
+
+    def test_convert_preserves_placeholders(self):
+        """Ensure {Data} and {Number} placeholders survive conversion."""
+        output = PVMAPOutput(
+            format_detected="raw",
+            pvmap_rows=[
+                PVMAPRow(key="State", mappings=[
+                    PropertyValuePair(property="observationAbout", value="{Data}")
+                ]),
+            ],
+            validation_notes="test",
+            confidence="high",
+        )
+        csv = convert_pvmap_output_to_csv(output)
+        assert "{Data}" in csv
+
+
+# =============================================================================
+# Prompt v2 template validation
+# =============================================================================
+
+
+class TestPromptV2Template:
+    """Validate the v2 prompt template has all required placeholders."""
+
+    @pytest.fixture
+    def v2_template(self):
+        prompt_path = Path(__file__).parent.parent.parent / "src" / "resources" / "prompts" / "improved_pvmap_prompt_v2.txt"
+        if not prompt_path.exists():
+            pytest.skip("v2 prompt not yet created")
+        return prompt_path.read_text(encoding="utf-8")
+
+    def test_has_all_placeholders(self, v2_template):
+        required = [
+            "{{DATA_CONTEXT}}",
+            "{{SCHEMA_EXAMPLES}}",
+            "{{SAMPLED_DATA}}",
+            "{{METADATA_CONFIG}}",
+            "{{ERROR_FEEDBACK}}",
+            "{{STATVAR_SUMMARY}}",
+            "{{MCP_TOOLS_INSTRUCTION}}",
+        ]
+        for placeholder in required:
+            assert placeholder in v2_template, f"Missing placeholder: {placeholder}"
+
+    def test_has_xml_sections(self, v2_template):
+        """v2 uses XML tags for structure."""
+        for tag in ["<task>", "<rules>", "<examples>", "<guardrails>", "<output_format>", "<statvar_decision_tree>"]:
+            assert tag in v2_template, f"Missing XML section: {tag}"
+
+    def test_has_rule4_unit_scaling(self, v2_template):
+        """v2 should have Rule 4 for unit/scaling extraction."""
+        assert "Rule 4: UNIT & SCALING" in v2_template
+
+    def test_has_standard_wide_example(self, v2_template):
+        """v2 Example 1 should be Standard Wide (not SDMX BIS example)."""
+        assert "Standard Wide" in v2_template
+        assert "BIS Central Bank Policy Rate" not in v2_template  # Old example removed
+
+    def test_syntax_reference_split(self, v2_template):
+        """Syntax reference should separate core from advanced operators."""
+        assert "Core)" in v2_template
+        assert "Advanced Operators (rare" in v2_template
+
+    def test_statvar_decision_tree_has_common_types(self, v2_template):
+        """Decision tree should list common populationType values."""
+        tree_start = v2_template.find("<statvar_decision_tree>")
+        tree_end = v2_template.find("</statvar_decision_tree>")
+        tree = v2_template[tree_start:tree_end]
+        for val in ["Person", "Household", "EconomicActivity", "measuredProperty", "statType"]:
+            assert val in tree, f"Decision tree missing: {val}"
+
+    def test_no_dcid_in_rules(self, v2_template):
+        """Rules section should not suggest using dcid: prefix."""
+        # Find rules section
+        rules_start = v2_template.find("<rules>")
+        rules_end = v2_template.find("</rules>")
+        rules = v2_template[rules_start:rules_end]
+        # The rule ABOUT dcid: is fine, but examples should show WRONG/CORRECT
+        assert "dcid:Person" in rules  # In the WRONG column
+        assert "populationType,Person" in rules  # In the CORRECT column
+
+    def test_shorter_than_v1(self, v2_template):
+        v1_path = Path(__file__).parent.parent.parent / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
+        if not v1_path.exists():
+            pytest.skip("v1 prompt not found")
+        v1 = v1_path.read_text(encoding="utf-8")
+        assert len(v2_template) < len(v1), "v2 should be shorter than v1"
+
+    def test_has_three_examples(self, v2_template):
+        """v2 should have exactly 3 examples (down from 5)."""
+        count = v2_template.count("## Example")
+        assert count == 3, f"Expected 3 examples, found {count}"
+
+
+# =============================================================================
+# CLI parser prompt-version flag
+# =============================================================================
+
+
+class TestCliPromptVersion:
+    """Test --prompt-version CLI flag."""
+
+    def test_default_is_v2(self):
+        from src.config.cli_parser import parse_args
+        args = parse_args([])
+        assert args.prompt_version == "v2"
+
+    def test_v1_accepted(self):
+        from src.config.cli_parser import parse_args
+        args = parse_args(["--prompt-version", "v1"])
+        assert args.prompt_version == "v1"
+
+    def test_v2_accepted(self):
+        from src.config.cli_parser import parse_args
+        args = parse_args(["--prompt-version", "v2"])
+        assert args.prompt_version == "v2"
+
+    def test_invalid_rejected(self):
+        from src.config.cli_parser import parse_args
+        with pytest.raises(SystemExit):
+            parse_args(["--prompt-version", "v3"])

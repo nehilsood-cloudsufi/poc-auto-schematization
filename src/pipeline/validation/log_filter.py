@@ -4,15 +4,17 @@ Transforms high-volume counter logs into high-signal patterns:
 - Key metrics (input/output counts, coverage)
 - Error type aggregates
 - VALUE PATTERN DETECTION: Cluster unmapped values by type to identify failing columns
+- RICH SIGNAL EXTRACTION: Per-property cardinality, per-StatVar observation counts,
+  dropped StatVars, unresolved placeholder refs, place failures, input structure
 
 This module replaces the complex counter_feedback.py (~970 lines) with a simpler,
-more focused approach (~200 lines) that produces concise, actionable feedback.
+more focused approach that produces actionable feedback.
 
 Usage:
     from src.pipeline.validation.log_filter import filter_counters, extract_sample_errors
 
     filtered = filter_counters(Path('output/dataset/processed_counters.txt'))
-    print(filtered.to_summary())  # Concise ~50-80 line feedback
+    print(filtered.to_summary())  # Rich multi-section feedback
 """
 
 import csv
@@ -41,7 +43,7 @@ class ValuePattern:
 
 @dataclass
 class FilteredLogs:
-    """Clean, concise validation summary with pattern analysis.
+    """Clean, actionable validation summary with rich pattern analysis.
 
     Attributes:
         input_rows: Number of rows in input data
@@ -54,6 +56,23 @@ class FilteredLogs:
         observations_generated: Total observations
         unmapped_value_patterns: Patterns detected in unmapped values
         top_unmapped_values: Most frequent unmapped values
+
+        property_cardinality: Per-output-property unique value counts
+        fragmentation_ratio: unique_statvars / total_observations
+        statvars_with_obs: Per-StatVar observation counts (sorted desc)
+        dropped_statvars: StatVars with 0 observations (wasted PVMAP rows)
+        statvars_generated_counts: Per-StatVar generation counts
+        unresolved_refs: Unresolved placeholder references (name -> count)
+        top_missing_keys: All unmapped values sorted by count desc
+        unresolved_places: Place values that failed resolution
+        place_failure_statvars: StatVars that lost obs due to place failures
+        missing_place_statvars: StatVars with no observationAbout mapping
+        input_header_rows: Number of header rows detected
+        input_data_rows: Number of data rows in input
+        input_sections: Number of sections in input file
+        spell_check_errors: StatVar names with spelling issues
+        dropped_mcf_statvars: StatVars dropped at MCF output stage
+        existing_nodes_from_api: Existing DC nodes found via API
     """
     input_rows: int = 0
     output_rows: int = 0
@@ -69,14 +88,30 @@ class FilteredLogs:
     unmapped_value_patterns: List[ValuePattern] = field(default_factory=list)
     top_unmapped_values: List[Tuple[str, int]] = field(default_factory=list)
 
+    # Rich signal fields
+    property_cardinality: Dict[str, int] = field(default_factory=dict)
+    fragmentation_ratio: float = 0.0
+    statvars_with_obs: List[Tuple[str, int]] = field(default_factory=list)
+    dropped_statvars: List[str] = field(default_factory=list)
+    statvars_generated_counts: List[Tuple[str, int]] = field(default_factory=list)
+    unresolved_refs: Dict[str, int] = field(default_factory=dict)
+    top_missing_keys: List[Tuple[str, int]] = field(default_factory=list)
+    unresolved_places: List[Tuple[str, int]] = field(default_factory=list)
+    place_failure_statvars: Dict[str, int] = field(default_factory=dict)
+    missing_place_statvars: List[Tuple[str, int]] = field(default_factory=list)
+    input_header_rows: int = 0
+    input_data_rows: int = 0
+    input_sections: int = 0
+    spell_check_errors: int = 0
+    dropped_mcf_statvars: int = 0
+    existing_nodes_from_api: int = 0
+
     def to_summary(self) -> str:
-        """Generate concise, actionable summary for LLM.
+        """Generate rich, actionable summary for LLM feedback.
 
         Returns:
-            Formatted markdown string (~50-80 lines) with:
-            - Validation metrics
-            - Error summary
-            - Unmapped value analysis with fix suggestions
+            Formatted markdown string with every diagnostic signal.
+            Each line is actionable — no filler, no truncation.
         """
         lines = [
             "## Validation Summary",
@@ -93,39 +128,159 @@ class FilteredLogs:
             f"- Observations: {self.observations_generated}",
         ])
 
+        # Input structure
+        if self.input_header_rows or self.input_data_rows or self.input_sections:
+            lines.append("")
+            lines.append("## Input Structure")
+            lines.append(f"- Header rows: {self.input_header_rows}")
+            lines.append(f"- Data rows: {self.input_data_rows}")
+            lines.append(f"- Sections: {self.input_sections}")
+            lines.append(f"- Total processed: {self.input_rows}")
+
+        # Output property cardinality
+        if self.property_cardinality:
+            lines.append("")
+            lines.append("## Output Property Cardinality")
+            lines.append("For each output property, shows how many UNIQUE values were produced.")
+            lines.append("A property with cardinality=1 means ALL observations map to the SAME value.")
+            for prop, count in sorted(self.property_cardinality.items()):
+                annotation = ""
+                if prop == "observationAbout" and count == 1:
+                    annotation = " [CRITICAL: Only 1 place resolved — geo column mapping is wrong or place values can't be resolved]"
+                elif prop == "observationDate" and count == 1 and self.input_data_rows > 1:
+                    annotation = " [WARNING: Only 1 unique date — either single-year dataset (OK) or date column not mapped]"
+                elif prop == "value" and count == 1:
+                    annotation = " [WARNING: Only 1 unique value — the value column is likely not mapped with [NUMBER]]"
+                lines.append(f"- {prop}: {count}{annotation}")
+            if self.fragmentation_ratio > 0:
+                interp = _fragmentation_interpretation(self.fragmentation_ratio)
+                lines.append(
+                    f"- Fragmentation ratio: {self.fragmentation_ratio:.3f} "
+                    f"({self.statvars_generated} unique StatVars / {self.observations_generated} observations)"
+                )
+                lines.append(f"  Interpretation: {interp}")
+
         # Error summary
         if self.errors:
-            lines.append("\n## Errors (must fix)")
-            for err_type, count in sorted(self.errors.items(), key=lambda x: -x[1])[:5]:
+            lines.append("")
+            lines.append("## Errors (must fix)")
+            for err_type, count in sorted(self.errors.items(), key=lambda x: -x[1]):
                 clean_name = err_type.replace('error-', '').replace('-', ' ')
                 lines.append(f"- {clean_name}: {count:,}")
 
-        # Value pattern analysis (the key diagnostic info!)
-        if self.unmapped_value_patterns:
-            lines.append("\n## Unmapped Value Analysis")
-            lines.append("The PVMAP is missing mappings for these value patterns:")
+        # StatVar observation breakdown
+        if self.statvars_with_obs or self.dropped_statvars:
+            lines.append("")
+            lines.append("## StatVar Observation Breakdown")
+            lines.append(
+                f"Generated {self.statvars_generated} unique StatVars, "
+                f"{self.observations_generated} total observations."
+            )
+            if self.statvars_with_obs:
+                lines.append("")
+                lines.append("### StatVars WITH observations (producing data):")
+                for sv_name, count in self.statvars_with_obs:
+                    lines.append(f"- {sv_name}: {count} observations")
+            if self.dropped_statvars:
+                lines.append("")
+                lines.append("### StatVars DROPPED (generated but 0 observations — wasted PVMAP rows):")
+                for sv_name in self.dropped_statvars:
+                    lines.append(f"- {sv_name} (0 observations)")
+                lines.append("These PVMAP rows should be fixed (wrong key name?) or removed to reduce noise.")
 
-            for pattern in self.unmapped_value_patterns[:3]:
+        # Unresolved placeholder references
+        if self.unresolved_refs:
+            total_unresolved = sum(self.unresolved_refs.values())
+            lines.append("")
+            lines.append("## Unresolved Placeholder References")
+            lines.append("Placeholders that failed to resolve during cell value processing:")
+            for ref_name, count in sorted(self.unresolved_refs.items(), key=lambda x: -x[1]):
+                lines.append(f"- [{ref_name.upper()}] template failed to resolve: {count} times")
+            lines.append(f"Total unresolved: {total_unresolved}")
+
+        # Place resolution failures
+        if self.place_failure_statvars or self.missing_place_statvars:
+            lines.append("")
+            lines.append("## Place Resolution Failures")
+            if self.place_failure_statvars:
+                total_dropped = sum(self.place_failure_statvars.values())
+                lines.append(
+                    f"{total_dropped} observations dropped because place values "
+                    f"couldn't be resolved to Data Commons place DCIDs."
+                )
+                lines.append("")
+                lines.append("### StatVars affected by place resolution failures:")
+                for sv_name, count in sorted(self.place_failure_statvars.items(), key=lambda x: -x[1]):
+                    lines.append(f"- {sv_name}: {count} observations dropped")
+            if self.missing_place_statvars:
+                lines.append("")
+                lines.append("### StatVars with NO observationAbout mapping at all:")
+                for sv_name, count in self.missing_place_statvars:
+                    lines.append(f"- {sv_name}: {count} observations missing place")
+            lines.append("")
+            lines.append(
+                "Place resolution pipeline: already-DCID check -> PVMAP lookup -> Maps API."
+            )
+            lines.append(
+                "If ALL places fail: the observationAbout column is likely mapped to a column "
+                "with raw names instead of FIPS codes or DCIDs."
+            )
+
+        # Top unmatched input values
+        if self.top_missing_keys:
+            total_missing = sum(c for _, c in self.top_missing_keys)
+            lines.append("")
+            lines.append("## Top Unmatched Input Values")
+            lines.append(
+                "These values went through ALL 5 key-matching levels "
+                "(exact -> case-insensitive -> alphanumeric-only -> n-gram fragments -> substring) "
+                "and STILL didn't match any PVMAP key."
+            )
+            lines.append(f"Total unmatched: {total_missing:,} values")
+            lines.append("")
+            lines.append("### By frequency:")
+            for val, count in self.top_missing_keys:
+                pattern_type = _classify_value(val)
+                pattern_label = f" ({pattern_type.upper()} pattern)" if pattern_type != 'unknown' else ""
+                lines.append(f"- '{val}': {count:,} occurrences{pattern_label}")
+
+        # Value pattern analysis (existing)
+        if self.unmapped_value_patterns:
+            lines.append("")
+            lines.append("## Unmapped Value Pattern Analysis")
+            lines.append("Values clustered by detected type:")
+
+            for pattern in self.unmapped_value_patterns:
                 lines.append(f"\n### Pattern: {pattern.pattern_type} ({pattern.count:,} occurrences)")
                 if pattern.likely_column:
                     lines.append(f"**Likely Column:** {pattern.likely_column}")
                 sample_display = ', '.join(f"'{v}'" for v in pattern.sample_values[:5])
                 lines.append(f"**Sample Values:** {sample_display}")
-
-                # Add fix suggestion based on pattern type
                 fix = _get_fix_suggestion(pattern.pattern_type)
                 if fix:
                     lines.append(f"**Fix:** {fix}")
 
-        elif self.top_unmapped_values:
-            lines.append("\n## Top Unmapped Values")
-            for val, count in self.top_unmapped_values[:10]:
-                lines.append(f"- `{val}`: {count:,}")
+        # Spelling issues
+        if self.spell_check_errors > 0:
+            lines.append("")
+            lines.append("## Spelling Issues")
+            lines.append(
+                f"{self.spell_check_errors} StatVar name(s) flagged by spell checker. "
+                f"Generated DCID names may have typos."
+            )
+
+        # MCF output
+        if self.dropped_mcf_statvars > 0 or self.existing_nodes_from_api > 0:
+            lines.append("")
+            lines.append("## MCF Output")
+            lines.append(f"- StatVars dropped at MCF output stage: {self.dropped_mcf_statvars}")
+            lines.append(f"- Existing DC nodes found via API: {self.existing_nodes_from_api}")
 
         # Warnings (only if no critical errors)
         if self.warnings and not self.errors:
-            lines.append("\n## Warnings")
-            for warn_type, count in sorted(self.warnings.items(), key=lambda x: -x[1])[:3]:
+            lines.append("")
+            lines.append("## Warnings")
+            for warn_type, count in sorted(self.warnings.items(), key=lambda x: -x[1]):
                 clean_name = warn_type.replace('warning-', '').replace('-', ' ')
                 lines.append(f"- {clean_name}: {count:,}")
 
@@ -152,6 +307,25 @@ def _get_fix_suggestion(pattern_type: str) -> str:
         'empty': "Empty values detected - column may have missing data",
     }
     return fixes.get(pattern_type, "")
+
+
+def _fragmentation_interpretation(ratio: float) -> str:
+    """Return human-readable interpretation of fragmentation ratio.
+
+    Args:
+        ratio: statvars / observations ratio
+
+    Returns:
+        Interpretation string
+    """
+    if ratio < 0.05:
+        return "<0.05 = very compact schema (few StatVars, many obs each)"
+    elif ratio < 0.3:
+        return "0.05-0.3 = healthy (moderate StatVars with multiple obs each)"
+    elif ratio < 0.8:
+        return "0.3-0.8 = moderate fragmentation (some dimension columns may create too many StatVars)"
+    else:
+        return ">0.8 = nearly 1 StatVar per observation (dimensions likely treated as value columns)"
 
 
 def _classify_value(value: str) -> str:
@@ -242,7 +416,8 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
         r'_/[Uu]sers/',                 # File path variants
         r'_/Users/',                    # File paths
         r'num-rows-/',                  # File path variants
-        r'spell-',                      # Spell check
+        r'spell-check-',               # Spell check detail (keep error-spell-words)
+        r'spell-allowlist',             # Spell allowlist stats
         r'urls-',                       # URL checks
         r'pvs-added',                   # Internal tracking
     ]
@@ -251,6 +426,7 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
     raw_counters: Dict[str, int] = {}
     unmapped_values: List[Tuple[str, int]] = []
     prefixed_metrics: Dict[str, int] = {}  # Key metrics from prefixed counters
+    prefixed_counters: List[Tuple[str, int]] = []  # ALL prefixed counters for diagnostic extraction
 
     try:
         with open(counters_path, 'r', encoding='utf-8') as f:
@@ -277,8 +453,9 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
                 if noise_regex.search(key):
                     continue
 
-                # Skip prefixed counters (1:process_input_*) except for key metrics already extracted
+                # Capture prefixed counters for diagnostic extraction, then skip
                 if re.match(r'^\d+:', key):
+                    prefixed_counters.append((key, count))
                     continue
 
                 # Collect individual unmapped values for pattern analysis
@@ -324,6 +501,117 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
         elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key:
             result.warnings[key] = value
 
+    # =====================================================================
+    # Rich signal extraction from non-prefixed counters
+    # =====================================================================
+
+    # (a) Property cardinality from output-svobs-unique-*
+    SKIP_CARDINALITY_PROPS = {'#input', 'typeOf'}
+    for key, value in raw_counters.items():
+        if key.startswith('output-svobs-unique-'):
+            prop_name = key.replace('output-svobs-unique-', '')
+            if prop_name not in SKIP_CARDINALITY_PROPS:
+                result.property_cardinality[prop_name] = value
+
+    # (b) Per-StatVar observation counts from svobs-added_dcid:*
+    for key, value in raw_counters.items():
+        if key.startswith('svobs-added_dcid:'):
+            sv_name = key.replace('svobs-added_dcid:', '')
+            # Truncate very long names
+            if len(sv_name) > 100:
+                sv_name = sv_name[:100] + '...'
+            result.statvars_with_obs.append((sv_name, value))
+    result.statvars_with_obs.sort(key=lambda x: -x[1])
+
+    # (c) Dropped StatVars from dropped-statvars-without-svobs_*
+    for key, value in raw_counters.items():
+        if key.startswith('dropped-statvars-without-svobs_'):
+            sv_name = key.replace('dropped-statvars-without-svobs_', '')
+            result.dropped_statvars.append(sv_name)
+
+    # (d) Per-StatVar generation counts from generated-statvars_*
+    for key, value in raw_counters.items():
+        if key.startswith('generated-statvars_'):
+            sv_name = key.replace('generated-statvars_', '')
+            result.statvars_generated_counts.append((sv_name, value))
+    result.statvars_generated_counts.sort(key=lambda x: -x[1])
+
+    # (k) Spell check, MCF drops, API nodes from non-prefixed counters
+    result.spell_check_errors = raw_counters.get('error-spell-words', 0)
+    result.dropped_mcf_statvars = raw_counters.get('dropped-output-statvars-mcf', 0)
+    result.existing_nodes_from_api = raw_counters.get('existing-nodes-from-api', 0)
+
+    # =====================================================================
+    # Rich signal extraction from prefixed counters
+    # =====================================================================
+    for pkey, pcount in prefixed_counters:
+        # Strip the numeric prefix (e.g., "1:process_input_") to get the suffix
+        # The suffix is everything after the last known stage separator
+        suffix = pkey
+        prefix_match = re.match(r'^\d+:\w+_', pkey)
+        if prefix_match:
+            suffix = pkey[prefix_match.end():]
+
+        # (e) Unresolved value references
+        if 'warning-unresolved-value-ref_' in pkey:
+            ref_name = suffix.replace('warning-unresolved-value-ref_', '')
+            if ref_name and not ref_name.startswith('/') and ref_name != suffix:
+                result.unresolved_refs[ref_name] = result.unresolved_refs.get(ref_name, 0) + pcount
+            elif 'warning-unresolved-value-ref_' in suffix:
+                ref_name = suffix.split('warning-unresolved-value-ref_', 1)[1]
+                if ref_name:
+                    result.unresolved_refs[ref_name] = result.unresolved_refs.get(ref_name, 0) + pcount
+
+        # (g) Place failure StatVars
+        if 'dropped-svobs-unresolved-place_' in pkey:
+            sv_part = suffix.replace('dropped-svobs-unresolved-place_', '')
+            if sv_part and sv_part != suffix:
+                result.place_failure_statvars[sv_part] = (
+                    result.place_failure_statvars.get(sv_part, 0) + pcount
+                )
+
+        # (h) Missing place StatVars
+        if 'warning-svobs-missing-place_' in pkey:
+            sv_part = suffix
+            if 'warning-svobs-missing-place_' in suffix:
+                sv_part = suffix.split('warning-svobs-missing-place_', 1)[1]
+            if sv_part:
+                # Accumulate into dict first, convert to list later
+                existing = {k: v for k, v in result.missing_place_statvars}
+                existing[sv_part] = existing.get(sv_part, 0) + pcount
+                result.missing_place_statvars = sorted(existing.items(), key=lambda x: -x[1])
+
+        # (i) Input structure
+        if suffix == 'input-header-rows' or pkey.endswith('_input-header-rows'):
+            if result.input_header_rows == 0:
+                result.input_header_rows = pcount
+        if suffix == 'input-data-rows' or pkey.endswith('_input-data-rows'):
+            if result.input_data_rows == 0:
+                result.input_data_rows = pcount
+        if suffix == 'input-sections' or pkey.endswith('_input-sections'):
+            if result.input_sections == 0:
+                result.input_sections = pcount
+
+    # Also check non-prefixed for input structure (may exist there too)
+    if result.input_header_rows == 0:
+        result.input_header_rows = raw_counters.get('input-header-rows', 0)
+    if result.input_data_rows == 0:
+        result.input_data_rows = raw_counters.get('input-data-rows', 0)
+    if result.input_sections == 0:
+        result.input_sections = raw_counters.get('input-sections', 0)
+
+    # Unresolved places from non-prefixed counters
+    for key, value in raw_counters.items():
+        if key.startswith('dropped-svobs-unresolved-place_'):
+            place_val = key.replace('dropped-svobs-unresolved-place_', '')
+            if place_val:
+                result.unresolved_places.append((place_val, value))
+    result.unresolved_places.sort(key=lambda x: -x[1])
+
+    # (j) Fragmentation ratio
+    if result.observations_generated > 0:
+        result.fragmentation_ratio = result.statvars_generated / result.observations_generated
+
     # Analyze unmapped values to detect patterns
     if unmapped_values:
         result.unmapped_value_patterns = _analyze_value_patterns(unmapped_values)
@@ -333,6 +621,9 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
         for val, count in unmapped_values:
             value_counts[val] += count
         result.top_unmapped_values = value_counts.most_common(20)
+
+        # (f) Top missing keys — full sorted list
+        result.top_missing_keys = value_counts.most_common()
 
     return result
 
@@ -449,4 +740,5 @@ __all__ = [
     'filter_counters',
     'extract_sample_errors',
     'generate_concise_feedback',
+    '_fragmentation_interpretation',
 ]
