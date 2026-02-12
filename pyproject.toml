@@ -168,6 +168,9 @@ dependencies = [
     # Async support
     "aiohappyeyeballs>=2.6.1",
     "aiosignal>=1.4.0",
+
+    # UI
+    "streamlit>=1.44.0",
 ]
 
 [project.optional-dependencies]
