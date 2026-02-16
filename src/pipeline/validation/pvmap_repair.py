@@ -647,6 +647,11 @@ def generate_key_match_report(
     # Find unmapped headers
     unmapped_headers = [h for h in headers if h not in pvmap_column_keys]
 
+    logger.info(
+        "Key match report: matched=%d, fixable=%d, unmatched=%d, unmapped=%d",
+        len(matched_keys), len(fixable_keys), len(unmatched_keys), len(unmapped_headers),
+    )
+
     # Build report
     lines = ["## KEY MATCH REPORT\n"]
 
@@ -991,6 +996,12 @@ def pre_validate_pvmap(
         )
 
     passes = len(errors) == 0
+    if headers:
+        logger.info(
+            "Pre-validation: %s (matched=%d/%d unique columns, threshold=30%%)",
+            "PASS" if passes else "FAIL",
+            len(matched_columns), len(matched_columns) + len(unmatched_columns),
+        )
 
     # Schema.org property validation (informational warnings appended after pass/fail decision)
     try:

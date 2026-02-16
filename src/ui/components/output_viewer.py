@@ -37,6 +37,25 @@ def render_output_tabs(output_dir: Path):
     else:
         st.error(f"Validation failed after {retry_count + 1} attempt(s). Exit reason: {exit_reason}")
 
+    # Raw logs — offer truncated download for large files
+    raw_logs_path = output_dir / "statvar_processor_raw_logs.txt"
+    if raw_logs_path.exists():
+        size_mb = raw_logs_path.stat().st_size / 1_000_000
+        if size_mb > 10:
+            st.download_button(
+                label=f"Download Raw Logs (truncated — full file is {size_mb:.0f} MB)",
+                data=_truncated_log(raw_logs_path),
+                file_name="statvar_processor_raw_logs_truncated.txt",
+                mime="text/plain",
+            )
+        else:
+            st.download_button(
+                label="Download Raw Validation Logs",
+                data=raw_logs_path.read_bytes(),
+                file_name="statvar_processor_raw_logs.txt",
+                mime="text/plain",
+            )
+
     # Create tabs
     tab_names = []
     tab_files = []
@@ -50,6 +69,8 @@ def render_output_tabs(output_dir: Path):
         ("StatVars", "processed_stat_vars.mcf"),
         ("Generation Notes", "generation_notes.md"),
         ("Metrics", "processed_counters.txt"),
+        # Raw Logs excluded from tabs — too large (100MB+) for inline rendering.
+        # Download link shown above tabs instead.
     ]
 
     for label, fname in tab_order:
@@ -129,6 +150,8 @@ def _render_file_tab(fname: str, fpath: Path, output_dir: Path):
         _render_markdown_tab(fpath)
     elif fname == "processed_counters.txt":
         _render_metrics_tab(fpath)
+    elif fname == "statvar_processor_raw_logs.txt":
+        _render_raw_logs_tab(fpath)
     else:
         _render_text_tab(fname, fpath, output_dir)
 
@@ -151,21 +174,31 @@ def _render_csv_tab(fname: str, fpath: Path, output_dir: Path):
     edited_df = st.data_editor(
         df,
         num_rows="dynamic" if fname == "generated_pvmap.csv" else "fixed",
-        use_container_width=True,
         key=editor_key,
     )
 
     # Store edited DataFrame in session state for feedback re-runs
     st.session_state[f"edited_{fname}"] = edited_df
 
-    if st.button(f"Save {fname}", key=f"save_{fname}"):
-        try:
-            edited_df.to_csv(fpath, index=False)
-            logger.info("Saved edited CSV: %s", fpath)
-            st.success(f"Saved {fname}")
-        except Exception as e:
-            logger.error("Failed to save %s: %s", fname, e)
-            st.error(f"Failed to save: {e}")
+    col_save, col_download, _ = st.columns([1, 1, 3])
+    with col_save:
+        if st.button(f"Save {fname}", key=f"save_{fname}"):
+            try:
+                edited_df.to_csv(fpath, index=False)
+                logger.info("Saved edited CSV: %s", fpath)
+                st.success(f"Saved {fname}")
+            except Exception as e:
+                logger.error("Failed to save %s: %s", fname, e)
+                st.error(f"Failed to save: {e}")
+    with col_download:
+        csv_data = edited_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label=f"Download {fname}",
+            data=csv_data,
+            file_name=fname,
+            mime="text/csv",
+            key=f"download_{fname}",
+        )
 
 
 def _render_text_tab(fname: str, fpath: Path, output_dir: Path):
@@ -202,6 +235,50 @@ def _render_markdown_tab(fpath: Path):
         st.error(f"Could not read generation notes: {e}")
 
 
+def _truncated_log(fpath: Path, head: int = 5000, tail: int = 5000) -> bytes:
+    """Return first + last N lines of a large log file as bytes."""
+    lines = []
+    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+        head_lines = []
+        for i, line in enumerate(f):
+            if i < head:
+                head_lines.append(line)
+            last_pos = f.tell()
+        lines = head_lines
+
+    # Read tail lines
+    tail_lines = []
+    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+        from collections import deque
+        tail_lines = list(deque(f, maxlen=tail))
+
+    if len(lines) + len(tail_lines) < head + tail:
+        # File is small enough to fit — just return head_lines
+        return "".join(lines).encode("utf-8")
+
+    separator = f"\n\n{'=' * 60}\n... TRUNCATED ({fpath.stat().st_size / 1_000_000:.0f} MB total) ...\n{'=' * 60}\n\n"
+    return ("".join(lines) + separator + "".join(tail_lines)).encode("utf-8")
+
+
+def _render_raw_logs_tab(fpath: Path):
+    """Render raw stat_var_processor logs (read-only).
+
+    For large files (>10MB), shows file path instead of loading content.
+    """
+    size_mb = fpath.stat().st_size / 1_000_000
+    if size_mb > 10:
+        st.info(f"Log file too large to display ({size_mb:.0f} MB). File path: `{fpath}`")
+        return
+
+    try:
+        content = fpath.read_text(encoding="utf-8")
+    except Exception as e:
+        st.error(f"Could not read raw logs: {e}")
+        return
+
+    st.code(content, language="text")
+
+
 def _render_metrics_tab(fpath: Path):
     """Render processed_counters.txt as a key-value metrics table.
 
@@ -219,7 +296,7 @@ def _render_metrics_tab(fpath: Path):
         df = pd.read_csv(fpath, nrows=MAX_DISPLAY_ROWS)
         if len(df.columns) >= 2:
             df.columns = ["Metric", "Value"] + list(df.columns[2:])
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df)
             return
     except Exception:
         pass

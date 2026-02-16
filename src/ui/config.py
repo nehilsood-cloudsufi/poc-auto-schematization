@@ -7,7 +7,6 @@ DEFAULT_MODEL = "gemini-3-pro-preview"
 
 # MCP settings
 MCP_DEFAULT_PORT = 3000
-SCHEMAORG_MCP_DEFAULT_PORT = 3001
 
 # Prompt settings
 DEFAULT_PROMPT_VERSION = "v2"

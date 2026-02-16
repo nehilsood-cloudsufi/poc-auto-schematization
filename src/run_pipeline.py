@@ -45,12 +45,18 @@ import uuid
 import logging
 import asyncio
 
+logger = logging.getLogger(__name__)
+
 # MCP integration (optional)
 try:
     from src.data_commons.api.mcp_server_manager import MCPServerManager
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
+
+# Suppress noisy third-party log messages
+from src.pipeline.validation.log_filter import apply_log_noise_filters
+apply_log_noise_filters()
 
 
 def get_session_state_direct(
@@ -83,6 +89,7 @@ def get_session_state_direct(
             return dict(stored_session.state)
         return {}
     except Exception:
+        logger.exception("Failed to retrieve session state for session_id=%s", session_id)
         return {}
 
 
@@ -220,8 +227,6 @@ def run_dataset_pipeline(
     model: str = "gemini-3-pro-preview",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
-    enable_schemaorg_mcp: bool = False,
-    schemaorg_mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
     force_resample: bool = False,
     skip_schema_selection: bool = False,
@@ -285,6 +290,12 @@ def run_dataset_pipeline(
     )
 
     logger.info(f"Starting PVMAP pipeline for dataset: {dataset_name}")
+    logger.info(
+        "Pipeline config: model=%s, enable_mcp=%s, skip_sampling=%s, "
+        "skip_schema=%s, skip_eval=%s, use_metadata=%s, max_retries=%d, prompt=%s",
+        model, enable_mcp, skip_sampling, skip_schema_selection,
+        skip_evaluation, use_metadata, max_retries, prompt_version,
+    )
 
     # Create Sampling agent (agentic sampling with LLM)
     sampling_agent = SamplingAgentWrapper(
@@ -302,8 +313,6 @@ def run_dataset_pipeline(
         mcp_url=mcp_url,
         min_attempts=min_attempts,
         thinking_level=thinking_level,
-        enable_schemaorg_mcp=enable_schemaorg_mcp,
-        schemaorg_mcp_url=schemaorg_mcp_url,
     )
     logger.info("Using ADK LoopAgent-based PVMAP retry loop")
     if enable_mcp and mcp_url:
@@ -450,12 +459,6 @@ def run_dataset_pipeline(
         initial_state["mcp_url"] = mcp_url
         logger.info(f"MCP enabled with URL: {mcp_url}")
 
-    # Add Schema.org MCP state if enabled
-    if enable_schemaorg_mcp and schemaorg_mcp_url:
-        initial_state["schemaorg_mcp_enabled"] = True
-        initial_state["schemaorg_mcp_url"] = schemaorg_mcp_url
-        logger.info(f"Schema.org MCP enabled with URL: {schemaorg_mcp_url}")
-
     # Log sampling configuration
     if skip_sampling:
         logger.info("Agentic sampling: SKIPPED (using existing sampled files)")
@@ -536,7 +539,11 @@ def run_dataset_pipeline(
         if eval_metrics:
             final_state["eval_metrics"] = eval_metrics
 
+        exit_reason = final_state.get("exit_reason", "unknown")
+        attempt_count = final_state.get("retry_count", "?")
+        data_rows = final_state.get("validation_data_rows", 0)
         logger.info(f"Pipeline completed for {dataset_name}. Success: {generation_success}")
+        logger.info(f"  Exit reason: {exit_reason}, Attempts: {attempt_count}, Data rows: {data_rows}")
         logger.info(f"  PVMAP exists: {pvmap_exists}, Validation passed: {validation_passed}")
         logger.info(f"  Eval results exist: {eval_results_exist}")
         if eval_metrics:
@@ -744,26 +751,6 @@ if __name__ == "__main__":
                     enable_mcp = False
                     mcp_manager = None
 
-        # Start Schema.org MCP server if enabled
-        enable_schemaorg_mcp = getattr(args, 'enable_schemaorg_mcp', False)
-        schemaorg_mcp_manager = None
-        schemaorg_mcp_url = None
-        if enable_schemaorg_mcp:
-            try:
-                from src.data_commons.api.schemaorg_mcp_manager import SchemaOrgMCPManager
-                print("Starting Schema.org MCP server...")
-                schemaorg_mcp_manager = SchemaOrgMCPManager(port=3001)
-                if schemaorg_mcp_manager.start(timeout=30):
-                    schemaorg_mcp_url = schemaorg_mcp_manager.mcp_url
-                    print(f"Schema.org MCP server started at: {schemaorg_mcp_url}")
-                else:
-                    print("WARNING: Schema.org MCP server failed to start. Continuing without it.")
-                    enable_schemaorg_mcp = False
-                    schemaorg_mcp_manager = None
-            except Exception as e:
-                print(f"WARNING: Schema.org MCP unavailable: {e}")
-                enable_schemaorg_mcp = False
-
         final_state = run_dataset_pipeline(
             dataset_name=dataset_name,
             input_dir=input_dir,
@@ -771,8 +758,6 @@ if __name__ == "__main__":
             model=args.model,
             enable_mcp=enable_mcp,
             mcp_url=mcp_url,
-            enable_schemaorg_mcp=enable_schemaorg_mcp,
-            schemaorg_mcp_url=schemaorg_mcp_url,
             skip_sampling=args.skip_sampling,
             force_resample=args.force_resample,
             skip_schema_selection=args.skip_schema_selection,
@@ -839,7 +824,3 @@ if __name__ == "__main__":
             print("\nStopping MCP server...")
             mcp_manager.stop()
             print("MCP server stopped.")
-        if schemaorg_mcp_manager:
-            print("Stopping Schema.org MCP server...")
-            schemaorg_mcp_manager.stop()
-            print("Schema.org MCP server stopped.")

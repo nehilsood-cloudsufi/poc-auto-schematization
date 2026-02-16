@@ -31,6 +31,7 @@ from src.agents.pvmap_generation.helpers import convert_pvmap_output_to_csv
 from src.agents.pvmap_generation.schemas import PVMAPOutput, PVMAPRow, PropertyValuePair
 from src.agents.template_utils import escape_pvmap_placeholders
 from src.tools.metadata_tools import generate_processor_config
+from src.tools.schemaorg_tools import validate_pvmap_property
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ def _create_enrichment_agent(model: str) -> LlmAgent:
         model=model,
         instruction=_ENRICHMENT_INSTRUCTION,
         output_key="metadata_enrichment",
+        tools=[validate_pvmap_property],  # Check if properties are standard schema.org
     )
 
 

@@ -62,10 +62,13 @@ class TestPvmapGeneratorWithMCP:
 
         # Should have schema.org tools + local DC tools but no MCP toolset
         tools = getattr(generator, 'tools', []) or []
-        assert len(tools) == 5  # 2 schema.org + 3 local DC tools
+        assert len(tools) == 8  # 5 schema.org + 3 local DC tools
         tool_names = [t.__name__ for t in tools if callable(t)]
         assert "lookup_schemaorg_type" in tool_names
+        assert "lookup_schemaorg_property" in tool_names
         assert "search_schemaorg_vocabulary" in tool_names
+        assert "validate_pvmap_property" in tool_names
+        assert "get_schemaorg_type_hierarchy" in tool_names
         assert "resolve_place_names" in tool_names
         assert "validate_statvar_observation" in tool_names
         assert "get_entity_type" in tool_names

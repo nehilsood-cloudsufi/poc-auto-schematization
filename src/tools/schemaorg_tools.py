@@ -87,6 +87,34 @@ def search_schemaorg_vocabulary(query: str, search_type: str = "both") -> dict:
     return {"success": True, "data": result, "error": None}
 
 
+def get_schemaorg_type_hierarchy(type_name: str) -> dict:
+    """Get the ancestor chain for a schema.org type (e.g., Person -> Thing).
+
+    WHEN TO CALL: When you need to understand type inheritance to determine
+    which properties are valid for a populationType via ancestor types.
+
+    Args:
+        type_name: The type name (e.g., "Person", "Observation")
+
+    Returns:
+        Dict with success, data containing hierarchy list, and error fields.
+    """
+    vocab = SchemaOrgVocab.instance()
+    hierarchy = vocab.get_type_hierarchy(type_name)
+    if hierarchy is None:
+        dc_equiv = vocab.dc_type_to_schemaorg(type_name)
+        if dc_equiv:
+            hierarchy = vocab.get_type_hierarchy(dc_equiv)
+            if hierarchy is not None:
+                return {
+                    "success": True,
+                    "data": {"type": dc_equiv, "hierarchy": [dc_equiv] + hierarchy},
+                    "note": f"DC type '{type_name}' maps to '{dc_equiv}'"
+                }
+        return {"success": False, "data": None, "error": f"Type '{type_name}' not found"}
+    return {"success": True, "data": {"type": type_name, "hierarchy": [type_name] + hierarchy}, "error": None}
+
+
 def validate_pvmap_property(property_name: str, population_type: str) -> dict:
     """Check if a property is valid for a given populationType.
 

@@ -85,6 +85,8 @@ class StatePreparationAgent(BaseAgent):
         ctx.session.state["attempt_number"] = current_attempt + 1
         attempt = ctx.session.state["attempt_number"]
 
+        logger.info("StatePrep: starting attempt %d (0-indexed)", attempt)
+
         yield Event(
             author=self.name,
             content=types.Content(parts=[
@@ -365,6 +367,15 @@ class StatePreparationAgent(BaseAgent):
                         types.Part(text=f"Using feedback: {preview}")
                     ])
                 )
+
+        # Log state preparation summary
+        schema_cat = ctx.session.state.get("schema_category", "(none)")
+        vocab_src = "state" if ctx.session.state.get("schema_vocab_content") else "file/none"
+        mcp_on = ctx.session.state.get("mcp_enabled", False)
+        logger.info(
+            "StatePrep complete: attempt=%d, schema_category=%s, vocab_source=%s, mcp=%s",
+            attempt, schema_cat, vocab_src, mcp_on,
+        )
 
         # =====================================================================
         # Populate prompt template and store in state
@@ -1170,8 +1181,6 @@ def create_pvmap_retry_loop(
     mcp_url: Optional[str] = None,
     min_attempts: Optional[int] = None,
     thinking_level: Optional[str] = None,
-    enable_schemaorg_mcp: bool = False,
-    schemaorg_mcp_url: Optional[str] = None,
 ) -> LoopAgent:
     """
     Create PVMAP generation retry loop with quality-based retries.
@@ -1202,8 +1211,6 @@ def create_pvmap_retry_loop(
         enable_mcp: Enable MCP integration (default: False)
         mcp_url: MCP server URL (required if enable_mcp=True)
         min_attempts: Minimum attempts before allowing quality exit (optional)
-        enable_schemaorg_mcp: Enable Schema.org MCP toolset (default: False)
-        schemaorg_mcp_url: Schema.org MCP server URL (default: http://localhost:3001/mcp)
 
     Returns:
         Configured LoopAgent
@@ -1235,8 +1242,6 @@ def create_pvmap_retry_loop(
             model=model, name="Generator",
             enable_mcp=enable_mcp, mcp_url=mcp_url,
             thinking_level=thinking_level,
-            enable_schemaorg_mcp=enable_schemaorg_mcp,
-            schemaorg_mcp_url=schemaorg_mcp_url,
         )
     else:
         from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema

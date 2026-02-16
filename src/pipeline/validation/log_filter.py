@@ -18,6 +18,7 @@ Usage:
 """
 
 import csv
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -734,11 +735,83 @@ def generate_concise_feedback(
 # Module exports
 # ============================================================================
 
+# ============================================================================
+# Logging noise filters
+# ============================================================================
+
+class DualApiKeyFilter(logging.Filter):
+    """Suppress repeated 'Both GOOGLE_API_KEY and GEMINI_API_KEY are set' warnings."""
+
+    def filter(self, record):
+        return "Both GOOGLE_API_KEY and GEMINI_API_KEY" not in record.getMessage()
+
+
+class McpSessionWarningFilter(logging.Filter):
+    """Suppress empty 'Error on session runner task:' warnings from MCP cleanup."""
+
+    def filter(self, record):
+        msg = record.getMessage().strip()
+        return not msg.startswith("Error on session runner task:")
+
+
+class AdkNoiseFilter(logging.Filter):
+    """Suppress low-value ADK/google-genai debug messages."""
+
+    _SUPPRESSED_PATTERNS = (
+        "No debug state for invocation",
+        "non-text parts in the response:",
+        "[EXPERIMENTAL] feature FeatureName",
+    )
+
+    def filter(self, record):
+        msg = record.getMessage()
+        return not any(pattern in msg for pattern in self._SUPPRESSED_PATTERNS)
+
+
+def apply_log_noise_filters():
+    """Apply all log noise filters to the relevant third-party loggers.
+
+    Safe to call multiple times — filters are deduplicated by class name.
+
+    Logger hierarchy note: google-adk uses ``google_adk`` (underscore)
+    as the top-level logger, NOT ``google.adk`` (dot).
+    """
+    _filter_specs = [
+        # Dual API key warnings (google_genai._api_client)
+        ("google_genai._api_client", DualApiKeyFilter),
+        ("google_genai", DualApiKeyFilter),
+        # MCP session runner empty-error warnings
+        ("google_adk.google.adk.tools.mcp_tool.session_context", McpSessionWarningFilter),
+        ("google_adk", McpSessionWarningFilter),
+        # ADK debug noise (No debug state, experimental features)
+        ("google_adk.google.adk.plugins.debug_logging_plugin", AdkNoiseFilter),
+        ("google_adk", AdkNoiseFilter),
+        ("google_genai", AdkNoiseFilter),
+    ]
+
+    for logger_name, filter_cls in _filter_specs:
+        target_logger = logging.getLogger(logger_name)
+        # Avoid duplicate filters
+        if not any(isinstance(f, filter_cls) for f in target_logger.filters):
+            target_logger.addFilter(filter_cls())
+
+    # Capture Python warnings through the logging system so filters apply
+    # to UserWarning messages like "[EXPERIMENTAL] feature FeatureName..."
+    logging.captureWarnings(True)
+    warnings_logger = logging.getLogger("py.warnings")
+    if not any(isinstance(f, AdkNoiseFilter) for f in warnings_logger.filters):
+        warnings_logger.addFilter(AdkNoiseFilter())
+
+
 __all__ = [
     'FilteredLogs',
     'ValuePattern',
     'filter_counters',
     'extract_sample_errors',
     'generate_concise_feedback',
+    'apply_log_noise_filters',
+    'DualApiKeyFilter',
+    'McpSessionWarningFilter',
+    'AdkNoiseFilter',
     '_fragmentation_interpretation',
 ]

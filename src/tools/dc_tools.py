@@ -96,7 +96,7 @@ def validate_statvar_observation(variable_dcid: str, place_dcid: str, date: str 
             result = client.observation.fetch(
                 variable_dcids=variable_dcid,
                 entity_dcids=place_dcid,
-                date=date or None,
+                date=date if date else "LATEST",
             )
             # Extract sample data point from result
             result_str = str(result)[:500]

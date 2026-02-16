@@ -22,7 +22,6 @@ from src.ui.config import (
     DEFAULT_PROMPT_VERSION,
     MCP_DEFAULT_PORT,
     MIN_PIPELINE_ATTEMPTS,
-    SCHEMAORG_MCP_DEFAULT_PORT,
     setup_ui_logging,
 )
 
@@ -61,7 +60,7 @@ _DEFAULTS = {
     "progress_events": [],
     "human_feedback": None,
     "skip_sampling": False,
-    "mcp_enabled": False,
+    "mcp_enabled": True,
     "model": DEFAULT_MODEL,
     "used_edited_pvmap": False,
     "use_metadata": False,
@@ -89,24 +88,15 @@ def _launch_pipeline():
     setup_ui_logging(run_dir)
     logger.info("Launching pipeline for dataset=%s, run_dir=%s", dataset_name, run_dir)
 
-    # Handle MCP (both DC and Schema.org)
+    # Handle MCP (DC MCP only — Schema.org uses local tools, no server needed)
     mcp_url = None
-    schemaorg_mcp_url = None
     mcp_enabled = st.session_state.get("mcp_enabled", False)
     if mcp_enabled:
         logger.info("MCP enabled — starting DC MCP server on port %d", MCP_DEFAULT_PORT)
-        from src.ui.services.mcp_lifecycle import (
-            get_or_start_mcp, get_mcp_url,
-            get_or_start_schemaorg_mcp, get_schemaorg_mcp_url,
-        )
+        from src.ui.services.mcp_lifecycle import get_or_start_mcp, get_mcp_url
         get_or_start_mcp(MCP_DEFAULT_PORT)
         mcp_url = get_mcp_url()
         logger.info("DC MCP URL: %s", mcp_url)
-
-        logger.info("Starting Schema.org MCP server on port %d", SCHEMAORG_MCP_DEFAULT_PORT)
-        get_or_start_schemaorg_mcp(SCHEMAORG_MCP_DEFAULT_PORT)
-        schemaorg_mcp_url = get_schemaorg_mcp_url()
-        logger.info("Schema.org MCP URL: %s", schemaorg_mcp_url)
 
     config = PipelineConfig(
         run_id=st.session_state["run_id"],
@@ -117,8 +107,6 @@ def _launch_pipeline():
         model=st.session_state.get("model", DEFAULT_MODEL),
         enable_mcp=mcp_enabled,
         mcp_url=mcp_url,
-        enable_schemaorg_mcp=mcp_enabled,
-        schemaorg_mcp_url=schemaorg_mcp_url,
         prompt_version=st.session_state.get("prompt_version", DEFAULT_PROMPT_VERSION),
         use_schema_examples=st.session_state.get("use_schema_examples", True),
         skip_sampling=st.session_state.get("skip_sampling", False),

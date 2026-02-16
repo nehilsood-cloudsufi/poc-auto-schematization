@@ -257,6 +257,10 @@ class QualityEvaluationAgent(BaseAgent):
         # Step 2b: Enforce min_attempts (prevent early exit before N attempts)
         # =====================================================================
         if self._min_attempts and attempt_number < (self._min_attempts - 1):
+            logger.info(
+                "min_attempts enforcement: attempt %d < min %d, overriding quality exit",
+                attempt_number + 1, self._min_attempts,
+            )
             if quality_acceptable:
                 quality_acceptable = False
                 quality_metrics["quality_reject_reason"] = "min_attempts_not_met"
@@ -385,6 +389,10 @@ class QualityEvaluationAgent(BaseAgent):
         }
 
         quality_acceptable = heuristic_result["total"] >= self.QUALITY_THRESHOLD
+        logger.info(
+            "Quality evaluation: score=%.1f/100, threshold=%.1f, acceptable=%s",
+            heuristic_result["total"], self.QUALITY_THRESHOLD, quality_acceptable,
+        )
         quality_diff_summary = heuristic_result.get("issues", "")
 
         # Add formatted report for feedback

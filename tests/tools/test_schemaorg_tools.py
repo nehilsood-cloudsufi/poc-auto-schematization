@@ -7,6 +7,7 @@ from src.tools.schemaorg_tools import (
     lookup_schemaorg_property,
     search_schemaorg_vocabulary,
     validate_pvmap_property,
+    get_schemaorg_type_hierarchy,
 )
 
 
@@ -98,3 +99,21 @@ class TestValidateProperty:
         result = validate_pvmap_property("gender", "FakeTypeXYZ")
         assert result["success"] is True
         assert result["data"]["type_known"] is False
+
+
+class TestGetTypeHierarchy:
+    def test_known_type(self):
+        result = get_schemaorg_type_hierarchy("Person")
+        assert result["success"] is True
+        assert "Person" in result["data"]["hierarchy"]
+        assert "Thing" in result["data"]["hierarchy"]
+
+    def test_dc_type(self):
+        result = get_schemaorg_type_hierarchy("BLSEstablishment")
+        assert result["success"] is True
+        assert "note" in result
+
+    def test_unknown_type(self):
+        result = get_schemaorg_type_hierarchy("TotallyFakeXYZ")
+        assert result["success"] is False
+        assert result["error"] is not None

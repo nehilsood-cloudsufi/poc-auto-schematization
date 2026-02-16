@@ -22,7 +22,7 @@ class PipelineConfig:
     output_dir: Path
     input_file: Optional[str] = None
     model: str = "gemini-3-pro-preview"
-    enable_mcp: bool = False
+    enable_mcp: bool = True
     mcp_url: Optional[str] = None
     skip_sampling: bool = False
     force_resample: bool = False
@@ -33,8 +33,6 @@ class PipelineConfig:
     human_feedback: Optional[str] = None
     min_attempts: int = MIN_PIPELINE_ATTEMPTS
     max_retries: int = 2
-    enable_schemaorg_mcp: bool = False
-    schemaorg_mcp_url: Optional[str] = None
     prompt_version: str = "v2"
     use_schema_examples: bool = True
     thinking_level: Optional[str] = None
@@ -65,6 +63,10 @@ def _run_in_thread(config: PipelineConfig, progress_queue: queue.Queue):
     try:
         logger.info("Pipeline thread started: run_id=%s", config.run_id)
 
+        # Apply log noise filters in the UI thread context
+        from src.pipeline.validation.log_filter import apply_log_noise_filters
+        apply_log_noise_filters()
+
         # Import here to avoid circular imports and ensure .env is loaded
         from src.run_pipeline import run_dataset_pipeline
 
@@ -89,8 +91,6 @@ def _run_in_thread(config: PipelineConfig, progress_queue: queue.Queue):
             min_attempts=config.min_attempts,
             max_retries=config.max_retries,
             extra_plugins=[progress_plugin],
-            enable_schemaorg_mcp=config.enable_schemaorg_mcp,
-            schemaorg_mcp_url=config.schemaorg_mcp_url,
             prompt_version=config.prompt_version,
             use_schema_examples=config.use_schema_examples,
             thinking_level=config.thinking_level,

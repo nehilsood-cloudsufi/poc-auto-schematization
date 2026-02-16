@@ -44,6 +44,7 @@ def get_output_files(output_dir: Path) -> Dict[str, Path]:
         "processed_stat_vars.mcf",
         "generation_notes.md",
         "processed_counters.txt",
+        "statvar_processor_raw_logs.txt",
     ]
     result = {}
     for fname in known_files:

@@ -99,7 +99,8 @@ def create_dc_query_agent(
         name=name,
         model=model,
         instruction=sanitize_for_adk(final_instruction),
-        tools=[mcp_toolset]
+        tools=[mcp_toolset],
+        include_contents="none",  # Prevent history accumulation in MCP queries
     )
 
     return agent
@@ -161,7 +162,8 @@ def create_enrichment_agent(
         name=name,
         model=model,
         instruction=sanitize_for_adk(instruction),
-        tools=[mcp_toolset]
+        tools=[mcp_toolset],
+        include_contents="none",  # Prevent history accumulation in MCP queries
     )
 
 
@@ -203,7 +205,8 @@ def create_error_resolver_agent(
         name="ErrorResolver",
         model=model,
         instruction=sanitize_for_adk(instruction),
-        tools=[mcp_toolset]
+        tools=[mcp_toolset],
+        include_contents="none",  # Prevent history accumulation in MCP queries
     )
 
 
@@ -254,6 +257,14 @@ async def run_mcp_query(mcp_url: str, agent: LlmAgent, query: str) -> str:
     except Exception as e:
         logger.warning(f"MCP query failed: {e}")
         result_text = f"(MCP query failed: {str(e)[:200]})"
+    finally:
+        # Close MCP toolsets to prevent session leak warnings
+        for tool in getattr(agent, 'tools', []) or []:
+            if hasattr(tool, 'close') and callable(tool.close):
+                try:
+                    await tool.close()
+                except Exception:
+                    pass
 
     return result_text
 
@@ -567,15 +578,27 @@ async def discover_statvars_for_topic(
     )
 
     result_text = ""
-    for event in runner.run(
-        user_id="discovery",
-        session_id=session_id,
-        new_message=user_message
-    ):
-        if hasattr(event, 'content') and event.content:
-            for part in event.content.parts:
-                if hasattr(part, 'text') and part.text:
-                    result_text += part.text
+    try:
+        for event in runner.run(
+            user_id="discovery",
+            session_id=session_id,
+            new_message=user_message
+        ):
+            if hasattr(event, 'content') and event.content:
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        result_text += part.text
+    except Exception as e:
+        logger.warning(f"StatVar discovery failed: {e}")
+        result_text = f"(StatVar discovery failed: {str(e)[:200]})"
+    finally:
+        # Close MCP toolsets to prevent session leak warnings
+        for tool in getattr(agent, 'tools', []) or []:
+            if hasattr(tool, 'close') and callable(tool.close):
+                try:
+                    await tool.close()
+                except Exception:
+                    pass
 
     return result_text
 

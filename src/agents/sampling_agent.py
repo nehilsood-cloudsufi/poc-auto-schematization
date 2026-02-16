@@ -37,6 +37,7 @@ Rule: Place + Time + StatVar (defined by dimensions) = Unique Observation
 """
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -46,6 +47,8 @@ from typing import AsyncGenerator, Optional
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+logger = logging.getLogger(__name__)
 
 from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -397,6 +400,14 @@ The generate_context tool will write the results to a JSON file.
         ctx.session.state["data_context"] = data_context.get("data_context", data_context)
         ctx.session.state["sampling_success"] = data_context.get("success", True)
         ctx.session.state["context_file_path"] = context_file_path
+
+        inner_ctx = data_context.get("data_context", {})
+        logger.info(
+            "Sampling complete: rows=%s, columns=%s, dimensions=%s",
+            inner_ctx.get("row_count", "?"),
+            inner_ctx.get("column_count", "?"),
+            inner_ctx.get("dimension_columns", []),
+        )
 
         # Set sampled_data_path in state for downstream agents
         sampled_path = data_context.get("data_context", {}).get("sampled_file")

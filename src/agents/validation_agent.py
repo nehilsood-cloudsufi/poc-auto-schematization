@@ -151,6 +151,12 @@ class ValidationAgent(BaseAgent):
 
             # Convert to CSV
             pvmap_csv = convert_pvmap_output_to_csv(pvmap_model)
+            logger.info(
+                "CSV conversion: %d PVMAP rows, format=%s, confidence=%s",
+                len(pvmap_model.pvmap_rows),
+                pvmap_model.format_detected,
+                pvmap_model.confidence,
+            )
 
             # =====================================================================
             # Step 1.5: Repair PVMAP keys + pre-validate structure
@@ -318,6 +324,9 @@ class ValidationAgent(BaseAgent):
             )
 
         # Run validation (pass attempt_number for iteration-specific feedback)
+        logger.info("Starting validation subprocess for attempt %d", attempt_number)
+        import time as _time
+        _validation_start = _time.monotonic()
         result = run_validation(
             input_data=input_file,
             pvmap_path=str(pvmap_path),
@@ -325,6 +334,12 @@ class ValidationAgent(BaseAgent):
             output_dir=str(current_dataset.output_dir),
             timeout=300,  # 5 minute timeout
             attempt_number=attempt_number  # For iteration-specific advice in feedback
+        )
+
+        _validation_elapsed = _time.monotonic() - _validation_start
+        logger.info(
+            "Validation result: success=%s, data_rows=%d, elapsed=%.1fs",
+            result["success"], result.get("data_rows", 0), _validation_elapsed,
         )
 
         # Store validation results
@@ -350,6 +365,10 @@ class ValidationAgent(BaseAgent):
             ctx.session.state["best_pvmap_csv"] = pvmap_csv
             ctx.session.state["best_attempt_number"] = attempt_number
             ctx.session.state["best_validation_passed"] = current_is_valid
+            logger.info(
+                "Best attempt updated: attempt=%d, data_rows=%d, valid=%s",
+                attempt_number, current_data_rows, current_is_valid,
+            )
 
         # Generate key match report for feedback agent
         if input_file_for_repair and input_file_for_repair.exists():

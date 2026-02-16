@@ -57,6 +57,30 @@ Category: {schema_category}
 
 # ANALYSIS GUIDELINES
 
+## STEP 0: Verify Properties with Tools (DO THIS FIRST)
+
+Before analyzing errors or suggesting fixes, you MUST call schema.org tools to ground your recommendations:
+
+1. **Identify the populationType** used in the PVMAP (from pvmap_csv above), then CALL:
+   validate_pvmap_property("measuredProperty", "<the_populationType>")
+   — This confirms the type is valid and gives you context for what properties it supports.
+
+2. **For each property mentioned in validation errors or SCHEMA WARNINGs**, CALL:
+   lookup_schemaorg_property("<property_name>")
+   — This tells you if the property exists and what its correct name is.
+
+3. **When suggesting a replacement property**, CALL:
+   search_schemaorg_vocabulary("<search_term>", search_type="properties")
+   — This finds the correct property name instead of guessing.
+
+You have these tools available:
+- **lookup_schemaorg_property(property_name)**: Verify a property exists. Returns domain/range info.
+- **search_schemaorg_vocabulary(query)**: Search for types or properties by keyword.
+- **validate_pvmap_property(property_name, population_type)**: Check property-type compatibility.
+
+CRITICAL: Do NOT skip this step. Do NOT guess property names. Make at least 2 tool calls
+before writing your analysis. Tool results will make your feedback more accurate.
+
 ## 1. Identify Root Cause
 
 ### If Validation Failed (error analysis)

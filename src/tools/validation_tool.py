@@ -9,13 +9,17 @@ Enhanced Features:
 - Value pattern analysis: Identifies failing columns from unmapped value types
 """
 
+import logging
 import os
 import re
 import subprocess
 import random
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from collections import Counter, defaultdict
+
+logger = logging.getLogger(__name__)
 
 # Base directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -107,6 +111,7 @@ def _extract_statvar_summary(output_path: str, max_lines: int = 40) -> str:
     try:
         mcf_text = mcf_path.read_text(encoding="utf-8")
     except Exception:
+        logger.warning("Failed to read MCF file for StatVar analysis: %s", mcf_path)
         return ""
 
     # Skip properties that are structural, not semantic
@@ -393,6 +398,9 @@ def run_validation(
 
     try:
         # Run subprocess
+        logger.info("Running validation subprocess: timeout=%ds, pvmap=%s", timeout, pvmap_path)
+        logger.debug("Subprocess cmd: %s", " ".join(cmd))
+        start_time = time.monotonic()
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -401,6 +409,22 @@ def run_validation(
             cwd=str(PROJECT_ROOT),
             env=env
         )
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Validation subprocess finished: returncode=%d, elapsed=%.1fs",
+            result.returncode, elapsed,
+        )
+
+        # Write raw logs to file (overwrite on each retry — always reflects latest attempt)
+        raw_log_path = Path(output_dir) / "statvar_processor_raw_logs.txt"
+        raw_log_content = ""
+        if result.stdout:
+            raw_log_content += "=== STDOUT ===\n" + result.stdout + "\n"
+        if result.stderr:
+            raw_log_content += "=== STDERR ===\n" + result.stderr + "\n"
+        if not raw_log_content:
+            raw_log_content = "(no output captured)\n"
+        raw_log_path.write_text(raw_log_content, encoding="utf-8")
 
         # Parse counters file using smart log filter (for structured feedback)
         filtered_logs = filter_counters(counters_file) if counters_file.exists() else None
@@ -460,6 +484,7 @@ def run_validation(
                 }
 
             # Validation passed
+            logger.info("Validation PASSED: %d data rows in output", data_rows)
             counter_summary = filtered_logs.to_summary() if filtered_logs else ""
 
             # Extract StatVar analysis from MCF output
@@ -527,6 +552,7 @@ def run_validation(
             }
 
     except subprocess.TimeoutExpired:
+        logger.error("Validation subprocess timed out after %d seconds", timeout)
         return {
             "success": False,
             "error": f"Validation timed out after {timeout} seconds",

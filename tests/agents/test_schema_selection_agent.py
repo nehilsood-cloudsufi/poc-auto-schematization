@@ -31,15 +31,16 @@ def test_schema_selection_agent_has_tools():
     """Test SchemaSelectionAgent has schema tools configured."""
     agent = create_schema_selection_agent()
     assert hasattr(agent, 'tools')
-    assert len(agent.tools) == 4
+    assert len(agent.tools) == 5
 
     # Verify tool names (updated: generate_data_preview removed, read_schema_vocab added,
-    # search_schemaorg_vocabulary added for schema.org vocabulary lookup)
+    # search_schemaorg_vocabulary + lookup_schemaorg_type added for schema.org vocabulary lookup)
     tool_names = [tool.__name__ for tool in agent.tools]
     assert "get_schema_categories" in tool_names
     assert "copy_schema_files" in tool_names
     assert "read_schema_vocab" in tool_names
     assert "search_schemaorg_vocabulary" in tool_names
+    assert "lookup_schemaorg_type" in tool_names
     # generate_data_preview should NOT be present
     assert "generate_data_preview" not in tool_names
 

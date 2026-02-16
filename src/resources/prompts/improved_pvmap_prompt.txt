@@ -814,33 +814,30 @@ When choosing dimension property values:
 
 DC-only properties (age, race, naics, statType, measuredProperty) show as "DC extension" — this is expected.
 
-## Schema.org Tool Usage (Decision Guide)
+## Schema.org Tool Usage (MANDATORY)
 
-You have these tools. Use them at SPECIFIC decision points:
+You have schema.org vocabulary tools. You MUST use them before generating output.
 
-### When selecting populationType:
-IF you're confident about the type (Person, Place, etc.) AND it appears in Schema Examples
-  → Use it directly, no tool call needed
-ELIF the type is unusual or not in Schema Examples
-  → CALL lookup_schemaorg_type(type_name) to verify it exists
-  → IF not found → CALL search_schemaorg_vocabulary(query) to find alternatives
+### REQUIRED tool calls (do ALL of these before generating PVMAP):
 
-### When selecting dimension properties:
-IF the property appears in the VALID ENUM VALUES list above
-  → Use the exact identifier from that list, no tool call needed
-ELIF the property name is uncertain or you're choosing between alternatives
-  → CALL search_schemaorg_vocabulary(property_name, search_type="properties")
-  → Pick the result that best matches your data column semantics
+1. **Verify your populationType**: CALL lookup_schemaorg_type(your_chosen_type)
+   - Confirms the type exists and shows its valid properties
+   - If not found, CALL search_schemaorg_vocabulary(query) to find the correct type
 
-### When validating a complete mapping:
-IF you're uncertain whether a property applies to your chosen populationType
-  → CALL validate_pvmap_property(property_name, population_type)
-  → IF incompatible → search for the correct property
+2. **Verify dimension properties**: For EACH dimension property you plan to use (e.g., gender, age, race),
+   CALL validate_pvmap_property(property_name, population_type) to confirm compatibility
+   - Do this for at least your 2 most important dimension properties
+   - If incompatible, CALL search_schemaorg_vocabulary(property_name, search_type="properties") to find the correct one
 
-### When NOT to call tools:
-- Standard properties: observationAbout, observationDate, value, measuredProperty, statType
-- Properties confirmed in the VALID ENUM VALUES list
-- DC-only extensions: age, race, naics (these won't appear in schema.org — that's expected)
+3. **Look up uncertain properties**: For ANY property not in the VALID ENUM VALUES list,
+   CALL lookup_schemaorg_property(property_name) to verify it exists before using it
+
+### When tool calls are NOT needed:
+- observationAbout, observationDate, value — these are always valid
+- Properties confirmed in the VALID ENUM VALUES list with exact identifiers
+- DC-only extensions: age, race, naics, statType, measuredProperty (expected to show as "DC extension")
+
+IMPORTANT: Generate PVMAP output ONLY AFTER completing the required tool calls above.
 
 ## MANDATORY CHECKLIST (verify every item before output)
 

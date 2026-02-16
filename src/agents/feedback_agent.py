@@ -14,14 +14,22 @@ Key ADK features used:
   counter summary from state
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from google.adk.agents import LlmAgent
 
 from src.agents.prompt_loader import load_prompt
 from src.agents.template_utils import build_thinking_config
+from src.tools.schemaorg_tools import (
+    lookup_schemaorg_property,
+    search_schemaorg_vocabulary,
+    validate_pvmap_property,
+)
 
 
 # ============================================================================
@@ -71,12 +79,19 @@ def create_feedback_agent(
     """
     # Get model from environment override if available
     model = os.getenv("FEEDBACK_AGENT_MODEL", model)
+    logger.info("Creating FeedbackAgent: model=%s", model)
 
     kwargs = dict(
         name=name,
         model=model,
         instruction=FEEDBACK_AGENT_INSTRUCTION,
         output_key="error_feedback",  # Generator reads this on retry
+        include_contents="none",  # Prevent conversation history accumulation across loop iterations
+        tools=[
+            lookup_schemaorg_property,      # Verify property names before suggesting fixes
+            search_schemaorg_vocabulary,     # Find correct property names for "unknown property" errors
+            validate_pvmap_property,         # Check property-type compatibility before recommending
+        ],
     )
 
     thinking_config = build_thinking_config(thinking_level, model=model)

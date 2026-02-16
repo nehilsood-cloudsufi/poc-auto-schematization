@@ -38,7 +38,7 @@ def render_file_upload():
             df = pd.read_csv(input_csv)
             input_csv.seek(0)  # Reset after read
             st.subheader("Data Preview")
-            st.dataframe(df.head(10), use_container_width=True)
+            st.dataframe(df.head(10))
             st.caption(f"{len(df)} rows x {len(df.columns)} columns")
             logger.info("CSV validated: %d rows x %d columns", len(df), len(df.columns))
 
