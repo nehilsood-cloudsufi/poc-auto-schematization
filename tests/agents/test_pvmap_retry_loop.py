@@ -616,6 +616,232 @@ class TestMaxRetriesCheckAgent:
         error = mock_ctx.session.state["error"]
         assert "55.0%" in error
 
+    def test_valid_best_restores_over_invalid_current(self, mock_ctx, mock_dataset, tmp_path):
+        """Valid best attempt should be restored over invalid current."""
+        mock_dataset.output_dir = tmp_path
+        mock_dataset.input_data_files = []  # No input file → re-validation skipped
+        mock_dataset.metadata_files = []
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": False,
+            "validation_data_rows": 0,
+            "pvmap_csv": "bad_csv",
+            "best_pvmap_csv": "good_csv",
+            "best_data_rows": 100,
+            "best_validation_passed": True,
+            "best_attempt_number": 1,
+            "best_heuristic_score": 75.0,
+            "best_pv_accuracy": 35.0,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        assert mock_ctx.session.state["pvmap_csv"] == "good_csv"
+        assert mock_ctx.session.state["generation_success"] is True
+        assert mock_ctx.session.state["exit_reason"] == "best_attempt_restored"
+
+    def test_valid_current_kept_over_invalid_best(self, mock_ctx, mock_dataset):
+        """Valid current should be kept when best was invalid."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": True,
+            "validation_data_rows": 50,
+            "pvmap_csv": "current_csv",
+            "best_pvmap_csv": "old_csv",
+            "best_data_rows": 0,
+            "best_validation_passed": False,
+            "best_attempt_number": 0,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Current should be kept (not restored)
+        assert mock_ctx.session.state["pvmap_csv"] == "current_csv"
+        assert mock_ctx.session.state["generation_success"] is False
+        assert mock_ctx.session.state["exit_reason"] == "max_retries"
+
+    def test_both_valid_restores_best_with_higher_pv_accuracy(self, mock_ctx, mock_dataset, tmp_path):
+        """Both valid: best with higher PV accuracy should be restored."""
+        mock_dataset.output_dir = tmp_path
+        mock_dataset.input_data_files = []
+        mock_dataset.metadata_files = []
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": True,
+            "validation_data_rows": 80,
+            "pvmap_csv": "current_csv",
+            "quality_metrics": {"gt_pv_accuracy": 25.0, "heuristic_score": 72.0},
+            "best_pvmap_csv": "best_csv",
+            "best_data_rows": 90,
+            "best_validation_passed": True,
+            "best_attempt_number": 1,
+            "best_pv_accuracy": 40.0,
+            "best_heuristic_score": 70.0,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Best has higher PV accuracy (40 > 25) → restore
+        assert mock_ctx.session.state["pvmap_csv"] == "best_csv"
+        assert mock_ctx.session.state["generation_success"] is True
+
+    def test_both_valid_keeps_current_with_higher_pv_accuracy(self, mock_ctx, mock_dataset):
+        """Both valid: current with higher PV accuracy should be kept."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": True,
+            "validation_data_rows": 80,
+            "pvmap_csv": "current_csv",
+            "quality_metrics": {"gt_pv_accuracy": 45.0, "heuristic_score": 72.0},
+            "best_pvmap_csv": "best_csv",
+            "best_data_rows": 90,
+            "best_validation_passed": True,
+            "best_attempt_number": 1,
+            "best_pv_accuracy": 30.0,
+            "best_heuristic_score": 75.0,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Current has higher PV accuracy (45 > 30) → keep current
+        assert mock_ctx.session.state["pvmap_csv"] == "current_csv"
+
+    def test_both_invalid_restores_best_with_higher_heuristic(self, mock_ctx, mock_dataset, tmp_path):
+        """Both invalid: best with higher heuristic should be restored."""
+        mock_dataset.output_dir = tmp_path
+        mock_dataset.input_data_files = []
+        mock_dataset.metadata_files = []
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": False,
+            "validation_data_rows": 10,
+            "pvmap_csv": "current_csv",
+            "quality_metrics": {"heuristic_score": 40.0},
+            "best_pvmap_csv": "best_csv",
+            "best_data_rows": 30,
+            "best_validation_passed": False,
+            "best_attempt_number": 1,
+            "best_heuristic_score": 55.0,
+            "best_pv_accuracy": None,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Best has higher heuristic (55 > 40) → restore
+        assert mock_ctx.session.state["pvmap_csv"] == "best_csv"
+
+    def test_tiebreaker_uses_data_rows(self, mock_ctx, mock_dataset, tmp_path):
+        """Equal accuracy should use data_rows as tiebreaker."""
+        mock_dataset.output_dir = tmp_path
+        mock_dataset.input_data_files = []
+        mock_dataset.metadata_files = []
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": False,
+            "validation_data_rows": 20,
+            "pvmap_csv": "current_csv",
+            "quality_metrics": {"heuristic_score": 50.0},
+            "best_pvmap_csv": "best_csv",
+            "best_data_rows": 50,
+            "best_validation_passed": False,
+            "best_attempt_number": 0,
+            "best_heuristic_score": 50.0,  # Same heuristic
+            "best_pv_accuracy": None,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Same heuristic, but best has more rows → restore
+        assert mock_ctx.session.state["pvmap_csv"] == "best_csv"
+
+    @patch('src.tools.validation_tool.run_validation')
+    def test_revalidation_after_restore(self, mock_run_val, mock_ctx, mock_dataset, tmp_path):
+        """Should re-run validation after restoring a validated best attempt."""
+        mock_dataset.output_dir = tmp_path
+        mock_dataset.input_data_files = [tmp_path / "input.csv"]
+        mock_dataset.metadata_files = []
+        # Create the input file so Path check passes
+        (tmp_path / "input.csv").write_text("col1,col2\na,b")
+
+        mock_run_val.return_value = {
+            "success": True,
+            "data_rows": 95,
+        }
+
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": False,
+            "validation_data_rows": 0,
+            "pvmap_csv": "bad_csv",
+            "best_pvmap_csv": "good_csv",
+            "best_data_rows": 100,
+            "best_validation_passed": True,
+            "best_attempt_number": 1,
+            "best_heuristic_score": 75.0,
+            "best_pv_accuracy": None,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # Should have called run_validation
+        mock_run_val.assert_called_once()
+        # validation_data_rows updated from re-validation
+        assert mock_ctx.session.state["validation_data_rows"] == 95
+        assert mock_ctx.session.state["generation_success"] is True
+
+    def test_no_restore_when_same_csv(self, mock_ctx, mock_dataset):
+        """Should not restore when best_pvmap_csv == current pvmap_csv."""
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 3,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "validation_passed": True,
+            "validation_data_rows": 50,
+            "pvmap_csv": "same_csv",
+            "best_pvmap_csv": "same_csv",
+            "best_data_rows": 50,
+            "best_validation_passed": True,
+            "best_attempt_number": 2,
+        }
+
+        agent = MaxRetriesCheckAgent(max_retries=3)
+        events = run_agent(agent, mock_ctx)
+
+        # No restore needed (same CSV), but it's still valid
+        assert mock_ctx.session.state["pvmap_csv"] == "same_csv"
+        # Since we didn't restore and current is valid but quality check failed,
+        # it should be max_retries exit
+        assert mock_ctx.session.state["exit_reason"] == "max_retries"
+
 
 # ============================================================================
 # Test Full Loop Flow (Integration-style)

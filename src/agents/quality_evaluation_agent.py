@@ -292,6 +292,36 @@ class QualityEvaluationAgent(BaseAgent):
         ctx.session.state["quality_diff_summary"] = quality_diff_summary
 
         # =====================================================================
+        # Step 3b: Track best quality metrics for MaxRetriesCheckAgent comparison
+        # Only runs when validation_passed=True (this agent skips otherwise).
+        # =====================================================================
+        current_heuristic = quality_metrics.get("heuristic_score", 0)
+        current_pv = quality_metrics.get("gt_pv_accuracy")
+        best_heuristic = ctx.session.state.get("best_heuristic_score", 0)
+        best_pv = ctx.session.state.get("best_pv_accuracy")
+
+        # Compare: PV accuracy takes priority if available for both
+        if current_pv is not None and best_pv is not None:
+            is_better = current_pv > best_pv
+        elif current_pv is not None:
+            is_better = True  # Having PV accuracy beats not having it
+        elif best_pv is not None:
+            is_better = False
+        else:
+            is_better = current_heuristic > best_heuristic
+
+        if is_better:
+            ctx.session.state["best_heuristic_score"] = current_heuristic
+            ctx.session.state["best_pv_accuracy"] = current_pv
+            ctx.session.state["best_quality_metrics"] = quality_metrics
+            logger.info(
+                "Best quality updated: heuristic=%.1f, pv_accuracy=%s (attempt %d)",
+                current_heuristic,
+                f"{current_pv:.1f}" if current_pv is not None else "N/A",
+                attempt_number,
+            )
+
+        # =====================================================================
         # Step 4: Determine escalation
         # =====================================================================
         should_escalate = quality_acceptable or quality_stagnant

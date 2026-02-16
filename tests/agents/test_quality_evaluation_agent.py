@@ -928,3 +928,191 @@ class TestPVAccuracyRetryTrigger:
         assert any("PV accuracy" in t for t in stagnation_events)
         assert any("10.0%" in t for t in stagnation_events)
         assert any("10.5%" in t for t in stagnation_events)
+
+
+# ============================================================================
+# Test Best Quality Metrics Tracking
+# ============================================================================
+
+class TestBestQualityTracking:
+    """Tests for best quality metrics tracking (for MaxRetriesCheckAgent comparison)."""
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_first_attempt_sets_best_quality(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """First validated attempt should set best quality metrics."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 0,
+            "quality_metrics_history": [],
+            "sampled_data": "",
+            "metadata": "",
+            "best_heuristic_score": 0,
+            "best_pv_accuracy": None,
+            "best_quality_metrics": {},
+        }
+
+        mock_heuristic.return_value = {
+            "total": 65.0, "row_coverage": 16.0, "prop_coverage": 16.0,
+            "column_coverage": 17.0, "format_score": 16.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        assert mock_ctx.session.state["best_heuristic_score"] == 65.0
+        assert mock_ctx.session.state["best_pv_accuracy"] is None
+        assert mock_ctx.session.state["best_quality_metrics"]["heuristic_score"] == 65.0
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_better_heuristic_updates_best(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Higher heuristic on second attempt should update best."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 55.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "best_heuristic_score": 55.0,
+            "best_pv_accuracy": None,
+            "best_quality_metrics": {"heuristic_score": 55.0},
+        }
+
+        mock_heuristic.return_value = {
+            "total": 72.0, "row_coverage": 18.0, "prop_coverage": 18.0,
+            "column_coverage": 18.0, "format_score": 18.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        assert mock_ctx.session.state["best_heuristic_score"] == 72.0
+
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_worse_heuristic_does_not_update_best(
+        self, mock_heuristic, quality_agent, mock_ctx, mock_dataset
+    ):
+        """Lower heuristic on second attempt should NOT update best."""
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 72.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "best_heuristic_score": 72.0,
+            "best_pv_accuracy": None,
+            "best_quality_metrics": {"heuristic_score": 72.0},
+        }
+
+        mock_heuristic.return_value = {
+            "total": 60.0, "row_coverage": 15.0, "prop_coverage": 15.0,
+            "column_coverage": 15.0, "format_score": 15.0, "issues": "",
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Best should remain at 72.0
+        assert mock_ctx.session.state["best_heuristic_score"] == 72.0
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_pv_accuracy_takes_priority_over_heuristic(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """PV accuracy should take priority over heuristic for best tracking."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 80.0, "gt_pv_accuracy": 20.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+            "best_heuristic_score": 80.0,
+            "best_pv_accuracy": 20.0,
+            "best_quality_metrics": {"heuristic_score": 80.0, "gt_pv_accuracy": 20.0},
+        }
+
+        # Lower heuristic but higher PV accuracy
+        mock_heuristic.return_value = {
+            "total": 65.0, "row_coverage": 16.0, "prop_coverage": 16.0,
+            "column_coverage": 17.0, "format_score": 16.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 50.0, "pv_accuracy": 35.0,
+            "counters": {"nodes-matched": 3, "nodes-ground-truth": 5,
+                         "PVs-matched": 6, "pvs-modified": 2, "pvs-deleted": 1,
+                         "nodes-auto-generated": 5},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # PV accuracy 35 > 20 → best updated despite lower heuristic
+        assert mock_ctx.session.state["best_pv_accuracy"] == 35.0
+        assert mock_ctx.session.state["best_heuristic_score"] == 65.0
+
+    @patch('src.agents.quality_evaluation_agent.compare_pvmaps')
+    @patch('src.agents.quality_evaluation_agent.calculate_heuristic_score')
+    def test_having_pv_accuracy_beats_not_having_it(
+        self, mock_heuristic, mock_compare, quality_agent, mock_ctx, mock_dataset, tmp_path
+    ):
+        """Having PV accuracy should beat not having it."""
+        pvmap_file = tmp_path / "test.csv"
+        pvmap_file.write_text("key,prop,value")
+        mock_dataset.output_dir = tmp_path / "output"
+
+        mock_ctx.session.state = {
+            "validation_passed": True,
+            "current_dataset": mock_dataset,
+            "pvmap_csv": "key,prop,value",
+            "pvmap_path": str(pvmap_file),
+            "attempt_number": 1,
+            "quality_metrics_history": [
+                {"heuristic_score": 80.0, "attempt": 0}
+            ],
+            "sampled_data": "",
+            "metadata": "",
+            "gt_pvmap_path_cached": "/tmp/gt.csv",
+            # Best has no PV accuracy (from first attempt without GT comparison)
+            "best_heuristic_score": 80.0,
+            "best_pv_accuracy": None,
+            "best_quality_metrics": {"heuristic_score": 80.0},
+        }
+
+        mock_heuristic.return_value = {
+            "total": 60.0, "row_coverage": 15.0, "prop_coverage": 15.0,
+            "column_coverage": 15.0, "format_score": 15.0, "issues": "",
+        }
+        mock_compare.return_value = {
+            "success": True, "accuracy": 30.0, "pv_accuracy": 15.0,
+            "counters": {"nodes-matched": 1, "nodes-ground-truth": 5,
+                         "PVs-matched": 2, "pvs-modified": 5, "pvs-deleted": 3,
+                         "nodes-auto-generated": 6},
+            "diff_text": "", "error": None,
+        }
+
+        events = run_agent(quality_agent, mock_ctx)
+
+        # Having PV accuracy (15.0) beats not having it (None)
+        assert mock_ctx.session.state["best_pv_accuracy"] == 15.0
+        assert mock_ctx.session.state["best_heuristic_score"] == 60.0

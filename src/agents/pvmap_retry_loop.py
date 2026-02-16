@@ -121,6 +121,9 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["best_pvmap_csv"] = None
             ctx.session.state["best_attempt_number"] = None
             ctx.session.state["best_validation_passed"] = False
+            ctx.session.state["best_heuristic_score"] = 0
+            ctx.session.state["best_pv_accuracy"] = None
+            ctx.session.state["best_quality_metrics"] = {}
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
@@ -1056,18 +1059,62 @@ class MaxRetriesCheckAgent(BaseAgent):
             return
 
         if attempt >= self._max_retries:
-            # Restore best attempt if current is worse
+            # Priority-based best-attempt selection + re-validation
             current_rows = ctx.session.state.get("validation_data_rows", 0)
             best_rows = ctx.session.state.get("best_data_rows", 0)
             best_csv = ctx.session.state.get("best_pvmap_csv")
             best_was_valid = ctx.session.state.get("best_validation_passed", False)
             current_valid = ctx.session.state.get("validation_passed", False)
             restored_best = False
-            # Restore if: (a) best has more rows, OR (b) best was valid and current is not
-            should_restore = best_csv and (
-                best_rows > current_rows
-                or (best_was_valid and not current_valid)
-            )
+
+            # Priority-based selection:
+            # 1. Valid > Invalid
+            # 2. If both same validity → compare accuracy (PV > heuristic > data_rows)
+            should_restore = False
+            if best_csv and best_csv != ctx.session.state.get("pvmap_csv"):
+                if best_was_valid and not current_valid:
+                    # Case 1: Best is valid, current is not → restore
+                    should_restore = True
+                elif current_valid and not best_was_valid:
+                    # Case 2: Current is valid, best is not → keep current
+                    should_restore = False
+                else:
+                    # Case 3: Both valid or both invalid → compare accuracy
+                    best_pv = ctx.session.state.get("best_pv_accuracy")
+                    current_pv = ctx.session.state.get("quality_metrics", {})
+                    if isinstance(current_pv, dict):
+                        current_pv = current_pv.get("gt_pv_accuracy")
+                    else:
+                        current_pv = None
+
+                    best_heuristic = ctx.session.state.get("best_heuristic_score", 0)
+                    current_metrics = ctx.session.state.get("quality_metrics", {})
+                    if isinstance(current_metrics, dict):
+                        current_heuristic = current_metrics.get("heuristic_score", 0)
+                    else:
+                        current_heuristic = 0
+
+                    if best_pv is not None and current_pv is not None:
+                        if best_pv > current_pv:
+                            should_restore = True
+                        elif current_pv > best_pv:
+                            should_restore = False
+                        else:
+                            # PV accuracy tied → tiebreaker: data rows
+                            should_restore = best_rows > current_rows
+                    elif best_pv is not None:
+                        should_restore = True
+                    elif current_pv is not None:
+                        should_restore = False
+                    else:
+                        if best_heuristic > current_heuristic:
+                            should_restore = True
+                        elif current_heuristic > best_heuristic:
+                            should_restore = False
+                        else:
+                            # Heuristic tied → tiebreaker: data rows
+                            should_restore = best_rows > current_rows
+
             if should_restore:
                 ctx.session.state["pvmap_csv"] = best_csv
                 ctx.session.state["validation_data_rows"] = best_rows
@@ -1086,6 +1133,44 @@ class MaxRetriesCheckAgent(BaseAgent):
                         pvmap_path.write_text(best_csv, encoding='utf-8')
                 except Exception as e:
                     logger.warning(f"Failed to re-save best PVMAP: {e}")
+
+                # Re-run validation to regenerate processed.csv
+                if best_was_valid:
+                    try:
+                        current_dataset = ctx.session.state.get("current_dataset")
+                        if current_dataset:
+                            from src.tools.validation_tool import run_validation
+                            input_file = (
+                                str(current_dataset.input_data_files[0])
+                                if current_dataset.input_data_files else None
+                            )
+                            metadata_file = ""
+                            if current_dataset.metadata_files:
+                                use_metadata = ctx.session.state.get("use_metadata", False)
+                                if use_metadata:
+                                    metadata_file = str(current_dataset.metadata_files[0])
+
+                            if input_file:
+                                pvmap_path_str = str(
+                                    Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                                )
+                                result = run_validation(
+                                    input_data=input_file,
+                                    pvmap_path=pvmap_path_str,
+                                    metadata_file=metadata_file,
+                                    output_dir=str(current_dataset.output_dir),
+                                    timeout=300,
+                                )
+                                ctx.session.state["validation_data_rows"] = result.get(
+                                    "data_rows", 0
+                                )
+                                logger.info(
+                                    "Re-validation after restore: success=%s, data_rows=%d",
+                                    result["success"],
+                                    result.get("data_rows", 0),
+                                )
+                    except Exception as e:
+                        logger.warning(f"Re-validation failed: {e}")
 
             # If we restored a validated best attempt, mark as success
             if restored_best and best_was_valid:
