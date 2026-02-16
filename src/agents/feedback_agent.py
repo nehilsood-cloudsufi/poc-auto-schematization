@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from google.adk.agents import LlmAgent
 
 from src.agents.prompt_loader import load_prompt
+from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import build_thinking_config
 from src.tools.schemaorg_tools import (
     lookup_schemaorg_property,
@@ -83,7 +84,7 @@ def create_feedback_agent(
 
     kwargs = dict(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=FEEDBACK_AGENT_INSTRUCTION,
         output_key="error_feedback",  # Generator reads this on retry
         include_contents="none",  # Prevent conversation history accumulation across loop iterations

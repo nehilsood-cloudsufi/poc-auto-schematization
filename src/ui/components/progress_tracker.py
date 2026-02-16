@@ -1,6 +1,7 @@
 """Real-time pipeline progress display."""
 import logging
 import queue
+import time
 
 import streamlit as st
 
@@ -8,6 +9,22 @@ from src.ui.adapters.progress_plugin import ProgressEvent
 from src.ui.config import PHASE_LABELS
 
 logger = logging.getLogger(__name__)
+
+# Ordered pipeline phases (matches typical execution order)
+_PIPELINE_PHASES = [
+    "StatePrep",
+    "Sampling",
+    "SchemaSelection",
+    "Generator",
+    "MetadataGenerator",
+    "Validator",
+    "QualityEvaluator",
+    "UnifiedFeedback",
+    "MaxRetriesCheck",
+]
+
+# MCP-only phases (shown only if they appear in events)
+_MCP_PHASES = {"StatVarDiscovery", "MCPSpotCheck", "MCPErrorResolver"}
 
 
 @st.fragment(run_every=2)
@@ -17,15 +34,14 @@ def render_progress(progress_queue: queue.Queue):
     Uses ``@st.fragment(run_every=2)`` so only this section re-renders
     every 2 seconds — the rest of the page stays stable.
 
-    Shows a compact progress view: current attempt + latest completed phase,
-    instead of rebuilding the full cumulative event list each cycle.
-
     When a terminal event arrives the fragment triggers a full-app rerun
     (``st.rerun(scope="app")``) so ``app.py`` picks up the new status.
     """
     # Initialize progress history in session state
     if "progress_events" not in st.session_state:
         st.session_state["progress_events"] = []
+    if "pipeline_start_time" not in st.session_state:
+        st.session_state["pipeline_start_time"] = time.time()
 
     events = st.session_state["progress_events"]
 
@@ -56,50 +72,89 @@ def render_progress(progress_queue: queue.Queue):
     if drained:
         logger.debug("Drained %d events from progress queue (total: %d)", drained, len(events))
 
-    # Build compact progress summary: deduplicate by agent, keep latest per agent
-    latest_by_agent: dict[str, ProgressEvent] = {}
+    # Collect completed agent names
+    completed_agents: set[str] = set()
     attempt_msg = None
     for event in events:
+        completed_agents.add(event.agent_name)
         if "attempt" in event.message.lower():
             attempt_msg = event.message
-        latest_by_agent[event.agent_name] = event
 
-    # Display compact progress
+    # Build ordered phase list (include MCP phases only if seen)
+    phases = list(_PIPELINE_PHASES)
+    for mcp_phase in _MCP_PHASES:
+        if mcp_phase in completed_agents and mcp_phase not in phases:
+            # Insert MCP phases near their logical position
+            if mcp_phase == "StatVarDiscovery":
+                idx = phases.index("Generator")
+                phases.insert(idx, mcp_phase)
+            elif mcp_phase in ("MCPSpotCheck", "MCPErrorResolver"):
+                idx = phases.index("Validator") + 1
+                phases.insert(idx, mcp_phase)
+
+    # Count completed phases
+    completed_count = sum(1 for p in phases if p in completed_agents)
+    total_phases = len(phases)
+
+    # Determine current status
     last_event = events[-1] if events else None
     is_done = last_event and last_event.is_terminal
 
-    status_label = "Pipeline running..."
-    status_state = "running"
+    # Elapsed time
+    elapsed = time.time() - st.session_state.get("pipeline_start_time", time.time())
+    elapsed_str = f"{int(elapsed)}s" if elapsed < 60 else f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+
+    # Header row
     if is_done:
         if last_event.is_error:
-            status_label = "Pipeline failed"
-            status_state = "error"
+            st.error(f"Pipeline failed after {elapsed_str}")
         else:
-            status_label = "Pipeline complete!"
-            status_state = "complete"
+            st.success(f"Pipeline complete in {elapsed_str}")
+    else:
+        header_col, time_col = st.columns([3, 1])
+        with header_col:
+            if attempt_msg:
+                st.markdown(f"**{attempt_msg}**")
+            else:
+                st.markdown("**Pipeline running...**")
+        with time_col:
+            st.caption(f"Elapsed: {elapsed_str}")
 
-    with st.status(status_label, expanded=True, state=status_state):
-        if attempt_msg:
-            st.write(f"**{attempt_msg}**")
+    # Progress bar
+    progress_frac = completed_count / max(total_phases, 1)
+    if is_done and not (last_event and last_event.is_error):
+        progress_frac = 1.0
+    st.progress(progress_frac, text=f"{completed_count}/{total_phases} phases")
 
-        if not events:
-            st.write("Initializing pipeline...")
+    # Phase checklist
+    for phase in phases:
+        label = PHASE_LABELS.get(phase, phase)
+        # Strip trailing "..." from label for completed items
+        display_label = label.rstrip(".")
+
+        if phase in completed_agents:
+            # Check if this agent had an error
+            phase_events = [e for e in events if e.agent_name == phase]
+            has_error = any(e.is_error for e in phase_events)
+            if has_error:
+                st.markdown(f":red[:material/error: {display_label}]")
+            else:
+                st.markdown(f":green[:material/check_circle: {display_label}]")
+        elif completed_count > 0 and phase == _next_phase(phases, completed_agents):
+            # Currently active phase (first incomplete after last completed)
+            st.markdown(f":blue[:material/sync: {label}]")
         else:
-            # Show only the latest event per agent (deduplicated, ordered by first appearance)
-            seen_agents = []
-            for event in events:
-                if event.agent_name not in seen_agents:
-                    seen_agents.append(event.agent_name)
-
-            for agent_name in seen_agents:
-                event = latest_by_agent[agent_name]
-                label = PHASE_LABELS.get(event.agent_name, event.agent_name)
-                if event.is_error:
-                    st.error(f"{label}: {event.message}")
-                else:
-                    st.write(f":white_check_mark: {label}")
+            st.markdown(f":gray[:material/radio_button_unchecked: {display_label}]")
 
     # If terminal event was found this cycle, trigger full-app rerun
     # so app.py transitions from "running" → "complete"/"error" layout.
     if terminal_found:
         st.rerun(scope="app")
+
+
+def _next_phase(phases: list[str], completed: set[str]) -> str | None:
+    """Return the first phase in the ordered list that isn't completed."""
+    for phase in phases:
+        if phase not in completed:
+            return phase
+    return None

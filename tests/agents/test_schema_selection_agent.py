@@ -17,14 +17,23 @@ def test_schema_selection_agent_creation():
     agent = create_schema_selection_agent()
     assert agent is not None
     assert agent.name == "SchemaSelectionAgent"
-    assert agent.model == "gemini-3-pro-preview"
+    # model is now a Gemini instance with retry options
+    from google.adk.models import Gemini
+    if isinstance(agent.model, Gemini):
+        assert agent.model.model == "gemini-3-pro-preview"
+    else:
+        assert agent.model == "gemini-3-pro-preview"
 
 
 def test_schema_selection_agent_custom_name_and_model():
     """Test SchemaSelectionAgent with custom name and model."""
     agent = create_schema_selection_agent(name="CustomSchemaSelector", model="gemini-2.0-flash-exp")
     assert agent.name == "CustomSchemaSelector"
-    assert agent.model == "gemini-2.0-flash-exp"
+    from google.adk.models import Gemini
+    if isinstance(agent.model, Gemini):
+        assert agent.model.model == "gemini-2.0-flash-exp"
+    else:
+        assert agent.model == "gemini-2.0-flash-exp"
 
 
 def test_schema_selection_agent_has_tools():

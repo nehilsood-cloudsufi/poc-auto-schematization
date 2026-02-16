@@ -6,6 +6,7 @@ Launch with:
 import logging
 import queue
 import sys
+import time
 from pathlib import Path
 
 # Ensure project root is on sys.path
@@ -31,6 +32,7 @@ from src.ui.components.progress_tracker import render_progress
 from src.ui.components.output_viewer import render_output_tabs
 from src.ui.components.feedback_form import render_feedback_form
 from src.ui.components.download_helper import render_download_button
+from src.ui.components.developer_feedback import render_developer_feedback
 from src.ui.services.pipeline_runner import PipelineConfig, launch_pipeline
 from src.ui.services.file_manager import discover_historical_runs
 
@@ -42,6 +44,52 @@ st.set_page_config(
     page_icon=":bar_chart:",
     layout="wide",
 )
+
+# ──────────────────────────────────────────────────────────────────
+# Custom CSS for cleaner layout
+# ──────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    /* Tighter section spacing */
+    .block-container { padding-top: 2rem; }
+    /* Hide default sidebar title padding */
+    [data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
+    /* Smaller sub-headers */
+    .stMarkdown h2 { font-size: 1.25rem; margin-top: 1rem; }
+    .stMarkdown h3 { font-size: 1.1rem; }
+    /* Compact metrics */
+    [data-testid="stMetric"] { padding: 0.5rem 0; }
+    [data-testid="stMetricValue"] { font-size: 1.5rem; }
+    /* Compact expanders */
+    .streamlit-expanderHeader { font-size: 0.9rem; }
+    /* Sidebar header block */
+    .sidebar-header { margin-bottom: 0.75rem; }
+    .sidebar-header h2 {
+        margin: 0 0 0.1rem 0;
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .sidebar-header .subtitle {
+        color: #6b7280;
+        font-size: 0.85rem;
+        margin: 0;
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        margin-top: 0.4rem;
+    }
+    .status-idle { background: #e5e7eb; color: #4b5563; }
+    .status-launching { background: #fed7aa; color: #9a3412; }
+    .status-running { background: #bfdbfe; color: #1e40af; }
+    .status-complete { background: #bbf7d0; color: #166534; }
+    .status-error { background: #fecaca; color: #991b1b; }
+</style>
+""", unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────
 # Session state defaults
@@ -59,6 +107,7 @@ _DEFAULTS = {
     "pipeline_error": None,
     "progress_events": [],
     "human_feedback": None,
+    "pipeline_start_time": None,
     "skip_sampling": False,
     "mcp_enabled": True,
     "model": DEFAULT_MODEL,
@@ -132,6 +181,7 @@ def _launch_pipeline():
     thread = launch_pipeline(config, progress_queue)
     st.session_state["pipeline_thread"] = thread
     st.session_state["pipeline_status"] = "running"
+    st.session_state["pipeline_start_time"] = time.time()
     logger.info("Pipeline thread started: %s", thread.name)
 
     st.rerun()
@@ -141,9 +191,35 @@ def _launch_pipeline():
 # Sidebar
 # ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("Agent B: Auto Schematization")
+    # Compact header with inline status pill
+    status = st.session_state["pipeline_status"]
+    _status_labels = {
+        "idle": ("Idle", "idle"),
+        "launching": ("Launching", "launching"),
+        "running": ("Running", "running"),
+        "complete": ("Complete", "complete"),
+        "error": ("Error", "error"),
+    }
+    pill_text, pill_class = _status_labels.get(status, ("?", "idle"))
+    st.markdown(f"""
+    <div class="sidebar-header">
+        <h2>Agent B <span class="status-pill status-{pill_class}">{pill_text}</span></h2>
+        <p class="subtitle">Auto Schematization Pipeline</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Model selector
+    if status in ("complete", "error"):
+        if st.button("New Run", use_container_width=True):
+            logger.info("User initiated New Run — resetting session state")
+            for key, default in _DEFAULTS.items():
+                st.session_state[key] = default
+            st.rerun()
+
+    st.divider()
+
+    # ── Configuration ───────────────────────────────────────────
+    st.subheader("Configuration")
+
     model = st.selectbox(
         "Model",
         ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
@@ -152,74 +228,56 @@ with st.sidebar:
     )
     st.session_state["model"] = model
 
-    # Retry count
-    max_retries = st.number_input(
-        "Max Retries",
-        min_value=0,
-        max_value=10,
-        value=st.session_state.get("max_retries", DEFAULT_MAX_RETRIES),
-        step=1,
-        help="Number of retry attempts after the initial generation (total attempts = retries + 1)",
-        key="max_retries_input",
-    )
-    st.session_state["max_retries"] = max_retries
+    col_retries, col_mcp = st.columns(2)
+    with col_retries:
+        max_retries = st.number_input(
+            "Max Retries",
+            min_value=0,
+            max_value=10,
+            value=st.session_state.get("max_retries", DEFAULT_MAX_RETRIES),
+            step=1,
+            help="Retry attempts after initial generation",
+            key="max_retries_input",
+        )
+        st.session_state["max_retries"] = max_retries
+    with col_mcp:
+        mcp_enabled = st.toggle(
+            "MCP",
+            value=st.session_state.get("mcp_enabled", False),
+            help="Enable DC MCP server for StatVar discovery",
+        )
+        st.session_state["mcp_enabled"] = mcp_enabled
 
-    # MCP toggle
-    mcp_enabled = st.toggle("Enable MCP", value=st.session_state.get("mcp_enabled", False))
-    st.session_state["mcp_enabled"] = mcp_enabled
-
-    if mcp_enabled:
-        st.caption("MCP servers will start automatically")
-
-    # Advanced settings
-    with st.expander("Advanced Settings"):
+    with st.expander("Advanced"):
         prompt_version = st.radio(
             "Prompt Version",
             ["v2", "v1"],
             index=["v2", "v1"].index(st.session_state.get("prompt_version", DEFAULT_PROMPT_VERSION)),
-            help="v2 = restructured prompt (recommended). v1 = legacy prompt.",
+            help="v2 = restructured (recommended)",
             horizontal=True,
         )
         st.session_state["prompt_version"] = prompt_version
 
         use_schema_examples = st.toggle(
-            "Include Schema Examples",
+            "Schema Examples",
             value=st.session_state.get("use_schema_examples", True),
-            help="Inject schema vocabulary into the PVMAP prompt",
+            help="Inject schema vocabulary into prompt",
         )
         st.session_state["use_schema_examples"] = use_schema_examples
 
-    # Run status badge
-    status = st.session_state["pipeline_status"]
-    status_colors = {
-        "idle": ":gray[Idle]",
-        "launching": ":orange[Launching...]",
-        "running": ":blue[Running...]",
-        "complete": ":green[Complete]",
-        "error": ":red[Error]",
-    }
-    st.markdown(f"**Status:** {status_colors.get(status, status)}")
-
-    # Reset button
-    if status in ("complete", "error"):
-        if st.button("New Run"):
-            logger.info("User initiated New Run — resetting session state")
-            for key, default in _DEFAULTS.items():
-                st.session_state[key] = default
-            st.rerun()
-
-    # ── History section ─────────────────────────────────────────
+    # ── History ─────────────────────────────────────────────────
     st.divider()
     st.subheader("History")
     runs = discover_historical_runs()
     if not runs:
-        st.caption("No previous runs found.")
+        st.caption("No previous runs.")
     else:
         for run in runs[:10]:
-            ts_short = run["timestamp"][:10] if run["timestamp"] else "unknown"
-            icon = "\U0001F7E2" if run["result"].get("validation_passed") else "\U0001F534"
+            ts_short = run["timestamp"][:10] if run["timestamp"] else "?"
+            passed = run["result"].get("validation_passed")
+            icon = ":material/check_circle:" if passed else ":material/cancel:"
             label = f"{icon} {run['dataset_name']} ({ts_short})"
-            if st.button(label, key=f"hist_{run['run_id']}"):
+            if st.button(label, key=f"hist_{run['run_id']}", use_container_width=True):
                 logger.info("Loading historical run: %s", run["run_id"])
                 st.session_state["pipeline_status"] = "complete"
                 st.session_state["run_id"] = run["run_id"]
@@ -257,19 +315,23 @@ if status == "complete":
 
     if run_dir and dataset_name:
         output_dir = Path(run_dir) / "output" / dataset_name
+
+        st.subheader(f"Results: `{dataset_name}`")
         render_output_tabs(output_dir)
 
         st.divider()
 
-        # ── Section 4: Feedback ──────────────────────────────────
-        rerun = render_feedback_form(output_dir)
-        if rerun:
-            _launch_pipeline()
+        # ── Feedback & Download ──────────────────────────────────
+        feedback_col, download_col = st.columns([3, 1])
+        with feedback_col:
+            rerun = render_feedback_form(output_dir)
+            if rerun:
+                _launch_pipeline()
+        with download_col:
+            render_download_button(output_dir, dataset_name)
 
         st.divider()
-
-        # ── Section 5: Download ──────────────────────────────────
-        render_download_button(output_dir, dataset_name)
+        render_developer_feedback()
 
 
 # ── Error state ──────────────────────────────────────────────────
@@ -281,3 +343,6 @@ if status == "error":
     if st.button("Try Again"):
         st.session_state["pipeline_status"] = "idle"
         st.rerun()
+
+    st.divider()
+    render_developer_feedback()

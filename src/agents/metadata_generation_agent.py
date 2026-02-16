@@ -27,6 +27,7 @@ from google.adk.events import Event, EventActions
 from google.genai import types
 
 from src.agents.prompt_loader import load_prompt
+from src.agents.retry_config import create_resilient_model
 from src.agents.pvmap_generation.helpers import convert_pvmap_output_to_csv
 from src.agents.pvmap_generation.schemas import PVMAPOutput, PVMAPRow, PropertyValuePair
 from src.agents.template_utils import escape_pvmap_placeholders
@@ -50,7 +51,7 @@ def _create_enrichment_agent(model: str) -> LlmAgent:
     """
     return LlmAgent(
         name="MetadataEnricher",
-        model=model,
+        model=create_resilient_model(model),
         instruction=_ENRICHMENT_INSTRUCTION,
         output_key="metadata_enrichment",
         tools=[validate_pvmap_property],  # Check if properties are standard schema.org

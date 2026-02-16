@@ -35,7 +35,12 @@ class TestPvmapGeneratorWithMCP:
         # LlmAgent without tools= kwarg will have empty tools
         # Check that no MCP toolset is configured
         assert generator.name == "TestGen"
-        assert generator.model == "gemini-2.5-flash"
+        # model is now a Gemini instance with retry options
+        from google.adk.models import Gemini
+        if isinstance(generator.model, Gemini):
+            assert generator.model.model == "gemini-2.5-flash"
+        else:
+            assert generator.model == "gemini-2.5-flash"
 
     @patch("src.data_commons.api.mcp_toolset_factory.create_dc_mcp_toolset")
     def test_with_mcp_has_tools(self, mock_toolset):

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def render_file_upload():
     """Render file upload section. Returns True if pipeline should be launched."""
-    st.header("Upload Data")
+    st.subheader("Upload Data")
 
     col1, col2 = st.columns(2)
 
@@ -37,9 +37,10 @@ def render_file_upload():
         try:
             df = pd.read_csv(input_csv)
             input_csv.seek(0)  # Reset after read
-            st.subheader("Data Preview")
-            st.dataframe(df.head(10))
-            st.caption(f"{len(df)} rows x {len(df.columns)} columns")
+
+            with st.expander("Data Preview", expanded=True):
+                st.dataframe(df.head(10), use_container_width=True)
+                st.caption(f"{len(df)} rows x {len(df.columns)} columns")
             logger.info("CSV validated: %d rows x %d columns", len(df), len(df.columns))
 
             if len(df) == 0:
@@ -51,19 +52,29 @@ def render_file_upload():
             st.error(f"Could not read CSV: {e}")
             return False
 
-    # Dataset name input
+    # Dataset name + launch on one row
     default_name = ""
     if input_csv:
         default_name = input_csv.name.replace(".csv", "").replace(" ", "_")
 
-    dataset_name = st.text_input(
-        "Dataset name",
-        value=default_name,
-        help="Used for output directory naming",
-    )
+    name_col, btn_col = st.columns([3, 1])
+    with name_col:
+        dataset_name = st.text_input(
+            "Dataset name",
+            value=default_name,
+            help="Used for output directory naming",
+            label_visibility="collapsed",
+            placeholder="Dataset name (required)",
+        )
+    with btn_col:
+        launch = st.button(
+            ":material/play_arrow: Generate PVMAP",
+            type="primary",
+            disabled=input_csv is None,
+            use_container_width=True,
+        )
 
-    # Generate PVMAP button
-    if st.button("Generate PVMAP", type="primary", disabled=input_csv is None):
+    if launch:
         if not dataset_name:
             st.error("Please enter a dataset name.")
             return False

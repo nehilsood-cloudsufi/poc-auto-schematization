@@ -22,6 +22,7 @@ from typing import Optional
 from google.adk.agents import LlmAgent
 
 from src.agents.pvmap_generation.schemas import PVMAPOutput
+from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import build_thinking_config
 from src.tools.schemaorg_tools import (
     lookup_schemaorg_type,
@@ -107,7 +108,7 @@ def create_pvmap_generator(
 
     kwargs = dict(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=PVMAP_GENERATOR_INSTRUCTION,
         output_schema=PVMAPOutput,
         output_key="pvmap_output",
@@ -150,7 +151,7 @@ def create_pvmap_generator_without_schema(
 
     kwargs = dict(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=PVMAP_GENERATOR_INSTRUCTION,
         output_key="pvmap_raw_output",  # Store raw output for parsing
         include_contents="none",  # Prevent conversation history accumulation across loop iterations

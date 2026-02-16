@@ -96,7 +96,11 @@ class TestGeminiClientInit:
         client = GeminiClient()
 
         assert client.model_name == 'gemini-3-pro-preview'
-        mock_client_class.assert_called_once_with(api_key='test-key')
+        # Client is now called with http_options for retry configuration
+        mock_client_class.assert_called_once()
+        call_kwargs = mock_client_class.call_args
+        assert call_kwargs[1]['api_key'] == 'test-key'
+        assert 'http_options' in call_kwargs[1]
 
     @patch('src.data_commons.api.gemini_client.load_gemini_api_key')
     @patch('src.data_commons.api.gemini_client.genai.Client')

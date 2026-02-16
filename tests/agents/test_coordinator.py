@@ -87,10 +87,18 @@ def test_coordinator_custom_model():
             schema_agent = agent
 
     assert sampling_agent is not None
-    assert sampling_agent.model == "gemini-2.0-flash-exp"
+    # model is now a Gemini instance with retry options, not a plain string
+    from google.adk.models import Gemini
+    if isinstance(sampling_agent.model, Gemini):
+        assert sampling_agent.model.model == "gemini-2.0-flash-exp"
+    else:
+        assert sampling_agent.model == "gemini-2.0-flash-exp"
 
     assert schema_agent is not None
-    assert schema_agent.model == "gemini-2.0-flash-exp"
+    if isinstance(schema_agent.model, Gemini):
+        assert schema_agent.model.model == "gemini-2.0-flash-exp"
+    else:
+        assert schema_agent.model == "gemini-2.0-flash-exp"
 
 
 def test_coordinator_backward_compatibility_alias():

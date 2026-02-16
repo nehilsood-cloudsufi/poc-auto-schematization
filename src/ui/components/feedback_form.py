@@ -26,11 +26,11 @@ def render_feedback_form(output_dir: Path):
     Returns:
         True if a re-run was triggered, False otherwise.
     """
-    st.header("Feedback & Re-run")
+    st.subheader("Feedback & Re-run")
 
     result = st.session_state.get("pipeline_result", {})
 
-    # Display previous run summary
+    # Compact run summary
     retry_count = result.get("retry_count", 0)
     exit_reason = result.get("exit_reason", "unknown")
     quality_metrics = result.get("quality_metrics", {})
@@ -38,25 +38,20 @@ def render_feedback_form(output_dir: Path):
     if isinstance(quality_metrics, dict):
         heuristic_score = quality_metrics.get("heuristic_score", 0)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Attempts", retry_count + 1)
-    with col2:
-        st.metric("Heuristic Score", f"{heuristic_score:.1f}/100")
-    with col3:
-        st.metric("Exit Reason", exit_reason)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Attempts", retry_count + 1)
+    m2.metric("Score", f"{heuristic_score:.1f}/100")
+    m3.metric("Exit", exit_reason)
 
-    st.divider()
-
-    # Feedback form
+    # Feedback form — compact layout
     feedback_text = st.text_area(
         "What should be changed?",
-        height=200,
-        placeholder="Describe what needs to be fixed or improved in the PVMAP...",
+        height=120,
+        placeholder="Describe what needs to be fixed or improved...",
         key="feedback_text",
     )
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         category = st.selectbox(
             "Category",
@@ -70,12 +65,20 @@ def render_feedback_form(output_dir: Path):
                 "Other",
             ],
             key="feedback_category",
+            label_visibility="collapsed",
         )
     with col2:
         severity = st.slider("Severity", 1, 5, 3, key="feedback_severity")
+    with col3:
+        st.write("")  # spacer for alignment
+        rerun_clicked = st.button(
+            ":material/replay: Re-run",
+            type="primary",
+            disabled=not feedback_text,
+            use_container_width=True,
+        )
 
-    # Re-run button
-    if st.button("Re-run with Feedback", type="primary", disabled=not feedback_text):
+    if rerun_clicked:
         logger.info(
             "Feedback submitted: category=%s, severity=%d, text=%.80s",
             category, severity, feedback_text,

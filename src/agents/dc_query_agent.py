@@ -35,6 +35,7 @@ from google.adk.agents import LlmAgent
 
 from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
 from src.agents.prompt_loader import load_prompt_json
+from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import sanitize_for_adk
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def create_dc_query_agent(
 
     agent = LlmAgent(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=sanitize_for_adk(final_instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries
@@ -160,7 +161,7 @@ def create_enrichment_agent(
 
     return LlmAgent(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries
@@ -203,7 +204,7 @@ def create_error_resolver_agent(
 
     return LlmAgent(
         name="ErrorResolver",
-        model=model,
+        model=create_resilient_model(model),
         instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries

@@ -26,35 +26,39 @@ def render_output_tabs(output_dir: Path):
 
     logger.info("Rendering output tabs: %s", list(files.keys()))
 
-    # Show success/failure banner
+    # Show compact result banner
     result = st.session_state.get("pipeline_result", {})
     validation_passed = result.get("validation_passed", False)
     exit_reason = result.get("exit_reason", "unknown")
     retry_count = result.get("retry_count", 0)
 
-    if validation_passed:
-        st.success(f"Validation passed after {retry_count + 1} attempt(s). Exit reason: {exit_reason}")
-    else:
-        st.error(f"Validation failed after {retry_count + 1} attempt(s). Exit reason: {exit_reason}")
-
-    # Raw logs — offer truncated download for large files
-    raw_logs_path = output_dir / "statvar_processor_raw_logs.txt"
-    if raw_logs_path.exists():
-        size_mb = raw_logs_path.stat().st_size / 1_000_000
-        if size_mb > 10:
-            st.download_button(
-                label=f"Download Raw Logs (truncated — full file is {size_mb:.0f} MB)",
-                data=_truncated_log(raw_logs_path),
-                file_name="statvar_processor_raw_logs_truncated.txt",
-                mime="text/plain",
-            )
+    banner_col, log_col = st.columns([3, 1])
+    with banner_col:
+        msg = f"**{retry_count + 1} attempt(s)** — {exit_reason}"
+        if validation_passed:
+            st.success(msg)
         else:
-            st.download_button(
-                label="Download Raw Validation Logs",
-                data=raw_logs_path.read_bytes(),
-                file_name="statvar_processor_raw_logs.txt",
-                mime="text/plain",
-            )
+            st.error(msg)
+    with log_col:
+        raw_logs_path = output_dir / "statvar_processor_raw_logs.txt"
+        if raw_logs_path.exists():
+            size_mb = raw_logs_path.stat().st_size / 1_000_000
+            if size_mb > 10:
+                st.download_button(
+                    label=f"Raw Logs ({size_mb:.0f} MB)",
+                    data=_truncated_log(raw_logs_path),
+                    file_name="statvar_processor_raw_logs_truncated.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+            else:
+                st.download_button(
+                    label="Raw Logs",
+                    data=raw_logs_path.read_bytes(),
+                    file_name="statvar_processor_raw_logs.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
 
     # Create tabs
     tab_names = []
@@ -88,11 +92,12 @@ def render_output_tabs(output_dir: Path):
         with tabs[i]:
             _render_file_tab(fname, fpath, output_dir)
 
-    # Save & Revalidate button (below all tabs)
+    # Save & Revalidate — prominent action below tabs
     if "generated_pvmap.csv" in files:
-        st.divider()
-        if st.button("Save & Revalidate", type="primary", key="revalidate_btn"):
-            _handle_revalidation(files, output_dir)
+        _, center, _ = st.columns([2, 1, 2])
+        with center:
+            if st.button("Save & Revalidate", type="primary", key="revalidate_btn", use_container_width=True):
+                _handle_revalidation(files, output_dir)
 
 
 def _handle_revalidation(files: dict, output_dir: Path):
@@ -180,24 +185,25 @@ def _render_csv_tab(fname: str, fpath: Path, output_dir: Path):
     # Store edited DataFrame in session state for feedback re-runs
     st.session_state[f"edited_{fname}"] = edited_df
 
-    col_save, col_download, _ = st.columns([1, 1, 3])
+    col_save, col_download, _ = st.columns([1, 1, 4])
     with col_save:
-        if st.button(f"Save {fname}", key=f"save_{fname}"):
+        if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
             try:
                 edited_df.to_csv(fpath, index=False)
                 logger.info("Saved edited CSV: %s", fpath)
-                st.success(f"Saved {fname}")
+                st.toast(f"Saved {fname}")
             except Exception as e:
                 logger.error("Failed to save %s: %s", fname, e)
                 st.error(f"Failed to save: {e}")
     with col_download:
         csv_data = edited_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label=f"Download {fname}",
+            label=":material/download: Download",
             data=csv_data,
             file_name=fname,
             mime="text/csv",
             key=f"download_{fname}",
+            use_container_width=True,
         )
 
 
@@ -216,14 +222,16 @@ def _render_text_tab(fname: str, fpath: Path, output_dir: Path):
         key=f"text_{fname}",
     )
 
-    if st.button(f"Save {fname}", key=f"save_{fname}"):
-        try:
-            fpath.write_text(edited, encoding="utf-8")
-            logger.info("Saved edited text file: %s", fpath)
-            st.success(f"Saved {fname}")
-        except Exception as e:
-            logger.error("Failed to save %s: %s", fname, e)
-            st.error(f"Failed to save: {e}")
+    col_save, _ = st.columns([1, 5])
+    with col_save:
+        if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
+            try:
+                fpath.write_text(edited, encoding="utf-8")
+                logger.info("Saved edited text file: %s", fpath)
+                st.toast(f"Saved {fname}")
+            except Exception as e:
+                logger.error("Failed to save %s: %s", fname, e)
+                st.error(f"Failed to save: {e}")
 
 
 def _render_markdown_tab(fpath: Path):
@@ -237,14 +245,14 @@ def _render_markdown_tab(fpath: Path):
 
 def _truncated_log(fpath: Path, head: int = 5000, tail: int = 5000) -> bytes:
     """Return first + last N lines of a large log file as bytes."""
-    lines = []
     with open(fpath, "r", encoding="utf-8", errors="replace") as f:
         head_lines = []
         for i, line in enumerate(f):
             if i < head:
                 head_lines.append(line)
-            last_pos = f.tell()
-        lines = head_lines
+            else:
+                break
+    lines = head_lines
 
     # Read tail lines
     tail_lines = []

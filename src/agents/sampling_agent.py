@@ -63,6 +63,7 @@ from src.tools.sampling_tools import (
     check_coverage,
     generate_context,
 )
+from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import build_thinking_config
 
 
@@ -138,7 +139,7 @@ def create_sampling_agent(
     # Create LlmAgent with forced tool calling
     agent = LlmAgent(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=SAMPLING_AGENT_INSTRUCTION,
         tools=tools,
         generate_content_config=generate_content_config,

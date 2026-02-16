@@ -483,14 +483,38 @@ def run_dataset_pipeline(
         logger.info(f"Session created with initial state, current_dataset set")
 
         # Step 2: Run the pipeline with the prepared session
+        # Top-level safety net: if all genai-level retries are exhausted and the
+        # error still escapes, sleep 60s and retry the entire pipeline run.
+        import time
+        MAX_PIPELINE_RETRIES = 2
+
         user_message = types.Content(parts=[types.Part(text=f"Generate PVMAP for {dataset_name}")])
         events = []
-        for event in runner.run(
-            user_id="pipeline_user",
-            session_id=session_id,
-            new_message=user_message
-        ):
-            events.append(event)
+
+        for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
+            try:
+                for event in runner.run(
+                    user_id="pipeline_user",
+                    session_id=session_id,
+                    new_message=user_message
+                ):
+                    events.append(event)
+                break  # Success — exit retry loop
+            except Exception as e:
+                err_str = str(e)
+                is_transient = any(s in err_str for s in [
+                    "429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
+                    "Internal Server Error", "ServiceUnavailable",
+                ])
+                if is_transient and pipeline_attempt < MAX_PIPELINE_RETRIES:
+                    logger.warning(
+                        "Transient API error (attempt %d/%d): %s. Sleeping 60s...",
+                        pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
+                    )
+                    time.sleep(60)
+                    events.clear()  # Reset for retry
+                else:
+                    raise
 
         # ADK's InMemorySessionService doesn't persist agent state changes back
         # to the stored session. Instead, determine success by checking artifacts.

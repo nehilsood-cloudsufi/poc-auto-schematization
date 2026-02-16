@@ -677,7 +677,11 @@ class TestEdgeCases:
         loop = create_pvmap_retry_loop()
         # Generator should use environment model
         generator = loop.sub_agents[1]  # Generator is second
-        assert generator.model == "gemini-1.5-pro"
+        from google.adk.models import Gemini
+        if isinstance(generator.model, Gemini):
+            assert generator.model.model == "gemini-1.5-pro"
+        else:
+            assert generator.model == "gemini-1.5-pro"
 
     def test_state_prep_with_file_read_errors(self, mock_ctx):
         """Should handle file read errors gracefully."""

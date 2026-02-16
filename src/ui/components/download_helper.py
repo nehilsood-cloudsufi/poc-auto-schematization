@@ -28,25 +28,24 @@ def create_zip_bytes(output_dir: Path) -> bytes:
 
 def render_download_button(output_dir: Path, dataset_name: str):
     """Render download button for zipped output."""
-    st.header("Download Results")
+    st.subheader("Download")
 
     if not output_dir.exists():
-        st.warning("No output directory found.")
+        st.caption("No output yet.")
         return
 
     zip_bytes = create_zip_bytes(output_dir)
     logger.debug("Rendering download button for %s", dataset_name)
 
     st.download_button(
-        label="Download All Outputs (ZIP)",
+        label=":material/download: All Outputs (ZIP)",
         data=zip_bytes,
         file_name=f"{dataset_name}_outputs.zip",
         mime="application/zip",
+        use_container_width=True,
     )
 
-    # Show file inventory
     files = sorted(output_dir.rglob("*"))
     file_list = [str(f.relative_to(output_dir)) for f in files if f.is_file()]
-    with st.expander(f"Files included ({len(file_list)})"):
-        for f in file_list:
-            st.text(f)
+    with st.expander(f"{len(file_list)} files"):
+        st.caption("\n".join(file_list))

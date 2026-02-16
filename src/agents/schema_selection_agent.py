@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 from google.adk.agents import LlmAgent
 from src.agents.prompt_loader import load_prompt
+from src.agents.retry_config import create_resilient_model
 from src.tools.schema_tools import (
     get_schema_categories,
     copy_schema_files,
@@ -71,7 +72,7 @@ def create_schema_selection_agent(
 
     return LlmAgent(
         name=name,
-        model=model,
+        model=create_resilient_model(model),
         instruction=_SCHEMA_SELECTION_INSTRUCTION,
         tools=[
             get_schema_categories,

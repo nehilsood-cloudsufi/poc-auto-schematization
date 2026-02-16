@@ -60,13 +60,21 @@ def test_sampling_agent_wrapper_class():
 def test_sampling_agent_model_default():
     """Test default model is gemini-2.5-flash."""
     agent = create_sampling_agent()
-    assert "gemini" in agent.model.lower()
+    from google.adk.models import Gemini
+    if isinstance(agent.model, Gemini):
+        assert "gemini" in agent.model.model.lower()
+    else:
+        assert "gemini" in agent.model.lower()
 
 
 def test_sampling_agent_model_override():
     """Test model can be overridden."""
     agent = create_sampling_agent(model="gemini-2.5-pro")
-    assert agent.model == "gemini-2.5-pro"
+    from google.adk.models import Gemini
+    if isinstance(agent.model, Gemini):
+        assert agent.model.model == "gemini-2.5-pro"
+    else:
+        assert agent.model == "gemini-2.5-pro"
 
 
 def test_sampling_agent_instruction():
