@@ -86,7 +86,7 @@ class MetadataGenerationAgent(BaseAgent):
     enrichment_agent: Optional[LlmAgent] = None
 
     def __init__(
-        self, name: str = "MetadataGenerator", model: str = "gemini-2.5-flash"
+        self, name: str = "MetadataGenerator", model: str = "gemini-2.5-pro"
     ):
         enrichment = _create_enrichment_agent(model)
         super().__init__(

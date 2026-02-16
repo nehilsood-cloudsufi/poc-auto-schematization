@@ -37,7 +37,7 @@ _SCHEMA_SELECTION_INSTRUCTION = load_prompt("schema_selection_agent.txt")
 
 def create_schema_selection_agent(
     name: str = "SchemaSelectionAgent",
-    model: str = "gemini-3-pro-preview"
+    model: str = "gemini-2.5-pro"
 ) -> LlmAgent:
     """
     Create a SchemaSelectionAgent using LlmAgent with schema tools.

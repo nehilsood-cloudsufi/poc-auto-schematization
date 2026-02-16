@@ -110,7 +110,7 @@ def create_sampling_agent(
     """
     # Get model from environment or use default
     if model is None:
-        model = os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-flash")
+        model = os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
 
     # Create function tools
     tools = [
@@ -224,13 +224,13 @@ class SamplingAgentWrapper(BaseAgent):
         Args:
             name: Agent name
             model: LLM model to use (default: from SAMPLING_AGENT_MODEL env var
-                   or "gemini-2.5-pro")
+                   or "gemini-3-pro-preview")
             thinking_level: Thinking level for Gemini models
         """
         super().__init__(name=name)
-        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro")
+        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
         self._thinking_level = thinking_level
-        self._fallback_model = "gemini-2.5-flash"
+        self._fallback_model = "gemini-2.5-pro"
         self._timeout = float(os.getenv("SAMPLING_AGENT_TIMEOUT", "300"))
 
     async def _run_async_impl(

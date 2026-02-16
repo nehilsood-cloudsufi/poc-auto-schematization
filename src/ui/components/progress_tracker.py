@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _PIPELINE_PHASES = [
     "StatePrep",
     "Sampling",
-    "SchemaSelection",
+    "SchemaSelectionAgent",
     "Generator",
     "MetadataGenerator",
     "Validator",

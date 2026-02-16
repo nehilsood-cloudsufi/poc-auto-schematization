@@ -13,7 +13,7 @@ DEFAULT_PROMPT_VERSION = "v2"
 
 # Pipeline settings
 MIN_PIPELINE_ATTEMPTS = 2  # Always run at least 2 attempts in UI mode
-DEFAULT_MAX_RETRIES = 2    # Default max retries (3 total attempts: initial + 2 retries)
+DEFAULT_MAX_RETRIES = 1    # Default max retries (2 total attempts: initial + 1 retry)
 
 # Output directory for UI runs
 UI_OUTPUT_DIR = Path("ui_output")
@@ -67,6 +67,7 @@ PHASE_LABELS = {
     "StatePrep": "Preparing state...",
     "Sampling": "Sampling data...",
     "SchemaSelection": "Selecting schema...",
+    "SchemaSelectionAgent": "Selecting schema...",
     "StatVarDiscovery": "Discovering StatVars (MCP)...",
     "Generator": "Generating PVMAP...",
     "MetadataGenerator": "Generating metadata config...",

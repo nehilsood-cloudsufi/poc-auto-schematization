@@ -32,11 +32,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from google.adk.agents import LlmAgent
+from google.genai import types as genai_types
 
 from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
 from src.agents.prompt_loader import load_prompt_json
 from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import sanitize_for_adk
+
+# DC query / MCP agents use a fast model with thinking disabled to reduce
+# latency on the many repeated tool-calling round-trips.
+_DC_AGENT_MODEL = "gemini-3-flash-preview"
+_NO_THINKING = genai_types.GenerateContentConfig(
+    thinking_config=genai_types.ThinkingConfig(thinking_level="low"),
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +69,7 @@ MCP_TOOLS_INSTRUCTION = _DC_INSTRUCTIONS["mcp_tools"]
 
 def create_dc_query_agent(
     mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro",
+    model: str = _DC_AGENT_MODEL,
     name: str = "DCQueryAgent",
     instruction: Optional[str] = None,
     data_context: Optional[dict] = None
@@ -102,6 +110,7 @@ def create_dc_query_agent(
         instruction=sanitize_for_adk(final_instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries
+        generate_content_config=_NO_THINKING,
     )
 
     return agent
@@ -113,7 +122,7 @@ def create_dc_query_agent(
 
 def create_enrichment_agent(
     mcp_url: str,
-    model: str = "gemini-2.5-pro",
+    model: str = _DC_AGENT_MODEL,
     data_context: Optional[dict] = None,
     attempt: int = 0,
     error_feedback: str = "",
@@ -165,6 +174,7 @@ def create_enrichment_agent(
         instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries
+        generate_content_config=_NO_THINKING,
     )
 
 
@@ -174,7 +184,7 @@ def create_enrichment_agent(
 
 def create_error_resolver_agent(
     mcp_url: str,
-    model: str = "gemini-2.5-pro",
+    model: str = _DC_AGENT_MODEL,
     validation_error: str = "",
     pvmap_csv: str = "",
 ) -> LlmAgent:
@@ -208,6 +218,7 @@ def create_error_resolver_agent(
         instruction=sanitize_for_adk(instruction),
         tools=[mcp_toolset],
         include_contents="none",  # Prevent history accumulation in MCP queries
+        generate_content_config=_NO_THINKING,
     )
 
 

@@ -300,7 +300,7 @@ def run_dataset_pipeline(
     # Create Sampling agent (agentic sampling with LLM)
     sampling_agent = SamplingAgentWrapper(
         name="Sampling",
-        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-2.5-pro"),
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview"),
         thinking_level=thinking_level,
     )
 

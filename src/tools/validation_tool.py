@@ -415,7 +415,9 @@ def run_validation(
             result.returncode, elapsed,
         )
 
-        # Write raw logs to file (overwrite on each retry — always reflects latest attempt)
+        # Write raw logs to file (overwrite on each retry — always reflects latest attempt).
+        # Cap at 1MB to avoid multi-GB log files from verbose datasets.
+        MAX_RAW_LOG_CHARS = 1_000_000
         raw_log_path = Path(output_dir) / "statvar_processor_raw_logs.txt"
         raw_log_content = ""
         if result.stdout:
@@ -424,6 +426,15 @@ def run_validation(
             raw_log_content += "=== STDERR ===\n" + result.stderr + "\n"
         if not raw_log_content:
             raw_log_content = "(no output captured)\n"
+        if len(raw_log_content) > MAX_RAW_LOG_CHARS:
+            # Keep first 200K + last 800K (errors/summary usually at the end)
+            head = raw_log_content[:200_000]
+            tail = raw_log_content[-800_000:]
+            raw_log_content = (
+                head
+                + f"\n\n... [{len(raw_log_content) - MAX_RAW_LOG_CHARS:,} chars truncated] ...\n\n"
+                + tail
+            )
         raw_log_path.write_text(raw_log_content, encoding="utf-8")
 
         # Parse counters file using smart log filter (for structured feedback)

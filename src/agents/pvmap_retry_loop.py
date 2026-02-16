@@ -87,6 +87,20 @@ class StatePreparationAgent(BaseAgent):
 
         logger.info("StatePrep: starting attempt %d (0-indexed)", attempt)
 
+        # =====================================================================
+        # CRITICAL: Prevent token overflow across retry iterations.
+        # ADK's LoopAgent accumulates all events from all sub-agents across
+        # iterations in session.events. Even with include_contents='none',
+        # the "current turn" detection can still pull in events from previous
+        # iterations, causing the LLM context to exceed model limits.
+        # =====================================================================
+        if attempt > 0:
+            self._trim_session_events(ctx)
+            # Force re-read of file-backed state that may have been truncated
+            # by the feedback agent's instruction preparation step.
+            ctx.session.state.pop("sampled_data", None)
+            ctx.session.state.pop("schema_examples", None)
+
         yield Event(
             author=self.name,
             content=types.Content(parts=[
@@ -263,6 +277,25 @@ class StatePreparationAgent(BaseAgent):
                         ctx.session.state["using_raw_input_fallback"] = True
                     else:
                         sampled_data = content
+                    # Cap sampled data to ~30K chars (~7.5K tokens) to stay
+                    # within model context limits for wide datasets.
+                    MAX_SAMPLED_CHARS = 30000
+                    if len(sampled_data) > MAX_SAMPLED_CHARS:
+                        sd_lines = sampled_data.split('\n')
+                        kept = []
+                        total = 0
+                        for line in sd_lines:
+                            if total + len(line) + 1 > MAX_SAMPLED_CHARS:
+                                break
+                            kept.append(line)
+                            total += len(line) + 1
+                        orig_rows = len(sd_lines) - 1
+                        kept_rows = len(kept) - 1
+                        sampled_data = '\n'.join(kept)
+                        logger.warning(
+                            "Sampled data capped: %d→%d chars (%d→%d rows)",
+                            len(content), len(sampled_data), orig_rows, kept_rows,
+                        )
                 except Exception as e:
                     sampled_data = f"(Error reading sampled data: {e})"
             ctx.session.state["sampled_data"] = sampled_data
@@ -351,6 +384,9 @@ class StatePreparationAgent(BaseAgent):
         # =====================================================================
         error_feedback = ctx.session.state.get("error_feedback", "")
         if error_feedback:
+            # Cap feedback size to prevent token overflow across iterations
+            if len(error_feedback) > 4000:
+                error_feedback = error_feedback[:4000] + "\n...[truncated for token budget]"
             ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
 
         if "validation_counter_summary" not in ctx.session.state:
@@ -470,6 +506,18 @@ class StatePreparationAgent(BaseAgent):
             # The escape is idempotent (already-escaped [WORD] content is unaffected).
             populated = escape_pvmap_placeholders(populated)
 
+            # Cap total prompt size to prevent exceeding model context limits.
+            # 120K chars ≈ 30K tokens — leaves room for output + tool defs.
+            MAX_PROMPT_CHARS = 120000
+            if len(populated) > MAX_PROMPT_CHARS:
+                logger.warning(
+                    "Populated prompt exceeds budget: %d chars (max %d). Truncating.",
+                    len(populated), MAX_PROMPT_CHARS,
+                )
+                populated = populated[:MAX_PROMPT_CHARS] + (
+                    "\n\n[PROMPT TRUNCATED — generate PVMAP with available context]"
+                )
+
             ctx.session.state["populated_pvmap_prompt"] = populated
             logger.info(
                 f"Populated prompt template ({template_name}): {len(populated)} chars "
@@ -481,6 +529,32 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["populated_pvmap_prompt"] = (
                 "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
             )
+
+    def _trim_session_events(self, ctx: InvocationContext) -> None:
+        """Trim old session events to prevent token overflow across iterations.
+
+        ADK's LoopAgent accumulates all events from all sub-agents across all
+        iterations in session.events. This causes each subsequent LLM call to
+        receive growing conversation history that can exceed model context
+        limits (e.g., Gemini's 1M token window).
+
+        We keep only the last few events to provide minimal context without
+        unbounded growth. This is safe because inter-iteration communication
+        uses session state (not events) for all data passing.
+        """
+        try:
+            events = ctx.session.events
+            original_count = len(events)
+            max_kept = 20
+            if original_count > max_kept:
+                del events[:-max_kept]
+                logger.info(
+                    "Trimmed session events: %d → %d (freed %d)",
+                    original_count, len(events), original_count - len(events),
+                )
+        except Exception as e:
+            # Event trimming is best-effort; don't block the pipeline
+            logger.warning("Failed to trim session events: %s", e)
 
     def _discover_and_cache_ground_truth(self, ctx: InvocationContext) -> None:
         """
@@ -601,7 +675,6 @@ class MCPErrorResolverAgent(BaseAgent):
 
             resolver_agent = create_error_resolver_agent(
                 mcp_url=mcp_url,
-                model="gemini-2.5-pro",
                 validation_error=safe_validation_error,
                 pvmap_csv=safe_pvmap_csv,
             )
@@ -957,6 +1030,27 @@ class ConditionalFeedbackAgent(BaseAgent):
             ctx.session.state["validation_counter_summary"] = escape_pvmap_placeholders(counter_summary)
         else:
             ctx.session.state["validation_counter_summary"] = "Processing metrics not available."
+
+        # =====================================================================
+        # Cap large state variables for feedback instruction token budget.
+        # Per-iteration values (regenerated each attempt) are safe to truncate.
+        # File-backed values (sampled_data) will be re-read by StatePrep.
+        # skeleton_summary and schema_vocab_content are NOT capped here because
+        # they're generated/loaded once and can't be recovered.
+        # =====================================================================
+        _FEEDBACK_CAPS = {
+            "pvmap_csv": 5000,
+            "validation_error": 3000,
+            "sampled_data": 3000,
+            "key_match_report": 2000,
+            "validation_statvar_analysis": 2000,
+            "quality_diff_summary": 2000,
+            "mcp_resolved_context": 2000,
+        }
+        for key, max_chars in _FEEDBACK_CAPS.items():
+            val = ctx.session.state.get(key, "")
+            if isinstance(val, str) and len(val) > max_chars:
+                ctx.session.state[key] = val[:max_chars] + "\n...[truncated]"
 
     def _format_metrics(self, metrics: dict) -> str:
         """Format quality metrics dict as readable string."""

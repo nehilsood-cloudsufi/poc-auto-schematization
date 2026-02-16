@@ -20,9 +20,9 @@ def test_schema_selection_agent_creation():
     # model is now a Gemini instance with retry options
     from google.adk.models import Gemini
     if isinstance(agent.model, Gemini):
-        assert agent.model.model == "gemini-3-pro-preview"
+        assert agent.model.model == "gemini-2.5-pro"
     else:
-        assert agent.model == "gemini-3-pro-preview"
+        assert agent.model == "gemini-2.5-pro"
 
 
 def test_schema_selection_agent_custom_name_and_model():

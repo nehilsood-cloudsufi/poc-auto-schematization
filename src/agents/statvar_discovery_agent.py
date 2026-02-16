@@ -51,7 +51,7 @@ class StatVarDiscoveryAgent(BaseAgent):
     When placed outside the loop (legacy): Always does broad discovery.
     """
 
-    def __init__(self, name: str = "StatVarDiscoveryAgent", model: str = "gemini-2.5-pro"):
+    def __init__(self, name: str = "StatVarDiscoveryAgent", model: str = "gemini-3-flash-preview"):
         super().__init__(name=name)
         self._model = model
 

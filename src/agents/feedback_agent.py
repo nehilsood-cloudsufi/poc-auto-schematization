@@ -40,7 +40,7 @@ FEEDBACK_AGENT_INSTRUCTION = load_prompt("feedback_agent.txt")
 
 
 def create_feedback_agent(
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3-pro-preview",
     name: str = "FeedbackAgent",
     thinking_level: Optional[str] = None,
 ) -> LlmAgent:
