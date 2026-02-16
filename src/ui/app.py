@@ -50,8 +50,8 @@ st.set_page_config(
 # ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Tighter section spacing */
-    .block-container { padding-top: 2rem; }
+    /* Tighter section spacing — keep enough room so top content is not clipped */
+    .block-container { padding-top: 3.5rem; }
     /* Hide default sidebar title padding */
     [data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
     /* Smaller sub-headers */

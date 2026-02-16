@@ -111,14 +111,8 @@ def render_progress(progress_queue: queue.Queue):
         else:
             st.success(f"Pipeline complete in {elapsed_str}")
     else:
-        header_col, time_col = st.columns([3, 1])
-        with header_col:
-            if attempt_msg:
-                st.markdown(f"**{attempt_msg}**")
-            else:
-                st.markdown("**Pipeline running...**")
-        with time_col:
-            st.caption(f"Elapsed: {elapsed_str}")
+        title = attempt_msg if attempt_msg else "Pipeline running..."
+        st.markdown(f"**{title}** &nbsp; | &nbsp; Elapsed: {elapsed_str}")
 
     # Progress bar
     progress_frac = completed_count / max(total_phases, 1)
@@ -126,25 +120,26 @@ def render_progress(progress_queue: queue.Queue):
         progress_frac = 1.0
     st.progress(progress_frac, text=f"{completed_count}/{total_phases} phases")
 
-    # Phase checklist
+    # Phase checklist — single markdown block to avoid fragment height issues
+    next_phase = _next_phase(phases, completed_agents)
+    lines = []
     for phase in phases:
         label = PHASE_LABELS.get(phase, phase)
-        # Strip trailing "..." from label for completed items
         display_label = label.rstrip(".")
 
         if phase in completed_agents:
-            # Check if this agent had an error
             phase_events = [e for e in events if e.agent_name == phase]
             has_error = any(e.is_error for e in phase_events)
             if has_error:
-                st.markdown(f":red[:material/error: {display_label}]")
+                lines.append(f"- :red[**X** {display_label}]")
             else:
-                st.markdown(f":green[:material/check_circle: {display_label}]")
-        elif completed_count > 0 and phase == _next_phase(phases, completed_agents):
-            # Currently active phase (first incomplete after last completed)
-            st.markdown(f":blue[:material/sync: {label}]")
+                lines.append(f"- :green[**✓** {display_label}]")
+        elif completed_count > 0 and phase == next_phase:
+            lines.append(f"- :blue[**⟳** {label}]")
         else:
-            st.markdown(f":gray[:material/radio_button_unchecked: {display_label}]")
+            lines.append(f"- :gray[○ {display_label}]")
+
+    st.markdown("\n".join(lines))
 
     # If terminal event was found this cycle, trigger full-app rerun
     # so app.py transitions from "running" → "complete"/"error" layout.
