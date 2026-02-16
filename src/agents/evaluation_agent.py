@@ -10,7 +10,7 @@ This agent uses Google ADK BaseAgent pattern for proper async execution.
 import json
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, AsyncGenerator
+from typing import List, Dict, AsyncGenerator
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()

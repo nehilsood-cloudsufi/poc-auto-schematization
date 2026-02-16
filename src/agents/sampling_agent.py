@@ -239,8 +239,6 @@ class SamplingAgentWrapper(BaseAgent):
         """
         Run sampling workflow and persist results to session state.
         """
-        import asyncio
-
         # Check skip flag
         skip_sampling = ctx.session.state.get("skip_sampling", False)
         if skip_sampling:

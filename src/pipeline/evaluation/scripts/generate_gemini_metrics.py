@@ -13,8 +13,6 @@ import os
 import sys
 import json
 import glob
-from datetime import datetime
-from collections import defaultdict
 
 # Add paths for imports
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

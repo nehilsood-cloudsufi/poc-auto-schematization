@@ -29,8 +29,6 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional
 import re
 
-from absl import logging
-
 try:
     import pandas as pd
 except ImportError:

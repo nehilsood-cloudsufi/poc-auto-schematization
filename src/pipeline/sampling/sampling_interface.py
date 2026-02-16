@@ -40,7 +40,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()

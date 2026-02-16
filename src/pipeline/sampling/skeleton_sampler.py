@@ -29,7 +29,7 @@ The goal is to help the LLM understand:
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Tuple, Optional, Any
+from typing import Dict, List, Set, Optional, Any
 
 from absl import logging
 

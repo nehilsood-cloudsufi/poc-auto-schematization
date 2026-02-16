@@ -75,16 +75,12 @@ class GeminiClient:
         self.model_name = model_name or self.DEFAULT_MODEL
 
         # Initialize the client with retry options for transient API errors
+        # Import shared config to avoid drift between ADK agents and direct calls
+        from src.agents.retry_config import DEFAULT_RETRY_OPTIONS
         self.client = genai.Client(
             api_key=self.api_key,
             http_options=types.HttpOptions(
-                retry_options=types.HttpRetryOptions(
-                    attempts=7,
-                    initial_delay=5.0,
-                    max_delay=60.0,
-                    exp_base=2.0,
-                    http_status_codes=[408, 429, 500, 502, 503, 504],
-                )
+                retry_options=DEFAULT_RETRY_OPTIONS,
             ),
         )
 

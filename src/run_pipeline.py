@@ -36,7 +36,7 @@ from google.genai import types
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import create_sampling_agent, SamplingAgent, SamplingAgentWrapper
+from src.agents.sampling_agent import SamplingAgent, SamplingAgentWrapper
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent

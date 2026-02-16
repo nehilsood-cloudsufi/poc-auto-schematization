@@ -6,7 +6,7 @@ Wraps tools.schema_selector functions for use in ADK pipeline.
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()

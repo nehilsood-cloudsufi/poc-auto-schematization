@@ -16,7 +16,6 @@ Key ADK features used:
 """
 
 import os
-from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import LlmAgent

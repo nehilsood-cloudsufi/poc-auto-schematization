@@ -138,23 +138,21 @@ class TestAgentIntegration:
 class TestGeminiClientRetry:
     """Test that GeminiClient has retry options configured."""
 
-    def test_gemini_client_has_retry_options_in_source(self):
-        """Verify GeminiClient source references HttpRetryOptions."""
+    def test_gemini_client_uses_shared_retry_config(self):
+        """Verify GeminiClient imports and uses DEFAULT_RETRY_OPTIONS."""
         import inspect
         from src.data_commons.api.gemini_client import GeminiClient
 
         source = inspect.getsource(GeminiClient.__init__)
-        assert "HttpRetryOptions" in source
+        assert "DEFAULT_RETRY_OPTIONS" in source
         assert "retry_options" in source
 
     def test_gemini_client_retry_config_values(self):
-        """Verify the retry config values in GeminiClient source."""
-        import inspect
-        from src.data_commons.api.gemini_client import GeminiClient
+        """Verify the shared retry config has expected values."""
+        from src.agents.retry_config import DEFAULT_RETRY_OPTIONS
 
-        source = inspect.getsource(GeminiClient.__init__)
-        assert "attempts=7" in source
-        assert "initial_delay=5.0" in source
-        assert "max_delay=60.0" in source
-        assert "429" in source
-        assert "500" in source
+        assert DEFAULT_RETRY_OPTIONS.attempts == 7
+        assert DEFAULT_RETRY_OPTIONS.initial_delay == 5.0
+        assert DEFAULT_RETRY_OPTIONS.max_delay == 60.0
+        assert 429 in DEFAULT_RETRY_OPTIONS.http_status_codes
+        assert 500 in DEFAULT_RETRY_OPTIONS.http_status_codes

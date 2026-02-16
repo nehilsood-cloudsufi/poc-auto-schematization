@@ -6,7 +6,7 @@ Wraps PVMAP comparison and ground truth discovery functions.
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()

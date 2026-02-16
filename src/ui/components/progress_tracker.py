@@ -5,7 +5,6 @@ import time
 
 import streamlit as st
 
-from src.ui.adapters.progress_plugin import ProgressEvent
 from src.ui.config import PHASE_LABELS
 
 logger = logging.getLogger(__name__)

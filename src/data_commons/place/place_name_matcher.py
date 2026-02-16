@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Script to lookup places by names.
+r"""Script to lookup places by names.
 Uses the ngram_matcher to search for names by substring matches.
 
 Download all place properties in the KG with the dcid using BQ:
