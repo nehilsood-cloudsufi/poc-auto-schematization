@@ -12,6 +12,7 @@ Runs AFTER PVMAPGeneratorAgent, BEFORE ValidationAgent in the retry loop.
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import AsyncGenerator, Optional
@@ -86,8 +87,9 @@ class MetadataGenerationAgent(BaseAgent):
     enrichment_agent: Optional[LlmAgent] = None
 
     def __init__(
-        self, name: str = "MetadataGenerator", model: str = "gemini-2.5-pro"
+        self, name: str = "MetadataGenerator", model: Optional[str] = None,
     ):
+        model = model or os.getenv("METADATA_AGENT_MODEL", "gemini-2.5-pro")
         enrichment = _create_enrichment_agent(model)
         super().__init__(
             name=name,

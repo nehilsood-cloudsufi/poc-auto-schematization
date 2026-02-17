@@ -11,9 +11,15 @@ import asyncio
 
 from src.agents.pvmap_retry_loop import (
     create_pvmap_retry_loop,
+    GeneratorWrapperAgent,
     StatePreparationAgent,
     ConditionalFeedbackAgent,
     MaxRetriesCheckAgent,
+    _compact_skeleton_for_feedback,
+    _compact_skeleton_for_generator,
+    _compact_vocab_for_feedback,
+    _compact_vocab_for_generator,
+    _FEEDBACK_RESTORE_KEYS,
 )
 
 
@@ -99,8 +105,8 @@ class TestCreatePvmapRetryLoop:
             "MetadataGenerator",
             "Validator",
             "QualityEvaluator",
-            "UnifiedFeedback",
             "MaxRetriesCheck",
+            "UnifiedFeedback",
         ]
 
         assert agent_names == expected_order
@@ -897,17 +903,11 @@ class TestEdgeCases:
         loop = create_pvmap_retry_loop(max_retries=0)
         assert loop.max_iterations == 1
 
-    @patch.dict('os.environ', {'PVMAP_GENERATOR_MODEL': 'gemini-1.5-pro'})
-    def test_respects_model_environment_override(self):
-        """Should use model from environment if set."""
+    def test_generator_is_wrapper_agent(self):
+        """Generator sub-agent should be a GeneratorWrapperAgent."""
         loop = create_pvmap_retry_loop()
-        # Generator should use environment model
         generator = loop.sub_agents[1]  # Generator is second
-        from google.adk.models import Gemini
-        if isinstance(generator.model, Gemini):
-            assert generator.model.model == "gemini-1.5-pro"
-        else:
-            assert generator.model == "gemini-1.5-pro"
+        assert isinstance(generator, GeneratorWrapperAgent)
 
     def test_state_prep_with_file_read_errors(self, mock_ctx):
         """Should handle file read errors gracefully."""
@@ -931,3 +931,455 @@ class TestEdgeCases:
         # Should complete without crashing
         # Schema examples should have fallback message
         assert "schema_examples" in mock_ctx.session.state
+
+
+# ============================================================================
+# Skeleton Compaction Helpers
+# ============================================================================
+
+def _build_skeleton(sections: dict[str, str] = None, n_columns: int = 30) -> str:
+    """Build a realistic skeleton_summary for testing.
+
+    Args:
+        sections: Override specific sections by number.
+        n_columns: Number of columns to generate (makes skeleton large enough
+                   to exceed the 5000-char guard in compaction functions).
+    """
+    # Build column reference rows
+    col_rows = []
+    col_headers = []
+    for i in range(n_columns):
+        col_name = f"Column_{i:02d}_LongName"
+        col_headers.append(col_name)
+        col_rows.append(
+            f"| `{col_name}` | object | {50 + i} | "
+            f"SampleVal_{i}_A, SampleVal_{i}_B, SampleVal_{i}_C, SampleVal_{i}_D, SampleVal_{i}_E |"
+        )
+
+    # Build dimension lines (10 dimensions with 15 values each)
+    dim_lines = []
+    for i in range(10):
+        values = [f"DimVal_{i}_{j}" for j in range(15)]
+        values_str = ", ".join(values) + ", ... (15 total)"
+        dim_lines.append(f"- **`Dim_{i}`** (15 values): [{values_str}]")
+        dim_lines.append(f"  \u26a0 Aggregate values detected: Total — consider dropping")
+
+    defaults = {
+        "1": (
+            "## 1. TOPOLOGY & STRUCTURE\n\n"
+            "- **Dataset:** test_dataset\n"
+            "- **Format:** flat\n"
+            f"- **Rows:** 1000  |  **Columns:** {n_columns}\n\n"
+            f"**ALL column headers (exact, case-sensitive):** `{'`, `'.join(col_headers)}`\n"
+        ),
+        "1.5": (
+            "## 1.5 COLUMN REFERENCE TABLE (USE EXACT NAMES AS PVMAP KEYS)\n\n"
+            "| Column Header (EXACT) | Type | Unique Values | Sample Values |\n"
+            "|------------------------|------|---------------|---------------|\n"
+            + "\n".join(col_rows) + "\n"
+        ),
+        "2": (
+            "## 2. COLUMN CLASSIFICATIONS\n\n"
+            "| Column | Role |\n"
+            "|--------|------|\n"
+            "| `Year` | time |\n"
+            "| `State` | place |\n"
+            "| `Population` | value |\n"
+            "| `Age` | dimension |\n"
+        ),
+        "3": (
+            "## 3. ANCHOR ANALYSIS\n\n"
+            "**Geography:** Column `State` — Format: US_STATE_NAME\n"
+            "  Sample values: California, Texas, New York\n\n"
+            "**Time:** Column `Year` — Format: YYYY\n"
+            "  Sample values: 2010, 2011, 2012\n"
+        ),
+        "4": (
+            "## 4. DIMENSION DEEP DIVE\n\n"
+            + "\n".join(dim_lines) + "\n"
+        ),
+        "5": (
+            "## 5. MEASUREMENT & UNITS\n\n"
+            "- Value Column: `Population` (StatType: measuredValue)\n"
+            "- **Population Type:** Person\n"
+            "- **Measurement Type:** measuredValue\n"
+        ),
+        "6": (
+            "## 6. STATVAR PATTERN (P+M+C Formula)\n\n"
+            "`Count_Person_ByAge`\n"
+        ),
+        "7": (
+            "## 7. ONE-SHOT PVMAP EXAMPLE\n\n"
+            "```csv\n"
+            "key,property,value\n"
+            "Year,observationDate,[DATA]\n"
+            "State,observationAbout,[DATA]\n"
+            "Population,value,[NUMBER]\n"
+            "0-4,age,Years0To4\n"
+            "5-14,age,Years5To14\n"
+            "15-24,age,Years15To24\n"
+            "```\n"
+        ),
+        "8": (
+            "## 8. PRE-FORMATTED DATA COMMONS DETECTION\n\n"
+            "Not pre-formatted. Generate PVMAP from scratch.\n"
+        ),
+        "9": (
+            "## 9. COVERAGE\n\n"
+            "- Total Dimension Combinations: 200\n"
+            "- Sample Covers: 50 (25.0%)\n\n"
+            "**IMPORTANT:** Generate PVMAP for ALL dimension combinations.\n"
+        ),
+    }
+    if sections:
+        defaults.update(sections)
+
+    parts = []
+    for sec_id in ["1", "1.5", "2", "3", "4", "5", "6", "7", "8", "9"]:
+        if sec_id in defaults:
+            parts.append(defaults[sec_id])
+    return "\n".join(parts)
+
+
+def _build_vocab(
+    n_skeletons: int = 2,
+    n_enum_props: int = 3,
+    n_enum_values: int = 20,
+    n_examples: int = 3,
+) -> str:
+    """Build realistic schema_vocab_content for testing."""
+    lines = ["### Schema Vocabulary: Health", ""]
+    lines.append("**StatVar Skeletons (which properties go with which populationType):**")
+    for i in range(n_skeletons):
+        lines.append(f"- Person{i}: gender, age, race")
+    lines.append("")
+
+    lines.append("**VALID ENUM VALUES (use these EXACT identifiers for dimension properties):**")
+    for i in range(n_enum_props):
+        values = [f"Value{j}" for j in range(n_enum_values)]
+        lines.append(f"- prop{i}: {', '.join(values)}")
+    lines.append("")
+    lines.append("When mapping dimension values, use ONLY identifiers from this list.")
+    lines.append("")
+
+    if n_examples > 0:
+        lines.append("**Representative examples (diverse patterns):**")
+        for i in range(n_examples):
+            lines.append(f'{i + 1}. "Example {i}" \u2192 mapping{i}')
+        lines.append("")
+
+    lines.append("Schema.org base: Thing \u2192 Intangible \u2192 StructuredValue")
+    lines.append("DC extensions: measuredProperty, statType")
+    return "\n".join(lines)
+
+
+# ============================================================================
+# Test Compaction Functions
+# ============================================================================
+
+class TestCompactSkeletonForFeedback:
+    """Tests for _compact_skeleton_for_feedback."""
+
+    def test_drops_sections_6_7_9(self):
+        """Should drop sections 6 (StatVar), 7 (one-shot), 9 (coverage)."""
+        skeleton = _build_skeleton()
+        compacted = _compact_skeleton_for_feedback(skeleton)
+
+        assert "## 6. STATVAR PATTERN" not in compacted
+        assert "## 7. ONE-SHOT PVMAP EXAMPLE" not in compacted
+        assert "## 9. COVERAGE" not in compacted
+
+        # Should keep sections 1, 2, 3, 5, 8
+        assert "## 1. TOPOLOGY" in compacted
+        assert "## 2. COLUMN CLASSIFICATIONS" in compacted
+        assert "## 3. ANCHOR ANALYSIS" in compacted
+        assert "## 5. MEASUREMENT" in compacted
+        assert "## 8. PRE-FORMATTED" in compacted
+
+    def test_trims_column_samples_to_2(self):
+        """Should reduce column sample values from 5 to 2 in Section 1.5."""
+        skeleton = _build_skeleton()
+        compacted = _compact_skeleton_for_feedback(skeleton)
+
+        # Section 1.5 should still exist
+        assert "## 1.5 COLUMN REFERENCE TABLE" in compacted
+
+        # Each row had 5 sample values (SampleVal_N_A through _E), should now have 2 + "..."
+        assert "SampleVal_0_A, SampleVal_0_B, ..." in compacted
+        # Should NOT have all 5 values
+        assert "SampleVal_0_D" not in compacted
+
+    def test_trims_dimension_values_to_5(self):
+        """Should reduce dimension value lists to 5 in Section 4."""
+        skeleton = _build_skeleton()
+        compacted = _compact_skeleton_for_feedback(skeleton)
+
+        # Section 4 should still exist
+        assert "## 4. DIMENSION DEEP DIVE" in compacted
+
+        # Should have reduced values — original had 15 per dimension
+        for line in compacted.split('\n'):
+            if '**`Dim_0`**' in line:
+                values_part = line[line.find('[') + 1:line.rfind(']')]
+                values = [v.strip() for v in values_part.split(',') if not v.strip().startswith('...')]
+                assert len(values) <= 5
+                break
+
+    def test_drops_aggregate_warnings(self):
+        """Should drop aggregate value warning lines."""
+        skeleton = _build_skeleton()
+        compacted = _compact_skeleton_for_feedback(skeleton)
+        assert "\u26a0 Aggregate values detected" not in compacted
+
+    def test_passthrough_when_small(self):
+        """Should return unchanged when skeleton is small."""
+        small_skeleton = "## 1. TOPOLOGY\n\nSmall dataset."
+        result = _compact_skeleton_for_feedback(small_skeleton)
+        assert result == small_skeleton
+
+    def test_passthrough_when_empty(self):
+        """Should handle empty input."""
+        assert _compact_skeleton_for_feedback("") == ""
+        assert _compact_skeleton_for_feedback(None) is None
+
+
+class TestCompactSkeletonForGenerator:
+    """Tests for _compact_skeleton_for_generator."""
+
+    def test_keeps_all_sections(self):
+        """Should keep all sections including 6, 7, 9 (unlike feedback)."""
+        skeleton = _build_skeleton()
+        # Budget just under skeleton length to trigger compaction but not truncation
+        compacted = _compact_skeleton_for_generator(skeleton, budget=len(skeleton) - 100)
+
+        # Should keep sections that feedback drops
+        assert "## 6. STATVAR PATTERN" in compacted
+        assert "## 7. ONE-SHOT PVMAP EXAMPLE" in compacted
+        assert "## 9. COVERAGE" in compacted
+        # Should also keep core sections
+        assert "## 1. TOPOLOGY" in compacted
+
+    def test_trims_samples_to_3(self):
+        """Should reduce column samples to 3 (less aggressive than feedback)."""
+        skeleton = _build_skeleton()
+        # Budget under length to trigger compaction
+        compacted = _compact_skeleton_for_generator(skeleton, budget=len(skeleton) - 100)
+
+        # Should have 3 sample values + "..."
+        assert "SampleVal_0_A, SampleVal_0_B, SampleVal_0_C, ..." in compacted
+
+    def test_passthrough_when_under_budget(self):
+        """Should return unchanged when under budget."""
+        skeleton = _build_skeleton()
+        result = _compact_skeleton_for_generator(skeleton, budget=999999)
+        assert result == skeleton
+
+
+class TestCompactVocabForFeedback:
+    """Tests for _compact_vocab_for_feedback."""
+
+    def test_trims_enum_values_to_3(self):
+        """Should reduce enum values to first 3 + count."""
+        # Build vocab large enough to exceed the 3000-char guard
+        vocab = _build_vocab(n_enum_props=15, n_enum_values=20, n_examples=5)
+        assert len(vocab) > 3000, f"Test vocab too small: {len(vocab)} chars"
+        compacted = _compact_vocab_for_feedback(vocab)
+
+        for line in compacted.split('\n'):
+            if line.startswith('- prop') and ':' in line:
+                # Should have 3 values + "(N total)"
+                colon_idx = line.index(':')
+                values_part = line[colon_idx + 1:].strip()
+                values = [v.strip() for v in values_part.split(',')]
+                # 3 values + "... (20 total)"
+                non_ellipsis = [v for v in values if not v.startswith('...')]
+                assert len(non_ellipsis) <= 3
+                assert "(20 total)" in values_part
+                break
+
+    def test_drops_examples_section(self):
+        """Should drop representative examples section."""
+        vocab = _build_vocab(n_enum_props=15, n_enum_values=20, n_examples=5)
+        assert len(vocab) > 3000
+        compacted = _compact_vocab_for_feedback(vocab)
+
+        assert "**Representative examples" not in compacted
+        assert "Example 0" not in compacted
+
+    def test_keeps_skeletons(self):
+        """Should keep StatVar skeletons."""
+        vocab = _build_vocab(n_enum_props=15, n_enum_values=20)
+        assert len(vocab) > 3000
+        compacted = _compact_vocab_for_feedback(vocab)
+
+        assert "**StatVar Skeletons" in compacted
+        assert "Person0:" in compacted
+
+    def test_keeps_schema_org(self):
+        """Should keep schema.org context."""
+        vocab = _build_vocab(n_enum_props=15, n_enum_values=20)
+        assert len(vocab) > 3000
+        compacted = _compact_vocab_for_feedback(vocab)
+
+        assert "Schema.org base:" in compacted
+
+    def test_passthrough_when_small(self):
+        """Should return unchanged for small vocab."""
+        small = "### Schema Vocab\n- Person: age"
+        assert _compact_vocab_for_feedback(small) == small
+
+
+class TestCompactVocabForGenerator:
+    """Tests for _compact_vocab_for_generator."""
+
+    def test_trims_enums_to_10(self):
+        """Should reduce enum values to 10 (less aggressive than feedback)."""
+        vocab = _build_vocab(n_enum_values=25)
+        # Budget just under length to trigger compaction
+        compacted = _compact_vocab_for_generator(vocab, budget=len(vocab) - 50)
+
+        for line in compacted.split('\n'):
+            if line.startswith('- prop') and ':' in line:
+                colon_idx = line.index(':')
+                values_part = line[colon_idx + 1:].strip()
+                values = [v.strip() for v in values_part.split(',')]
+                non_ellipsis = [v for v in values if not v.startswith('...')]
+                assert len(non_ellipsis) <= 10
+                break
+
+    def test_keeps_examples(self):
+        """Should keep representative examples (unlike feedback compaction)."""
+        vocab = _build_vocab(n_examples=3)
+        # Budget just under length to trigger compaction
+        compacted = _compact_vocab_for_generator(vocab, budget=len(vocab) - 50)
+
+        assert "**Representative examples" in compacted
+
+    def test_passthrough_when_under_budget(self):
+        """Should return unchanged when under budget."""
+        vocab = _build_vocab(n_enum_values=5)
+        result = _compact_vocab_for_generator(vocab, budget=999999)
+        assert result == vocab
+
+
+# ============================================================================
+# Test Integration: Prompt Budget Preserves Error Feedback
+# ============================================================================
+
+class TestPromptBudgetIntegration:
+    """Tests that budget-based allocation preserves error_feedback."""
+
+    def test_populate_prompt_preserves_error_feedback(self, mock_ctx, mock_dataset, tmp_path):
+        """Error feedback should NOT be truncated even with large skeleton + schema."""
+        # Create a prompt template file
+        template_path = tmp_path / "src" / "resources" / "prompts"
+        template_path.mkdir(parents=True)
+        template_file = template_path / "improved_pvmap_prompt_v2.txt"
+        template_file.write_text(
+            "TEMPLATE START\n"
+            "{{DATA_CONTEXT}}\n"
+            "{{SCHEMA_EXAMPLES}}\n"
+            "{{SAMPLED_DATA}}\n"
+            "{{METADATA_CONFIG}}\n"
+            "{{ERROR_FEEDBACK}}\n"
+            "{{STATVAR_SUMMARY}}\n"
+            "{{MCP_TOOLS_INSTRUCTION}}\n"
+            "TEMPLATE END\n"
+        )
+
+        # Set large skeleton and schema in state
+        large_skeleton = "x" * 80000  # 80K chars
+        large_schema = "y" * 40000   # 40K chars
+        error_feedback = "FIX THIS: key 'Year' not found in headers"
+
+        mock_ctx.session.state = {
+            "current_dataset": mock_dataset,
+            "attempt_number": 0,
+            "skeleton_summary": large_skeleton,
+            "schema_examples": large_schema,
+            "sampled_data": "col1,col2\na,b",
+            "metadata": "",
+            "error_feedback": error_feedback,
+            "statvar_summary": "",
+            "mcp_tools_instruction": "",
+            "prompt_version": "v2",
+        }
+
+        agent = StatePreparationAgent()
+
+        # Monkey-patch PROJECT_ROOT to use our temp dir
+        import src.agents.pvmap_retry_loop as module
+        original_root = module.PROJECT_ROOT
+        module.PROJECT_ROOT = tmp_path
+        try:
+            agent._populate_prompt_template(mock_ctx)
+        finally:
+            module.PROJECT_ROOT = original_root
+
+        populated = mock_ctx.session.state.get("populated_pvmap_prompt", "")
+        # Error feedback should be fully preserved in the populated prompt
+        assert error_feedback in populated
+
+    def test_originals_restored_after_feedback(self, mock_ctx):
+        """Original state should be restored after feedback compaction."""
+        original_skeleton = "A" * 10000
+        original_vocab = "B" * 5000
+        original_sampled = "col1,col2\nval1,val2"
+
+        mock_ctx.session.state = {
+            "validation_passed": False,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            "skeleton_summary": original_skeleton,
+            "schema_vocab_content": original_vocab,
+            "sampled_data": original_sampled,
+            "validation_error": "some error",
+            "pvmap_csv": "key,prop,value",
+        }
+
+        agent = ConditionalFeedbackAgent()
+
+        # Mock the inner feedback agent
+        async def mock_run_async(ctx):
+            # Verify compaction happened during feedback
+            assert len(ctx.session.state.get("skeleton_summary", "")) < len(original_skeleton)
+            if False:
+                yield
+
+        mock_inner = Mock()
+        mock_inner.run_async = mock_run_async
+        agent.feedback_agent = mock_inner
+
+        events = run_agent(agent, mock_ctx)
+
+        # After feedback completes, originals should be restored
+        assert mock_ctx.session.state["skeleton_summary"] == original_skeleton
+        assert mock_ctx.session.state["schema_vocab_content"] == original_vocab
+        assert mock_ctx.session.state["sampled_data"] == original_sampled
+
+    def test_progressive_fallback_when_over_budget(self, mock_ctx):
+        """Total instruction size guard should truncate largest variables."""
+        mock_ctx.session.state = {
+            "validation_passed": False,
+            "quality_acceptable": False,
+            "quality_stagnant": False,
+            # Make total > 50K so guard triggers
+            "skeleton_summary": "S" * 20000,
+            "schema_vocab_content": "V" * 20000,
+            "sampled_data": "D" * 15000,
+            "validation_error": "E" * 5000,
+            "pvmap_csv": "key,prop,value",
+        }
+
+        agent = ConditionalFeedbackAgent()
+        agent._prepare_feedback_state(mock_ctx)
+
+        # Total should be reduced below 50K
+        keys = [
+            "skeleton_summary", "schema_vocab_content", "pvmap_csv",
+            "validation_error", "sampled_data", "key_match_report",
+            "validation_statvar_analysis", "quality_diff_summary",
+            "mcp_resolved_context", "validation_counter_summary",
+        ]
+        total = sum(len(mock_ctx.session.state.get(k, "")) for k in keys)
+        assert total <= 50000

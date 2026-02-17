@@ -5,6 +5,7 @@ from src.agents.template_utils import (
     escape_pvmap_placeholders,
     unescape_pvmap_placeholders,
     sanitize_for_adk,
+    build_thinking_config,
 )
 
 
@@ -265,3 +266,45 @@ Row 2:
         assert "{Number}" not in result
         assert "[DATA]" in result
         assert "[NUMBER]" in result
+
+
+class TestBuildThinkingConfig:
+    """Tests for build_thinking_config function."""
+
+    @pytest.mark.parametrize("level", [None, "", "none", "None", "NONE"])
+    def test_returns_none_for_disabled(self, level):
+        """Returns None when thinking is disabled."""
+        assert build_thinking_config(level) is None
+
+    @pytest.mark.parametrize("level", ["low", "medium", "high", "minimal"])
+    def test_returns_config_for_valid_levels(self, level):
+        """Returns a ThinkingConfig for each valid level."""
+        config = build_thinking_config(level)
+        assert config is not None
+        # SDK normalizes string to ThinkingLevel enum (e.g. "low" -> ThinkingLevel.LOW)
+        assert config.thinking_level.name == level.upper()
+        assert config.include_thoughts is True
+
+    def test_case_insensitive(self):
+        """Levels are matched case-insensitively."""
+        for level in ["HIGH", "High", "hIgH"]:
+            config = build_thinking_config(level)
+            assert config is not None
+            assert config.include_thoughts is True
+
+    def test_invalid_level_returns_none(self):
+        """Invalid level strings return None."""
+        assert build_thinking_config("ultra") is None
+        assert build_thinking_config("off") is None
+        assert build_thinking_config("turbo") is None
+
+    def test_whitespace_stripped(self):
+        """Leading/trailing whitespace is stripped."""
+        config = build_thinking_config("  high  ")
+        assert config is not None
+        assert config.include_thoughts is True
+
+    def test_model_param_accepted(self):
+        """model parameter is accepted (reserved for future use)."""
+        config = build_thinking_config("high", model="gemini-3-pro-preview")
+        assert config is not None

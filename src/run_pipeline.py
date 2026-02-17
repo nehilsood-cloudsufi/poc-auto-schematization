@@ -47,6 +47,87 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
+# Per-attempt timeout (seconds). The total pipeline timeout is calculated as
+# (max_retries + 1) * PER_ATTEMPT_TIMEOUT. This scales with retry count —
+# a 3-retry run gets 45 min, a 2-retry run gets 30 min, a 1-retry run gets 15 min.
+PER_ATTEMPT_TIMEOUT = int(os.getenv("PER_ATTEMPT_TIMEOUT", "900"))  # 15 min default
+
+
+async def _run_pipeline_async(runner, user_id, session_id, user_message, events_out, pipeline_logger=None):
+    """Run the ADK pipeline using async API with proper MCP cleanup and stall detection.
+
+    Uses manual __anext__() instead of `async for` to control cleanup order:
+    1. Consume all events (with 300s stall detection)
+    2. Call runner.close() to tear down MCP connections (10s/toolset)
+    3. Close the generator (fast — MCP already gone)
+
+    A separate heartbeat task logs progress every 120s so logs are never
+    silent for long. The main event loop uses a 300s per-event timeout that
+    BREAKS on timeout (never continues) — this is critical because
+    asyncio.wait_for cancels the underlying coroutine, which corrupts the
+    async generator if reused.
+
+    Args:
+        events_out: Mutable list — events are appended here so they survive
+                    cancellation/timeout (the caller retains the reference).
+        pipeline_logger: Optional logger with per-dataset handlers. Falls back
+                         to the module-level logger if not provided.
+    """
+    _log = pipeline_logger or logger
+    gen = runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=user_message,
+    )
+
+    # Heartbeat task: logs progress every 120s so logs are never silent
+    async def _heartbeat():
+        while True:
+            await asyncio.sleep(120)
+            _log.info("Heartbeat: %d events collected so far.", len(events_out))
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+    try:
+        while True:
+            try:
+                # 300s per-event timeout: detect genuine stalls.
+                # IMPORTANT: Do NOT reduce this timeout or add `continue` after
+                # TimeoutError — asyncio.wait_for cancels gen.__anext__() on
+                # timeout, which corrupts the async generator's internal state.
+                event = await asyncio.wait_for(gen.__anext__(), timeout=300)
+                events_out.append(event)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                _log.warning(
+                    "No event received in 300s (%d events so far). "
+                    "Pipeline may be stalled — breaking event loop.",
+                    len(events_out),
+                )
+                break
+            except Exception as e:
+                _log.error(
+                    "Unexpected error from event stream (%d events so far): %s",
+                    len(events_out), e,
+                )
+                break
+
+        _log.info("Event consumption done (%d total). Closing runner...", len(events_out))
+        try:
+            await asyncio.wait_for(runner.close(), timeout=30)
+            _log.info("Runner closed successfully.")
+        except (asyncio.TimeoutError, Exception) as e:
+            _log.warning("Runner close failed (non-fatal): %s", e)
+    finally:
+        heartbeat_task.cancel()
+        # Close the async generator. MCP connections are already torn down
+        # by runner.close(), so this should complete quickly.
+        try:
+            await asyncio.wait_for(gen.aclose(), timeout=15)
+        except (asyncio.TimeoutError, Exception) as e:
+            _log.warning("Generator close error (non-fatal): %s", e)
+
+
 # MCP integration (optional)
 try:
     from src.data_commons.api.mcp_server_manager import MCPServerManager
@@ -469,37 +550,87 @@ def run_dataset_pipeline(
 
     # Run pipeline
     try:
-        # Step 1: Create session with initial state BEFORE running
-        async def create_session_with_state():
-            session = await runner.session_service.create_session(
-                app_name="agents",
-                user_id="pipeline_user",
-                state=initial_state,
-                session_id=session_id
-            )
-            return session
-
-        asyncio.run(create_session_with_state())
-        logger.info(f"Session created with initial state, current_dataset set")
-
-        # Step 2: Run the pipeline with the prepared session
-        # Top-level safety net: if all genai-level retries are exhausted and the
-        # error still escapes, sleep 60s and retry the entire pipeline run.
+        # Use runner.run_async() instead of runner.run() to avoid the sync
+        # wrapper's asyncio.run() shutdown hang when MCP connections are active.
+        # See ADK docs: "Consider using run_async for production usage."
         import time
         MAX_PIPELINE_RETRIES = 2
 
         user_message = types.Content(parts=[types.Part(text=f"Generate PVMAP for {dataset_name}")])
-        events = []
+        events = []  # Shared mutable list — survives timeout
+
+        # Dynamic timeout: scales with retry count
+        pipeline_timeout = (max_retries + 1) * PER_ATTEMPT_TIMEOUT
+        logger.info("Pipeline timeout: %ds (%d attempts x %ds)",
+                     pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT)
+
+        async def _create_session_and_run():
+            # Create session with initial state
+            await runner.session_service.create_session(
+                app_name="agents",
+                user_id="pipeline_user",
+                state=initial_state,
+                session_id=session_id,
+            )
+            logger.info("Session created with initial state, current_dataset set")
+
+            # Run pipeline with dynamic timeout (safety net).
+            # On normal completion, runner.close() already ran inside
+            # _run_pipeline_async. The finally block handles the timeout case.
+            try:
+                await asyncio.wait_for(
+                    _run_pipeline_async(
+                        runner, "pipeline_user", session_id, user_message, events,
+                        pipeline_logger=logger,
+                    ),
+                    timeout=pipeline_timeout,
+                )
+            except asyncio.CancelledError:
+                logger.warning("Pipeline task was cancelled (%d events collected).", len(events))
+            finally:
+                # Belt-and-suspenders: close runner for timeout case.
+                # On normal completion, runner.close() already ran inside
+                # _run_pipeline_async — calling it again is idempotent.
+                # On timeout, this is the only cleanup that runs (the cancelled
+                # task's runner.close() gets CancelledError).
+                try:
+                    await asyncio.wait_for(runner.close(), timeout=30)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+                    logger.warning("Runner cleanup in finally (non-fatal): %s", e)
 
         for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
             try:
-                for event in runner.run(
-                    user_id="pipeline_user",
-                    session_id=session_id,
-                    new_message=user_message
-                ):
-                    events.append(event)
+                # Use explicit event loop instead of asyncio.run() to avoid
+                # shutdown_asyncgens/shutdown_default_executor deadlocks when
+                # MCP connections are open in daemon threads.
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(_create_session_and_run())
+                finally:
+                    # Cancel pending tasks but skip shutdown_asyncgens
+                    # (which deadlocks when MCP connections are open).
+                    try:
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(
+                                asyncio.gather(*pending, return_exceptions=True)
+                            )
+                    except Exception as e:
+                        logger.warning("Event loop cleanup error (non-fatal): %s", e)
+                    finally:
+                        loop.close()
                 break  # Success — exit retry loop
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Pipeline timed out after %ds (%d attempts x %ds). "
+                    "Collected %d events before timeout.",
+                    pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT,
+                    len(events),
+                )
+                break  # Timeout = proceed to artifact check, don't retry
             except Exception as e:
                 err_str = str(e)
                 is_transient = any(s in err_str for s in [
@@ -512,7 +643,7 @@ def run_dataset_pipeline(
                         pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
                     )
                     time.sleep(60)
-                    events.clear()  # Reset for retry
+                    events.clear()
                 else:
                     raise
 

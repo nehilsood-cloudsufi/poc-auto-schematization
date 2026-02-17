@@ -165,6 +165,7 @@ def _launch_pipeline():
         human_feedback=st.session_state.get("human_feedback"),
         min_attempts=MIN_PIPELINE_ATTEMPTS,
         max_retries=st.session_state.get("max_retries", DEFAULT_MAX_RETRIES),
+        thinking_level="high",
     )
 
     logger.info(
@@ -219,14 +220,6 @@ with st.sidebar:
 
     # ── Configuration ───────────────────────────────────────────
     st.subheader("Configuration")
-
-    model = st.selectbox(
-        "Model",
-        ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
-        index=0,
-        key="model_selector",
-    )
-    st.session_state["model"] = model
 
     col_retries, col_mcp = st.columns(2)
     with col_retries:

@@ -180,13 +180,17 @@ class FilteredLogs:
             if self.statvars_with_obs:
                 lines.append("")
                 lines.append("### StatVars WITH observations (producing data):")
-                for sv_name, count in self.statvars_with_obs:
+                for sv_name, count in self.statvars_with_obs[:40]:
                     lines.append(f"- {sv_name}: {count} observations")
+                if len(self.statvars_with_obs) > 40:
+                    lines.append(f"  ... and {len(self.statvars_with_obs) - 40} more")
             if self.dropped_statvars:
                 lines.append("")
                 lines.append("### StatVars DROPPED (generated but 0 observations — wasted PVMAP rows):")
-                for sv_name in self.dropped_statvars:
+                for sv_name in self.dropped_statvars[:40]:
                     lines.append(f"- {sv_name} (0 observations)")
+                if len(self.dropped_statvars) > 40:
+                    lines.append(f"  ... and {len(self.dropped_statvars) - 40} more")
                 lines.append("These PVMAP rows should be fixed (wrong key name?) or removed to reduce noise.")
 
         # Unresolved placeholder references
@@ -195,8 +199,11 @@ class FilteredLogs:
             lines.append("")
             lines.append("## Unresolved Placeholder References")
             lines.append("Placeholders that failed to resolve during cell value processing:")
-            for ref_name, count in sorted(self.unresolved_refs.items(), key=lambda x: -x[1]):
+            sorted_refs = sorted(self.unresolved_refs.items(), key=lambda x: -x[1])
+            for ref_name, count in sorted_refs[:30]:
                 lines.append(f"- [{ref_name.upper()}] template failed to resolve: {count} times")
+            if len(sorted_refs) > 30:
+                lines.append(f"  ... and {len(sorted_refs) - 30} more")
             lines.append(f"Total unresolved: {total_unresolved}")
 
         # Place resolution failures
@@ -211,13 +218,18 @@ class FilteredLogs:
                 )
                 lines.append("")
                 lines.append("### StatVars affected by place resolution failures:")
-                for sv_name, count in sorted(self.place_failure_statvars.items(), key=lambda x: -x[1]):
+                sorted_pf = sorted(self.place_failure_statvars.items(), key=lambda x: -x[1])
+                for sv_name, count in sorted_pf[:30]:
                     lines.append(f"- {sv_name}: {count} observations dropped")
+                if len(sorted_pf) > 30:
+                    lines.append(f"  ... and {len(sorted_pf) - 30} more")
             if self.missing_place_statvars:
                 lines.append("")
                 lines.append("### StatVars with NO observationAbout mapping at all:")
-                for sv_name, count in self.missing_place_statvars:
+                for sv_name, count in self.missing_place_statvars[:30]:
                     lines.append(f"- {sv_name}: {count} observations missing place")
+                if len(self.missing_place_statvars) > 30:
+                    lines.append(f"  ... and {len(self.missing_place_statvars) - 30} more")
             lines.append("")
             lines.append(
                 "Place resolution pipeline: already-DCID check -> PVMAP lookup -> Maps API."
@@ -227,7 +239,7 @@ class FilteredLogs:
                 "with raw names instead of FIPS codes or DCIDs."
             )
 
-        # Top unmatched input values
+        # Top unmatched input values (limit to top 20 to prevent token overflow)
         if self.top_missing_keys:
             total_missing = sum(c for _, c in self.top_missing_keys)
             lines.append("")
@@ -237,13 +249,16 @@ class FilteredLogs:
                 "(exact -> case-insensitive -> alphanumeric-only -> n-gram fragments -> substring) "
                 "and STILL didn't match any PVMAP key."
             )
-            lines.append(f"Total unmatched: {total_missing:,} values")
+            lines.append(f"Total unmatched: {total_missing:,} values ({len(self.top_missing_keys):,} unique)")
             lines.append("")
-            lines.append("### By frequency:")
-            for val, count in self.top_missing_keys:
+            lines.append("### By frequency (top 40):")
+            for val, count in self.top_missing_keys[:40]:
                 pattern_type = _classify_value(val)
                 pattern_label = f" ({pattern_type.upper()} pattern)" if pattern_type != 'unknown' else ""
                 lines.append(f"- '{val}': {count:,} occurrences{pattern_label}")
+            if len(self.top_missing_keys) > 40:
+                remaining = len(self.top_missing_keys) - 40
+                lines.append(f"  ... and {remaining:,} more unique values")
 
         # Value pattern analysis (existing)
         if self.unmapped_value_patterns:
@@ -623,8 +638,9 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
             value_counts[val] += count
         result.top_unmapped_values = value_counts.most_common(20)
 
-        # (f) Top missing keys — full sorted list
-        result.top_missing_keys = value_counts.most_common()
+        # (f) Top missing keys — limit to top 100 to prevent memory/token overflow
+        # (full list can have 300K+ entries for wide datasets)
+        result.top_missing_keys = value_counts.most_common(100)
 
     return result
 

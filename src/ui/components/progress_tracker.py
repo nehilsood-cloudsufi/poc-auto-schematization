@@ -71,13 +71,24 @@ def render_progress(progress_queue: queue.Queue):
     if drained:
         logger.debug("Drained %d events from progress queue (total: %d)", drained, len(events))
 
-    # Collect completed agent names
+    # Collect completed agent names and track current attempt
     completed_agents: set[str] = set()
+    current_attempt = 0
+    max_attempts = 0
     attempt_msg = None
     for event in events:
         completed_agents.add(event.agent_name)
         if "attempt" in event.message.lower():
             attempt_msg = event.message
+        # Track attempt number from event metadata
+        evt_attempt = event.metadata.get("attempt", 0) if event.metadata else 0
+        if evt_attempt > current_attempt:
+            current_attempt = evt_attempt
+            # Reset completed set for new attempt so phases show fresh
+            completed_agents = {event.agent_name}
+        # Track max attempt seen
+        if evt_attempt > max_attempts:
+            max_attempts = evt_attempt
 
     # Build ordered phase list (include MCP phases only if seen)
     phases = list(_PIPELINE_PHASES)
@@ -110,7 +121,12 @@ def render_progress(progress_queue: queue.Queue):
         else:
             st.success(f"Pipeline complete in {elapsed_str}")
     else:
-        title = attempt_msg if attempt_msg else "Pipeline running..."
+        if current_attempt > 0:
+            title = f"Attempt {current_attempt + 1} — Pipeline running..."
+        elif attempt_msg:
+            title = attempt_msg
+        else:
+            title = "Pipeline running..."
         st.markdown(f"**{title}** &nbsp; | &nbsp; Elapsed: {elapsed_str}")
 
     # Progress bar

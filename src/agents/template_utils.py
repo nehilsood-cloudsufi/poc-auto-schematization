@@ -141,11 +141,27 @@ def prepare_state_for_templating(ctx, state_keys: list[str]) -> None:
 def build_thinking_config(thinking_level: Optional[str] = None, model: Optional[str] = None):
     """Build a ThinkingConfig from a string level, or return None.
 
-    Thinking is currently disabled across the pipeline to avoid
-    compatibility issues with models that don't support it (e.g.
-    gemini-2.5-flash). Always returns None.
+    Args:
+        thinking_level: One of "low", "medium", "high", "minimal", or None/"none" to disable.
+        model: Reserved for future per-model gating (currently unused).
+
+    Returns:
+        A google.genai.types.ThinkingConfig with include_thoughts=True, or None.
     """
-    return None
+    if not thinking_level or thinking_level.strip().lower() == "none":
+        return None
+
+    from google.genai import types as genai_types
+
+    level = thinking_level.strip().lower()
+    valid_levels = {"low", "medium", "high", "minimal"}
+    if level not in valid_levels:
+        return None
+
+    return genai_types.ThinkingConfig(
+        thinking_level=level,
+        include_thoughts=True,
+    )
 
 
 # ============================================================================

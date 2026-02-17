@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import logging
+import re
 
 from pydantic import PrivateAttr
 
@@ -53,6 +54,314 @@ from src.agents.template_utils import escape_pvmap_placeholders
 from src.tools.evaluation_tools import find_ground_truth_pvmaps
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Compaction functions for token overflow prevention
+# ============================================================================
+
+# Regex to match section headers like "## 1. ...", "## 1.5 ...", "## 9. ..."
+# Handles both "## N. TEXT" (trailing period) and "## N.M TEXT" (no trailing period)
+_SECTION_HEADER_RE = re.compile(r'^##\s+(\d+\.?\d*)[.\s]')
+
+# Sections to DROP entirely in feedback compaction (generation-only content)
+_FEEDBACK_DROP_SECTIONS = {"6", "7", "9"}
+
+# Sections to COMPACT in feedback (reduce detail level)
+_FEEDBACK_COMPACT_SECTIONS = {"1.5", "4"}
+
+
+def _split_skeleton_sections(skeleton: str) -> list[tuple[str, str]]:
+    """Split skeleton_summary into (section_id, section_text) pairs.
+
+    Returns list of tuples: [("header", preamble_text), ("1", section1_text), ...]
+    The first element captures any text before the first ## header.
+    """
+    sections = []
+    current_id = "header"
+    current_lines: list[str] = []
+
+    for line in skeleton.split('\n'):
+        m = _SECTION_HEADER_RE.match(line)
+        if m:
+            # Save previous section
+            sections.append((current_id, '\n'.join(current_lines)))
+            current_id = m.group(1).rstrip('.')  # Normalize: "6." → "6", "1.5" → "1.5"
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+
+    # Save last section
+    sections.append((current_id, '\n'.join(current_lines)))
+    return sections
+
+
+def _compact_column_reference_table(section_text: str, max_samples: int = 2) -> str:
+    """Compact Section 1.5 by reducing sample values per column.
+
+    Keeps column name, type, cardinality but reduces sample values from 5 to max_samples.
+    """
+    lines = section_text.split('\n')
+    result = []
+    for line in lines:
+        # Match markdown table data rows (start with |, not header separators)
+        if line.startswith('|') and '---' not in line:
+            parts = [p.strip() for p in line.split('|')]
+            # parts: ['', col, type, cardinality, samples, '']
+            if len(parts) >= 6:
+                samples_str = parts[4]
+                # Trim samples to max_samples values
+                sample_vals = [s.strip() for s in samples_str.split(',')]
+                if len(sample_vals) > max_samples:
+                    trimmed = ', '.join(sample_vals[:max_samples])
+                    parts[4] = f"{trimmed}, ..."
+                    line = '| ' + ' | '.join(parts[1:-1]) + ' |'
+        result.append(line)
+    return '\n'.join(result)
+
+
+def _compact_dimension_section(section_text: str, max_values: int = 5) -> str:
+    """Compact Section 4 by reducing dimension value lists and dropping aggregate flags.
+
+    Keeps dimension names and counts but reduces value lists to max_values.
+    Drops aggregate value warning lines.
+    """
+    lines = section_text.split('\n')
+    result = []
+    for line in lines:
+        # Drop aggregate warning lines
+        if '⚠ Aggregate values detected' in line:
+            continue
+        # Compact dimension value lists: - **`dim`** (N values): [v1, v2, ...]
+        if line.strip().startswith('- **`') and 'values):' in line:
+            # Find the bracket content
+            bracket_start = line.find('[')
+            bracket_end = line.rfind(']')
+            if bracket_start >= 0 and bracket_end > bracket_start:
+                values_str = line[bracket_start + 1:bracket_end]
+                values = [v.strip() for v in values_str.split(',')]
+                # Check for existing "... (N total)" suffix
+                clean_values = []
+                total_hint = ""
+                for v in values:
+                    if v.startswith('...'):
+                        total_hint = v
+                    else:
+                        clean_values.append(v)
+                if len(clean_values) > max_values:
+                    trimmed = ', '.join(clean_values[:max_values])
+                    total = total_hint if total_hint else f"... ({len(clean_values)} total)"
+                    line = line[:bracket_start + 1] + trimmed + ', ' + total + ']'
+        result.append(line)
+    return '\n'.join(result)
+
+
+def _compact_skeleton_for_feedback(skeleton: str) -> str:
+    """Compact skeleton_summary for feedback agent token budget.
+
+    Strategy: keep diagnostic core, drop generation-only content.
+    - KEEP: Sections 1, 2, 3, 5, 8 (topology, classifications, anchors, measurements, DC detection)
+    - COMPACT: Section 1.5 (samples 5→2), Section 4 (values 15→5, drop aggregates)
+    - DROP: Section 6 (StatVar pattern), Section 7 (one-shot example), Section 9 (coverage)
+
+    Expected reduction: ~60-70% for wide datasets.
+    """
+    if not skeleton or len(skeleton) < 5000:
+        return skeleton
+
+    sections = _split_skeleton_sections(skeleton)
+    result_parts = []
+
+    for sec_id, sec_text in sections:
+        if sec_id in _FEEDBACK_DROP_SECTIONS:
+            continue  # Drop sections 6, 7, 9
+        elif sec_id == "1.5":
+            result_parts.append(_compact_column_reference_table(sec_text, max_samples=2))
+        elif sec_id == "4":
+            result_parts.append(_compact_dimension_section(sec_text, max_values=5))
+        else:
+            result_parts.append(sec_text)
+
+    return '\n'.join(result_parts)
+
+
+def _compact_skeleton_for_generator(skeleton: str, budget: int = 40000) -> str:
+    """Less aggressive compaction for generator, only when skeleton exceeds budget.
+
+    Strategy: preserve all sections but trim verbose content.
+    - Section 1.5: Reduce samples 5→3
+    - Section 4: Reduce values 15→8
+    - All other sections: KEEP unchanged
+
+    Expected reduction: ~30-40% when triggered.
+    """
+    if not skeleton or len(skeleton) <= budget:
+        return skeleton
+
+    sections = _split_skeleton_sections(skeleton)
+    result_parts = []
+
+    for sec_id, sec_text in sections:
+        if sec_id == "1.5":
+            result_parts.append(_compact_column_reference_table(sec_text, max_samples=3))
+        elif sec_id == "4":
+            result_parts.append(_compact_dimension_section(sec_text, max_values=8))
+        else:
+            result_parts.append(sec_text)
+
+    compacted = '\n'.join(result_parts)
+
+    # If still over budget after section compaction, truncate from the end
+    # but preserve the first section (topology/headers) and last few lines
+    if len(compacted) > budget:
+        compacted = compacted[:budget] + "\n\n[skeleton truncated for token budget]"
+
+    return compacted
+
+
+def _compact_vocab_for_feedback(vocab_content: str) -> str:
+    """Compact schema_vocab_content for feedback agent token budget.
+
+    Strategy: keep property structure, compact enum lists, drop examples.
+    - StatVar Skeletons: KEEP (short, critical)
+    - VALID ENUM VALUES: COMPACT — property names + first 3 values + count
+    - Representative examples: DROP (generation-only)
+    - Schema.org context: KEEP (short, useful)
+
+    Expected reduction: ~50-75%.
+    """
+    if not vocab_content or len(vocab_content) < 3000:
+        return vocab_content
+
+    lines = vocab_content.split('\n')
+    result = []
+    in_examples = False
+    in_enums = False
+
+    for line in lines:
+        # Detect section transitions
+        if '**Representative examples' in line:
+            in_examples = True
+            in_enums = False
+            continue
+        if 'Schema.org base:' in line:
+            in_examples = False
+            result.append(line)
+            continue
+        if '**VALID ENUM VALUES' in line:
+            in_enums = True
+            in_examples = False
+            result.append(line)
+            continue
+        if in_enums and line.startswith('**') and 'VALID ENUM' not in line:
+            # Next bold section after enums
+            in_enums = False
+
+        # Drop example lines
+        if in_examples:
+            continue
+
+        # Compact enum lines: "- property: val1, val2, val3, ..." → first 3 + count
+        if in_enums and line.startswith('- ') and ':' in line:
+            colon_idx = line.index(':')
+            prop_name = line[:colon_idx + 1]
+            values_str = line[colon_idx + 1:].strip()
+            values = [v.strip() for v in values_str.split(',')]
+            # Strip "... (N total)" suffix if present
+            clean_values = [v for v in values if not v.startswith('...')]
+            if len(clean_values) > 3:
+                trimmed = ', '.join(clean_values[:3])
+                result.append(f"{prop_name} {trimmed}, ... ({len(clean_values)} total)")
+            else:
+                result.append(line)
+            continue
+
+        result.append(line)
+
+    return '\n'.join(result)
+
+
+def _compact_vocab_for_generator(vocab_content: str, budget: int = 15000) -> str:
+    """Less aggressive vocab compaction for generator, only when over budget.
+
+    Strategy: trim enum values from up to 30 to 10, keep examples.
+    """
+    if not vocab_content or len(vocab_content) <= budget:
+        return vocab_content
+
+    lines = vocab_content.split('\n')
+    result = []
+    in_enums = False
+
+    for line in lines:
+        if '**VALID ENUM VALUES' in line:
+            in_enums = True
+            result.append(line)
+            continue
+        if in_enums and line.startswith('**') and 'VALID ENUM' not in line:
+            in_enums = False
+
+        # Compact enum lines to 10 values
+        if in_enums and line.startswith('- ') and ':' in line:
+            colon_idx = line.index(':')
+            prop_name = line[:colon_idx + 1]
+            values_str = line[colon_idx + 1:].strip()
+            values = [v.strip() for v in values_str.split(',')]
+            clean_values = [v for v in values if not v.startswith('...')]
+            if len(clean_values) > 10:
+                trimmed = ', '.join(clean_values[:10])
+                result.append(f"{prop_name} {trimmed}, ... ({len(clean_values)} total)")
+            else:
+                result.append(line)
+            continue
+
+        result.append(line)
+
+    compacted = '\n'.join(result)
+    if len(compacted) > budget:
+        compacted = compacted[:budget] + "\n\n[schema vocab truncated for token budget]"
+    return compacted
+
+
+class GeneratorWrapperAgent(BaseAgent):
+    """Wrapper that creates a fresh Generator per iteration.
+
+    This ensures MCP toolset SSE connections are fresh each time,
+    preventing stale connection hangs on retry attempts. The old
+    Generator (and its MCP connection) goes out of scope at the
+    end of each iteration and is cleaned up by GC.
+
+    This matches the pattern used by StatVarDiscoveryAgent, which
+    also creates a fresh agent per invocation and never hangs.
+    """
+
+    _generator_kwargs: dict = PrivateAttr(default_factory=dict)
+    _use_structured_output: bool = PrivateAttr(default=True)
+
+    def __init__(
+        self,
+        name: str = "Generator",
+        use_structured_output: bool = True,
+        **generator_kwargs,
+    ):
+        super().__init__(name=name)
+        self._generator_kwargs = generator_kwargs
+        self._use_structured_output = use_structured_output
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        if self._use_structured_output:
+            generator = create_pvmap_generator(name=self.name, **self._generator_kwargs)
+        else:
+            from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
+            generator = create_pvmap_generator_without_schema(
+                name=self.name,
+                model=self._generator_kwargs.get("model", "gemini-3-pro-preview"),
+                thinking_level=self._generator_kwargs.get("thinking_level"),
+            )
+        async for event in generator.run_async(ctx):
+            yield event
 
 
 class StatePreparationAgent(BaseAgent):
@@ -471,47 +780,71 @@ class StatePreparationAgent(BaseAgent):
         try:
             template = template_path.read_text(encoding="utf-8")
 
-            # Populate double-brace template placeholders with state values
-            populated = template.replace(
-                "{{DATA_CONTEXT}}",
-                ctx.session.state.get("skeleton_summary", "")
+            # =================================================================
+            # Budget-based allocation: compact large components BEFORE injection
+            # so that error_feedback is NEVER silently truncated on retries.
+            # =================================================================
+            MAX_PROMPT_CHARS = 120000
+
+            skeleton = ctx.session.state.get("skeleton_summary", "")
+            schema_ex = ctx.session.state.get("schema_examples", "")
+            sampled = ctx.session.state.get("sampled_data", "")
+            error_fb = ctx.session.state.get("error_feedback", "")
+            metadata = ctx.session.state.get("metadata", "")
+            statvar_summary = ctx.session.state.get("statvar_summary", "")
+            mcp_instruction = ctx.session.state.get("mcp_tools_instruction", "")
+
+            # Reserve space for template text + smaller/fixed sections + error_feedback
+            reserved = (
+                len(template) + len(error_fb) + len(metadata)
+                + len(statvar_summary) + len(mcp_instruction) + 5000  # safety margin
             )
-            populated = populated.replace(
-                "{{SCHEMA_EXAMPLES}}",
-                ctx.session.state.get("schema_examples", "")
+            remaining = max(MAX_PROMPT_CHARS - reserved, 30000)
+
+            # Allocate remaining budget: 50% skeleton, 25% schema, 25% sampled data
+            skeleton_budget = int(remaining * 0.50)
+            schema_budget = int(remaining * 0.25)
+            sampled_budget = int(remaining * 0.25)
+
+            # Compact if over budget (originals in state are NOT modified)
+            if len(skeleton) > skeleton_budget:
+                skeleton = _compact_skeleton_for_generator(skeleton, skeleton_budget)
+            if len(schema_ex) > schema_budget:
+                schema_ex = _compact_vocab_for_generator(schema_ex, schema_budget)
+            if len(sampled) > sampled_budget:
+                sd_lines = sampled.split('\n')
+                kept = [sd_lines[0]] if sd_lines else []  # header
+                total = len(kept[0]) if kept else 0
+                for line in sd_lines[1:]:
+                    if total + len(line) + 1 > sampled_budget:
+                        break
+                    kept.append(line)
+                    total += len(line) + 1
+                sampled = '\n'.join(kept)
+
+            logger.info(
+                "Prompt budget: skeleton=%d, schema=%d, sampled=%d, feedback=%d, reserved=%d",
+                len(skeleton), len(schema_ex), len(sampled), len(error_fb), reserved,
             )
-            populated = populated.replace(
-                "{{SAMPLED_DATA}}",
-                ctx.session.state.get("sampled_data", "")
-            )
-            populated = populated.replace(
-                "{{METADATA_CONFIG}}",
-                ctx.session.state.get("metadata", "")
-            )
-            populated = populated.replace(
-                "{{ERROR_FEEDBACK}}",
-                ctx.session.state.get("error_feedback", "")
-            )
-            populated = populated.replace(
-                "{{STATVAR_SUMMARY}}",
-                ctx.session.state.get("statvar_summary", "")
-            )
-            populated = populated.replace(
-                "{{MCP_TOOLS_INSTRUCTION}}",
-                ctx.session.state.get("mcp_tools_instruction", "")
-            )
+
+            # Populate double-brace template placeholders with (possibly compacted) values
+            populated = template.replace("{{DATA_CONTEXT}}", skeleton)
+            populated = populated.replace("{{SCHEMA_EXAMPLES}}", schema_ex)
+            populated = populated.replace("{{SAMPLED_DATA}}", sampled)
+            populated = populated.replace("{{METADATA_CONFIG}}", metadata)
+            populated = populated.replace("{{ERROR_FEEDBACK}}", error_fb)
+            populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
+            populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
 
             # Escape ALL {word} patterns to prevent ADK template resolution.
             # This converts {Data}→[DATA], {Number}→[NUMBER], {Year}→[Year], etc.
             # The escape is idempotent (already-escaped [WORD] content is unaffected).
             populated = escape_pvmap_placeholders(populated)
 
-            # Cap total prompt size to prevent exceeding model context limits.
-            # 120K chars ≈ 30K tokens — leaves room for output + tool defs.
-            MAX_PROMPT_CHARS = 120000
+            # Last-resort cap (should rarely trigger after budget allocation)
             if len(populated) > MAX_PROMPT_CHARS:
                 logger.warning(
-                    "Populated prompt exceeds budget: %d chars (max %d). Truncating.",
+                    "Populated prompt still exceeds budget after compaction: %d chars (max %d). Truncating.",
                     len(populated), MAX_PROMPT_CHARS,
                 )
                 populated = populated[:MAX_PROMPT_CHARS] + (
@@ -705,6 +1038,10 @@ class MCPErrorResolverAgent(BaseAgent):
             )
 
 
+# Keys whose originals are saved before feedback compaction and restored after
+_FEEDBACK_RESTORE_KEYS = ["skeleton_summary", "schema_vocab_content", "sampled_data"]
+
+
 class ConditionalFeedbackAgent(BaseAgent):
     """
     Unified conditional feedback agent that handles both validation failures
@@ -755,7 +1092,13 @@ class ConditionalFeedbackAgent(BaseAgent):
         if not validation_passed:
             # Path A: Validation failed — generate error feedback
             ctx.session.state["feedback_mode"] = "VALIDATION FAILED - Analyze errors and provide fixes"
+
+            # Save originals before compaction (restored in finally block)
+            saved = {k: ctx.session.state.get(k) for k in _FEEDBACK_RESTORE_KEYS
+                     if ctx.session.state.get(k) is not None}
+
             self._prepare_feedback_state(ctx)
+            self._trim_events_for_feedback(ctx)
 
             yield Event(
                 author=self.name,
@@ -777,6 +1120,10 @@ class ConditionalFeedbackAgent(BaseAgent):
                     ]),
                     actions=EventActions(escalate=False)
                 )
+            finally:
+                # Restore originals so next Generator iteration gets full context
+                for k, v in saved.items():
+                    ctx.session.state[k] = v
 
             # Log feedback preview
             error_feedback = ctx.session.state.get("error_feedback", "")
@@ -808,7 +1155,13 @@ class ConditionalFeedbackAgent(BaseAgent):
                     "QUALITY LOW - Validation passed but quality score below threshold. "
                     "Focus on structural issues: row coverage, column mappings, format."
                 )
+
+            # Save originals before compaction (restored in finally block)
+            saved = {k: ctx.session.state.get(k) for k in _FEEDBACK_RESTORE_KEYS
+                     if ctx.session.state.get(k) is not None}
+
             self._prepare_feedback_state(ctx)
+            self._trim_events_for_feedback(ctx)
 
             yield Event(
                 author=self.name,
@@ -830,6 +1183,10 @@ class ConditionalFeedbackAgent(BaseAgent):
                     ]),
                     actions=EventActions(escalate=False)
                 )
+            finally:
+                # Restore originals so next Generator iteration gets full context
+                for k, v in saved.items():
+                    ctx.session.state[k] = v
 
             # Log feedback preview
             error_feedback = ctx.session.state.get("error_feedback", "")
@@ -1032,25 +1389,93 @@ class ConditionalFeedbackAgent(BaseAgent):
             ctx.session.state["validation_counter_summary"] = "Processing metrics not available."
 
         # =====================================================================
-        # Cap large state variables for feedback instruction token budget.
+        # Compact large context variables for feedback token budget.
+        # Originals are saved/restored by _run_async_impl's finally block.
+        # =====================================================================
+        skeleton = ctx.session.state.get("skeleton_summary", "")
+        if skeleton and len(skeleton) > 5000:
+            ctx.session.state["skeleton_summary"] = _compact_skeleton_for_feedback(skeleton)
+
+        vocab = ctx.session.state.get("schema_vocab_content", "")
+        if vocab and len(vocab) > 3000:
+            ctx.session.state["schema_vocab_content"] = _compact_vocab_for_feedback(vocab)
+
+        # =====================================================================
+        # Cap per-iteration state variables for feedback instruction budget.
         # Per-iteration values (regenerated each attempt) are safe to truncate.
         # File-backed values (sampled_data) will be re-read by StatePrep.
-        # skeleton_summary and schema_vocab_content are NOT capped here because
-        # they're generated/loaded once and can't be recovered.
         # =====================================================================
         _FEEDBACK_CAPS = {
-            "pvmap_csv": 5000,
-            "validation_error": 3000,
-            "sampled_data": 3000,
-            "key_match_report": 2000,
-            "validation_statvar_analysis": 2000,
-            "quality_diff_summary": 2000,
-            "mcp_resolved_context": 2000,
+            "pvmap_csv": 3000,
+            "validation_error": 2000,
+            "validation_counter_summary": 2000,
+            "sampled_data": 2000,
+            "key_match_report": 1500,
+            "validation_statvar_analysis": 1500,
+            "quality_diff_summary": 1500,
+            "mcp_resolved_context": 1500,
+            "structure_warnings": 1500,
         }
         for key, max_chars in _FEEDBACK_CAPS.items():
             val = ctx.session.state.get(key, "")
             if isinstance(val, str) and len(val) > max_chars:
                 ctx.session.state[key] = val[:max_chars] + "\n...[truncated]"
+
+        # =====================================================================
+        # Total instruction size guard (last-resort fallback).
+        # After compaction + per-variable caps, check total. If still over 30K,
+        # progressively truncate the largest remaining variables.
+        # =====================================================================
+        _FEEDBACK_STATE_KEYS = [
+            "skeleton_summary", "schema_vocab_content", "pvmap_csv",
+            "validation_error", "sampled_data", "key_match_report",
+            "validation_statvar_analysis", "quality_diff_summary",
+            "mcp_resolved_context", "validation_counter_summary",
+        ]
+        MAX_FEEDBACK_TOTAL = 30000
+        total = sum(len(ctx.session.state.get(k, "")) for k in _FEEDBACK_STATE_KEYS)
+        if total > MAX_FEEDBACK_TOTAL:
+            logger.warning(
+                "Feedback state total %d exceeds %d — applying progressive truncation",
+                total, MAX_FEEDBACK_TOTAL,
+            )
+            # Sort by size descending and truncate the largest until under budget
+            sized = sorted(
+                [(k, len(ctx.session.state.get(k, ""))) for k in _FEEDBACK_STATE_KEYS],
+                key=lambda x: x[1], reverse=True,
+            )
+            for key, size in sized:
+                if total <= MAX_FEEDBACK_TOTAL:
+                    break
+                # Cut the variable to half its current size
+                val = ctx.session.state.get(key, "")
+                if isinstance(val, str) and len(val) > 1000:
+                    new_size = max(len(val) // 2, 500)
+                    ctx.session.state[key] = val[:new_size] + "\n...[truncated for token budget]"
+                    total -= (len(val) - new_size)
+
+        logger.info(
+            "Feedback state sizes: skeleton=%d, vocab=%d, sampled=%d, total=%d",
+            len(ctx.session.state.get("skeleton_summary", "")),
+            len(ctx.session.state.get("schema_vocab_content", "")),
+            len(ctx.session.state.get("sampled_data", "")),
+            total,
+        )
+
+    def _trim_events_for_feedback(self, ctx: InvocationContext) -> None:
+        """Trim session events before feedback LLM call (defense in depth).
+
+        Prevents the feedback agent from receiving excessively long event history
+        which can push the total context over model limits.
+        """
+        try:
+            events = ctx.session.events
+            if len(events) > 10:
+                orig = len(events)
+                del events[:-10]
+                logger.info("Pre-feedback event trim: %d -> %d", orig, len(events))
+        except Exception as e:
+            logger.warning("Pre-feedback event trim failed: %s", e)
 
     def _format_metrics(self, metrics: dict) -> str:
         """Format quality metrics dict as readable string."""
@@ -1416,17 +1841,14 @@ def create_pvmap_retry_loop(
     # Create sub-agents
     state_prep = StatePreparationAgent(name="StatePrep")
 
-    if use_structured_output:
-        generator = create_pvmap_generator(
-            model=model, name="Generator",
-            enable_mcp=enable_mcp, mcp_url=mcp_url,
-            thinking_level=thinking_level,
-        )
-    else:
-        from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
-        generator = create_pvmap_generator_without_schema(
-            model=model, name="Generator", thinking_level=thinking_level,
-        )
+    generator = GeneratorWrapperAgent(
+        name="Generator",
+        use_structured_output=use_structured_output,
+        model=model,
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
+        thinking_level=thinking_level,
+    )
 
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
@@ -1467,8 +1889,8 @@ def create_pvmap_retry_loop(
 
     sub_agents.extend([
         quality_evaluator,
-        unified_feedback,
         max_retries_check,
+        unified_feedback,
     ])
 
     # Create loop agent
@@ -1489,6 +1911,7 @@ def create_pvmap_retry_loop(
 
 __all__ = [
     'create_pvmap_retry_loop',
+    'GeneratorWrapperAgent',
     'StatePreparationAgent',
     'ConditionalFeedbackAgent',
     'MCPErrorResolverAgent',

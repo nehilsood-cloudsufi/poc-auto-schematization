@@ -25,11 +25,6 @@ from google.adk.agents import LlmAgent
 from src.agents.prompt_loader import load_prompt
 from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import build_thinking_config
-from src.tools.schemaorg_tools import (
-    lookup_schemaorg_property,
-    search_schemaorg_vocabulary,
-    validate_pvmap_property,
-)
 
 
 # ============================================================================
@@ -81,25 +76,23 @@ def create_feedback_agent(
     model = os.getenv("FEEDBACK_AGENT_MODEL", model)
     logger.info("Creating FeedbackAgent: model=%s", model)
 
+    from google.genai import types
+
     kwargs = dict(
         name=name,
         model=create_resilient_model(model),
         instruction=FEEDBACK_AGENT_INSTRUCTION,
         output_key="error_feedback",  # Generator reads this on retry
         include_contents="none",  # Prevent conversation history accumulation across loop iterations
-        tools=[
-            lookup_schemaorg_property,      # Verify property names before suggesting fixes
-            search_schemaorg_vocabulary,     # Find correct property names for "unknown property" errors
-            validate_pvmap_property,         # Check property-type compatibility before recommending
-        ],
+        # Schema.org tools removed: feedback agent only needs to analyze errors
+        # and produce concise guidance. The Generator has these tools for PVMAP creation.
     )
 
     thinking_config = build_thinking_config(thinking_level, model=model)
+    gen_config_kwargs = {"max_output_tokens": 1500}
     if thinking_config:
-        from google.genai import types
-        kwargs["generate_content_config"] = types.GenerateContentConfig(
-            thinking_config=thinking_config,
-        )
+        gen_config_kwargs["thinking_config"] = thinking_config
+    kwargs["generate_content_config"] = types.GenerateContentConfig(**gen_config_kwargs)
 
     return LlmAgent(**kwargs)
 

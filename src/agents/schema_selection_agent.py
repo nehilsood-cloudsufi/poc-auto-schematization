@@ -12,8 +12,10 @@ schema vocab and stores it in state for downstream PVMAP generation.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -37,7 +39,7 @@ _SCHEMA_SELECTION_INSTRUCTION = load_prompt("schema_selection_agent.txt")
 
 def create_schema_selection_agent(
     name: str = "SchemaSelectionAgent",
-    model: str = "gemini-2.5-pro"
+    model: Optional[str] = None,
 ) -> LlmAgent:
     """
     Create a SchemaSelectionAgent using LlmAgent with schema tools.
@@ -68,6 +70,7 @@ def create_schema_selection_agent(
         Configured LlmAgent ready to use
     """
 
+    model = model or os.getenv("SCHEMA_SELECTION_MODEL", "gemini-2.5-pro")
     logger.info("Creating SchemaSelectionAgent: model=%s, tools=%d", model, 5)
 
     return LlmAgent(

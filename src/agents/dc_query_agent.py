@@ -20,6 +20,7 @@ Usage:
 """
 
 import logging
+import os
 import re
 import sys
 import uuid
@@ -41,7 +42,7 @@ from src.agents.template_utils import sanitize_for_adk
 
 # DC query / MCP agents use a fast model with thinking disabled to reduce
 # latency on the many repeated tool-calling round-trips.
-_DC_AGENT_MODEL = "gemini-3-flash-preview"
+_DC_AGENT_MODEL = os.getenv("DC_AGENT_MODEL", "gemini-3-flash-preview")
 _NO_THINKING = genai_types.GenerateContentConfig(
     thinking_config=genai_types.ThinkingConfig(thinking_level="low"),
 )

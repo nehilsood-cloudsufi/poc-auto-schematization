@@ -43,8 +43,8 @@ class TestCreatePvmapRetryLoop:
             "MetadataGenerator",
             "Validator",
             "QualityEvaluator",
-            "UnifiedFeedback",
             "MaxRetriesCheck",
+            "UnifiedFeedback",
         ]
 
     def test_with_mcp_10_agents(self):
@@ -67,8 +67,8 @@ class TestCreatePvmapRetryLoop:
             "Validator",
             "MCPErrorResolver",
             "QualityEvaluator",
-            "UnifiedFeedback",
             "MaxRetriesCheck",
+            "UnifiedFeedback",
         ]
 
     def test_mcp_enabled_without_url_no_mcp_agents(self):

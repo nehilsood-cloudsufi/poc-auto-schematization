@@ -52,9 +52,18 @@ class ProgressTrackingPlugin(BasePlugin):
         """Capture agent completion events for progress tracking."""
         agent_name = agent.name
 
+        # Extract attempt number from session state for attempt-aware tracking
+        attempt = 0
+        try:
+            if hasattr(callback_context, "session") and callback_context.session:
+                attempt = callback_context.session.state.get("attempt_number", 0)
+        except Exception:
+            pass
+
         self._push(ProgressEvent(
             agent_name=agent_name,
             message=f"{agent_name} completed",
+            metadata={"attempt": attempt},
         ))
 
         return None
