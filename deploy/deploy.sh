@@ -20,7 +20,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu 2 \
   --memory 4Gi \
   --timeout 3600 \
-  --concurrency 1 \
+  --concurrency 80 \
   --min-instances 0 \
   --max-instances 3 \
   --session-affinity \
