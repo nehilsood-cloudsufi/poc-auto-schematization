@@ -187,7 +187,7 @@ def _render_csv_tab(fname: str, fpath: Path, output_dir: Path):
 
     col_save, col_download, _ = st.columns([1, 1, 4])
     with col_save:
-        if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
+        if st.button("Save", key=f"save_{fname}", use_container_width=True):
             try:
                 edited_df.to_csv(fpath, index=False)
                 logger.info("Saved edited CSV: %s", fpath, extra={"user_event": "file_save", "run_id": st.session_state.get("run_id", "")})
@@ -198,7 +198,7 @@ def _render_csv_tab(fname: str, fpath: Path, output_dir: Path):
     with col_download:
         csv_data = edited_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label=":material/download: Download",
+            label="Download",
             data=csv_data,
             file_name=fname,
             mime="text/csv",
@@ -224,7 +224,7 @@ def _render_text_tab(fname: str, fpath: Path, output_dir: Path):
 
     col_save, _ = st.columns([1, 5])
     with col_save:
-        if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
+        if st.button("Save", key=f"save_{fname}", use_container_width=True):
             try:
                 fpath.write_text(edited, encoding="utf-8")
                 logger.info("Saved edited text file: %s", fpath, extra={"user_event": "file_save", "run_id": st.session_state.get("run_id", "")})

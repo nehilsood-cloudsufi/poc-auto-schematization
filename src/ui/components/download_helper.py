@@ -38,11 +38,10 @@ def render_download_button(output_dir: Path, dataset_name: str):
     logger.debug("Rendering download button for %s", dataset_name)
 
     st.download_button(
-        label=":material/download: All Outputs (ZIP)",
+        label="All Outputs (ZIP)",
         data=zip_bytes,
         file_name=f"{dataset_name}_outputs.zip",
         mime="application/zip",
-        use_container_width=True,
     )
 
     files = sorted(output_dir.rglob("*"))

@@ -72,7 +72,7 @@ def render_feedback_form(output_dir: Path):
     with col3:
         st.write("")  # spacer for alignment
         rerun_clicked = st.button(
-            ":material/replay: Re-run",
+            "Re-run",
             type="primary",
             disabled=not feedback_text,
             use_container_width=True,

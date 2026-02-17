@@ -39,7 +39,7 @@ def render_file_upload():
             input_csv.seek(0)  # Reset after read
 
             with st.expander("Data Preview", expanded=True):
-                st.dataframe(df.head(10), use_container_width=True)
+                st.dataframe(df.head(10))
                 st.caption(f"{len(df)} rows x {len(df.columns)} columns")
             logger.info("CSV validated: %d rows x %d columns", len(df), len(df.columns))
 
@@ -68,10 +68,9 @@ def render_file_upload():
         )
     with btn_col:
         launch = st.button(
-            ":material/play_arrow: Generate PVMAP",
+            "Generate PVMAP",
             type="primary",
             disabled=input_csv is None,
-            use_container_width=True,
         )
 
     if launch:
