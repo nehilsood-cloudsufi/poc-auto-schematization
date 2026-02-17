@@ -32,7 +32,7 @@ class PipelineConfig:
     metadata_file_path: Optional[str] = None
     human_feedback: Optional[str] = None
     min_attempts: int = MIN_PIPELINE_ATTEMPTS
-    max_retries: int = 2
+    max_retries: int = 1
     prompt_version: str = "v2"
     use_schema_examples: bool = True
     thinking_level: Optional[str] = None

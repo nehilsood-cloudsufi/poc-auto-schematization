@@ -21,12 +21,17 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 HEADER_ROW = [
+    "timestamp",
     "run_id",
     "dataset_name",
-    "log_path",
+    "category",
     "feedback_text",
-    "feedback_category",
-    "timestamp",
+    "pipeline_status",
+    "quality_score",
+    "exit_reason",
+    "attempts",
+    "model",
+    "mcp_enabled",
 ]
 
 
@@ -60,9 +65,14 @@ def _ensure_header_row(worksheet) -> None:
 def append_feedback_to_sheet(
     run_id: str,
     dataset_name: str,
-    log_path: str,
     feedback_text: str,
     category: str,
+    pipeline_status: str = "",
+    quality_score: str = "",
+    exit_reason: str = "",
+    attempts: str = "",
+    model: str = "",
+    mcp_enabled: str = "",
 ) -> bool:
     """Append a feedback row to the configured Google Sheet.
 
@@ -81,12 +91,17 @@ def append_feedback_to_sheet(
         _ensure_header_row(worksheet)
 
         row = [
+            datetime.now().isoformat(),
             run_id,
             dataset_name,
-            log_path,
-            feedback_text,
             category,
-            datetime.now().isoformat(),
+            feedback_text,
+            pipeline_status,
+            quality_score,
+            exit_reason,
+            attempts,
+            model,
+            mcp_enabled,
         ]
         worksheet.append_row(row, value_input_option="RAW")
         logger.info("Appended feedback row to Google Sheet %s", sheet_id)

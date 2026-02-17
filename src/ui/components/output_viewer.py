@@ -107,7 +107,7 @@ def _handle_revalidation(files: dict, output_dir: Path):
     edited_pvmap = st.session_state.get("edited_generated_pvmap.csv")
     if edited_pvmap is not None:
         edited_pvmap.to_csv(pvmap_path, index=False)
-        logger.info("Saved edited PVMAP for revalidation: %s", pvmap_path)
+        logger.info("Saved edited PVMAP for revalidation: %s", pvmap_path, extra={"user_event": "revalidate", "run_id": st.session_state.get("run_id", "")})
 
     # Save edited metadata to disk (if present and edited)
     metadata_path = files.get("output_metadata.csv")
@@ -190,7 +190,7 @@ def _render_csv_tab(fname: str, fpath: Path, output_dir: Path):
         if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
             try:
                 edited_df.to_csv(fpath, index=False)
-                logger.info("Saved edited CSV: %s", fpath)
+                logger.info("Saved edited CSV: %s", fpath, extra={"user_event": "file_save", "run_id": st.session_state.get("run_id", "")})
                 st.toast(f"Saved {fname}")
             except Exception as e:
                 logger.error("Failed to save %s: %s", fname, e)
@@ -227,7 +227,7 @@ def _render_text_tab(fname: str, fpath: Path, output_dir: Path):
         if st.button(":material/save: Save", key=f"save_{fname}", use_container_width=True):
             try:
                 fpath.write_text(edited, encoding="utf-8")
-                logger.info("Saved edited text file: %s", fpath)
+                logger.info("Saved edited text file: %s", fpath, extra={"user_event": "file_save", "run_id": st.session_state.get("run_id", "")})
                 st.toast(f"Saved {fname}")
             except Exception as e:
                 logger.error("Failed to save %s: %s", fname, e)

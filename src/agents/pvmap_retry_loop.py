@@ -360,8 +360,21 @@ class GeneratorWrapperAgent(BaseAgent):
                 model=self._generator_kwargs.get("model", "gemini-3-pro-preview"),
                 thinking_level=self._generator_kwargs.get("thinking_level"),
             )
-        async for event in generator.run_async(ctx):
-            yield event
+        try:
+            async for event in generator.run_async(ctx):
+                yield event
+        finally:
+            # Explicit MCP tool cleanup — don't rely on GC
+            for tool in getattr(generator, "tools", []) or []:
+                close_fn = getattr(tool, "close", None)
+                if close_fn and callable(close_fn):
+                    try:
+                        import asyncio
+                        result = close_fn()
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception:
+                        pass  # Cleanup failures must not crash the loop
 
 
 class StatePreparationAgent(BaseAgent):

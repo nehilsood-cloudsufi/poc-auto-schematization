@@ -4,6 +4,7 @@ aiohttp==3.13.3
 aiosignal==1.4.0
 aiosqlite==0.22.1
 alembic==1.18.3
+altair==6.0.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 antlr4-python3-runtime==4.9.3
@@ -13,6 +14,7 @@ attrs==25.4.0
 authlib==1.6.6
 beartype==0.22.9
 beautifulsoup4==4.14.3
+blinker==1.9.0
 cachetools==6.2.4
 cattrs==25.3.0
 certifi==2026.1.4
@@ -51,6 +53,8 @@ gcsfs==2026.1.0
 geographiclib==2.1
 geojson==3.2.0
 geopy==2.4.1
+gitdb==4.0.12
+gitpython==3.1.46
 google-adk==1.24.0
 google-api-core==2.29.0
 google-api-python-client==2.188.0
@@ -101,6 +105,7 @@ iniconfig==2.3.0
 jaraco-classes==3.4.0
 jaraco-context==6.1.0
 jaraco-functools==4.4.0
+jinja2==3.1.6
 jsonref==1.1.0
 jsonschema==4.26.0
 jsonschema-path==0.3.4
@@ -116,6 +121,7 @@ mdurl==0.1.2
 mmh3==5.2.0
 more-itertools==10.8.0
 multidict==6.7.0
+narwhals==2.16.0
 numpy==2.4.1
 oauthlib==3.3.1
 omegaconf==2.3.0
@@ -135,6 +141,7 @@ packaging==25.0
 pandas==2.3.3
 pathable==0.4.4
 pathvalidate==3.3.1
+pillow==12.1.1
 platformdirs==4.5.1
 pluggy==1.6.0
 prettytable==3.17.0
@@ -153,6 +160,7 @@ pycparser==3.0
 pydantic==2.12.5
 pydantic-core==2.41.5
 pydantic-settings==2.12.0
+pydeck==0.9.1
 pydocket==0.17.5
 pygments==2.19.2
 pyjwt==2.11.0
@@ -185,6 +193,7 @@ s2sphere==0.2.5
 shapely==2.1.2
 shellingham==1.5.4
 six==1.17.0
+smmap==5.0.2
 sniffio==1.3.1
 sodapy==2.2.0
 sortedcontainers==2.4.0
@@ -194,7 +203,10 @@ sqlalchemy-spanner==1.17.2
 sqlparse==0.5.5
 sse-starlette==3.2.0
 starlette==0.50.0
+streamlit==1.54.0
 tenacity==9.1.3
+toml==0.10.2
+tornado==6.5.4
 tqdm==4.67.1
 typer==0.21.1
 typing-extensions==4.15.0

@@ -68,7 +68,6 @@ class TestAppendFeedback:
         result = append_feedback_to_sheet(
             run_id="r1",
             dataset_name="ds",
-            log_path="/tmp/logs/",
             feedback_text="bug found",
             category="Bug Report",
         )
@@ -87,21 +86,31 @@ class TestAppendFeedback:
         result = append_feedback_to_sheet(
             run_id="run-42",
             dataset_name="my_dataset",
-            log_path="/runs/42/logs/",
             feedback_text="The progress bar is stuck",
             category="UX Issue",
+            pipeline_status="complete",
+            quality_score="86.0",
+            exit_reason="quality_acceptable",
+            attempts="2",
+            model="gemini-3-pro-preview",
+            mcp_enabled="True",
         )
 
         assert result is True
         ws.append_row.assert_called_once()
         row = ws.append_row.call_args[0][0]
-        assert row[0] == "run-42"
-        assert row[1] == "my_dataset"
-        assert row[2] == "/runs/42/logs/"
-        assert row[3] == "The progress bar is stuck"
-        assert row[4] == "UX Issue"
-        # row[5] is timestamp — just check it's a non-empty string
-        assert len(row[5]) > 0
+        # row[0] is timestamp — just check it's a non-empty string
+        assert len(row[0]) > 0
+        assert row[1] == "run-42"
+        assert row[2] == "my_dataset"
+        assert row[3] == "UX Issue"
+        assert row[4] == "The progress bar is stuck"
+        assert row[5] == "complete"
+        assert row[6] == "86.0"
+        assert row[7] == "quality_acceptable"
+        assert row[8] == "2"
+        assert row[9] == "gemini-3-pro-preview"
+        assert row[10] == "True"
 
     @patch("src.ui.services.google_sheets_service._get_gspread_client")
     def test_returns_false_on_auth_failure(self, mock_client, monkeypatch):
@@ -111,7 +120,6 @@ class TestAppendFeedback:
         result = append_feedback_to_sheet(
             run_id="r1",
             dataset_name="ds",
-            log_path="/tmp/",
             feedback_text="oops",
             category="Bug Report",
         )
@@ -131,7 +139,6 @@ class TestAppendFeedback:
         result = append_feedback_to_sheet(
             run_id="r1",
             dataset_name="ds",
-            log_path="/tmp/",
             feedback_text="oops",
             category="Bug Report",
         )

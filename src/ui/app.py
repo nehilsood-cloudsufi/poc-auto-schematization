@@ -135,7 +135,10 @@ def _launch_pipeline():
 
     # Set up UI logging for this run
     setup_ui_logging(run_dir)
-    logger.info("Launching pipeline for dataset=%s, run_dir=%s", dataset_name, run_dir)
+    logger.info(
+        "Launching pipeline for dataset=%s, run_dir=%s", dataset_name, run_dir,
+        extra={"user_event": "pipeline_start", "run_id": st.session_state.get("run_id", ""), "dataset_name": dataset_name, "action": "upload_and_run"},
+    )
 
     # Handle MCP (DC MCP only — Schema.org uses local tools, no server needed)
     mcp_url = None
@@ -211,7 +214,7 @@ with st.sidebar:
 
     if status in ("complete", "error"):
         if st.button("New Run", use_container_width=True):
-            logger.info("User initiated New Run — resetting session state")
+            logger.info("User initiated New Run — resetting session state", extra={"user_event": "new_run", "action": "reset_session"})
             for key, default in _DEFAULTS.items():
                 st.session_state[key] = default
             st.rerun()
@@ -268,10 +271,10 @@ with st.sidebar:
         for run in runs[:10]:
             ts_short = run["timestamp"][:10] if run["timestamp"] else "?"
             passed = run["result"].get("validation_passed")
-            icon = ":material/check_circle:" if passed else ":material/cancel:"
+            icon = "\u2713" if passed else "\u2717"
             label = f"{icon} {run['dataset_name']} ({ts_short})"
             if st.button(label, key=f"hist_{run['run_id']}", use_container_width=True):
-                logger.info("Loading historical run: %s", run["run_id"])
+                logger.info("Loading historical run: %s", run["run_id"], extra={"user_event": "load_history", "run_id": run["run_id"], "dataset_name": run["dataset_name"]})
                 st.session_state["pipeline_status"] = "complete"
                 st.session_state["run_id"] = run["run_id"]
                 st.session_state["run_dir"] = run["run_dir"]
@@ -309,6 +312,7 @@ if status == "complete":
     if run_dir and dataset_name:
         output_dir = Path(run_dir) / "output" / dataset_name
 
+        logger.info("Showing results for %s", dataset_name, extra={"user_event": "pipeline_complete", "run_id": st.session_state.get("run_id", ""), "dataset_name": dataset_name})
         st.subheader(f"Results: `{dataset_name}`")
         render_output_tabs(output_dir)
 
@@ -330,7 +334,7 @@ if status == "complete":
 # ── Error state ──────────────────────────────────────────────────
 if status == "error":
     err = st.session_state.get("pipeline_error", "Unknown error")
-    logger.error("Pipeline error state displayed: %s", err)
+    logger.error("Pipeline error state displayed: %s", err, extra={"user_event": "pipeline_error", "run_id": st.session_state.get("run_id", ""), "dataset_name": st.session_state.get("dataset_name", "")})
     st.error(f"Pipeline failed: {err}")
 
     if st.button("Try Again"):

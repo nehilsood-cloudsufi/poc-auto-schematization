@@ -82,6 +82,7 @@ def render_feedback_form(output_dir: Path):
         logger.info(
             "Feedback submitted: category=%s, severity=%d, text=%.80s",
             category, severity, feedback_text,
+            extra={"user_event": "feedback_submit", "run_id": st.session_state.get("run_id", ""), "dataset_name": st.session_state.get("dataset_name", "")},
         )
         return _handle_rerun(output_dir, feedback_text, category, severity, result)
 

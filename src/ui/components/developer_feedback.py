@@ -35,7 +35,6 @@ def render_developer_feedback() -> None:
             "Google Sheets integration is not configured. "
             "Feedback will be saved locally only. "
             "Set the `GOOGLE_SHEET_ID` environment variable to enable.",
-            icon=":material/info:",
         )
 
     with st.form("developer_feedback_form", clear_on_submit=True):
@@ -47,7 +46,7 @@ def render_developer_feedback() -> None:
         category = st.selectbox("Category", _CATEGORIES)
 
         submitted = st.form_submit_button(
-            ":material/send: Submit Feedback",
+            "Submit Feedback",
             disabled=False,
         )
 
@@ -64,28 +63,39 @@ def _handle_submission(text: str, category: str) -> None:
     run_dir = st.session_state.get("run_dir", "")
     dataset_name = st.session_state.get("dataset_name", "")
 
-    log_path = f"{run_dir}/logs/" if run_dir else ""
+    # Gather pipeline context for traceability
+    result = st.session_state.get("pipeline_result", {})
+    pipeline_status = st.session_state.get("pipeline_status", "")
+    quality_metrics = result.get("quality_metrics", {}) if isinstance(result, dict) else {}
+    heuristic_score = quality_metrics.get("heuristic_score", "") if isinstance(quality_metrics, dict) else ""
+    exit_reason = result.get("exit_reason", "") if isinstance(result, dict) else ""
+    retry_count = result.get("retry_count", "") if isinstance(result, dict) else ""
+    attempts = str(int(retry_count) + 1) if retry_count != "" else ""
+    model = st.session_state.get("model", "")
+    mcp_enabled = str(st.session_state.get("mcp_enabled", ""))
 
     # Always save locally
     output_dir = Path(run_dir) / "output" / dataset_name if run_dir and dataset_name else None
-    _save_local(run_id, dataset_name, log_path, text, category, output_dir)
+    _save_local(run_id, dataset_name, text, category, pipeline_status, output_dir)
 
     # Attempt Sheets append
     if is_sheets_configured():
         ok = append_feedback_to_sheet(
             run_id=run_id,
             dataset_name=dataset_name,
-            log_path=log_path,
             feedback_text=text,
             category=category,
+            pipeline_status=pipeline_status,
+            quality_score=str(heuristic_score),
+            exit_reason=str(exit_reason),
+            attempts=attempts,
+            model=model,
+            mcp_enabled=mcp_enabled,
         )
         if ok:
             st.success("Feedback submitted to Google Sheets. Thank you!")
         else:
-            st.warning(
-                "Could not reach Google Sheets — feedback saved locally.",
-                icon=":material/warning:",
-            )
+            st.warning("Could not reach Google Sheets — feedback saved locally.")
     else:
         st.success("Feedback saved locally. Thank you!")
 
@@ -93,9 +103,9 @@ def _handle_submission(text: str, category: str) -> None:
 def _save_local(
     run_id: str,
     dataset_name: str,
-    log_path: str,
     text: str,
     category: str,
+    pipeline_status: str,
     output_dir,
 ) -> None:
     """Persist feedback as a local JSON file via the feedback store."""
@@ -103,7 +113,7 @@ def _save_local(
         "type": "developer_feedback",
         "run_id": run_id,
         "dataset_name": dataset_name,
-        "log_path": log_path,
+        "pipeline_status": pipeline_status,
         "text": text,
         "category": category,
     }
