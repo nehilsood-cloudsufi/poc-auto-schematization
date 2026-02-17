@@ -32,6 +32,7 @@ HEADER_ROW = [
     "attempts",
     "model",
     "mcp_enabled",
+    "gcs_output_link",
 ]
 
 
@@ -73,6 +74,7 @@ def append_feedback_to_sheet(
     attempts: str = "",
     model: str = "",
     mcp_enabled: str = "",
+    gcs_output_link: str = "",
 ) -> bool:
     """Append a feedback row to the configured Google Sheet.
 
@@ -102,6 +104,7 @@ def append_feedback_to_sheet(
             attempts,
             model,
             mcp_enabled,
+            gcs_output_link,
         ]
         worksheet.append_row(row, value_input_option="RAW")
         logger.info("Appended feedback row to Google Sheet %s", sheet_id)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.ui.config import CLOUD_RUN, GCS_BUCKET
 from src.ui.services.feedback_store import save_feedback
 from src.ui.services.google_sheets_service import (
     append_feedback_to_sheet,
@@ -78,6 +79,14 @@ def _handle_submission(text: str, category: str) -> None:
     output_dir = Path(run_dir) / "output" / dataset_name if run_dir and dataset_name else None
     _save_local(run_id, dataset_name, text, category, pipeline_status, output_dir)
 
+    # Build GCS output link
+    gcs_output_link = ""
+    if CLOUD_RUN and GCS_BUCKET and run_id and dataset_name:
+        gcs_output_link = (
+            f"https://console.cloud.google.com/storage/browser/"
+            f"{GCS_BUCKET}/{run_id}/output/{dataset_name}"
+        )
+
     # Attempt Sheets append
     if is_sheets_configured():
         ok = append_feedback_to_sheet(
@@ -91,6 +100,7 @@ def _handle_submission(text: str, category: str) -> None:
             attempts=attempts,
             model=model,
             mcp_enabled=mcp_enabled,
+            gcs_output_link=gcs_output_link,
         )
         if ok:
             st.success("Feedback submitted to Google Sheets. Thank you!")

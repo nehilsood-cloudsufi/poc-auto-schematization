@@ -23,6 +23,10 @@ UI_OUTPUT_DIR = Path(os.environ.get("UI_OUTPUT_DIR", "ui_output"))
 # Cloud Run detection
 CLOUD_RUN = os.environ.get("K_SERVICE", "") != ""
 
+# GCS bucket for Cloud Run output (derived from project)
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
+GCS_PROJECT = os.environ.get("K_SERVICE", "")  # non-empty on Cloud Run
+
 # Supported upload types
 SUPPORTED_UPLOAD_TYPES = ["csv"]
 

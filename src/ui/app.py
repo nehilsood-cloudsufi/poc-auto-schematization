@@ -18,11 +18,14 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 from src.ui.config import (
+    CLOUD_RUN,
     DEFAULT_MAX_RETRIES,
     DEFAULT_MODEL,
     DEFAULT_PROMPT_VERSION,
+    GCS_BUCKET,
     MCP_DEFAULT_PORT,
     MIN_PIPELINE_ATTEMPTS,
+    UI_OUTPUT_DIR,
     setup_ui_logging,
 )
 
@@ -88,6 +91,13 @@ st.markdown("""
     .status-running { background: #bfdbfe; color: #1e40af; }
     .status-complete { background: #bbf7d0; color: #166534; }
     .status-error { background: #fecaca; color: #991b1b; }
+    .run-info {
+        background: #f3f4f6; border-radius: 6px; padding: 0.5rem 0.75rem;
+        font-size: 0.8rem; color: #374151; margin-top: 0.5rem;
+    }
+    .run-info code { font-size: 0.75rem; background: #e5e7eb; padding: 1px 4px; border-radius: 3px; }
+    .run-info a { color: #2563eb; text-decoration: none; }
+    .run-info a:hover { text-decoration: underline; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -212,6 +222,22 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # Show run_id + GCS link when a run is active
+    run_id = st.session_state.get("run_id")
+    if run_id and status not in ("idle",):
+        gcs_html = ""
+        if CLOUD_RUN and GCS_BUCKET:
+            gcs_path = f"{run_id}/output"
+            gcs_url = f"https://console.cloud.google.com/storage/browser/{GCS_BUCKET}/{gcs_path}"
+            gcs_html = f'<br><a href="{gcs_url}" target="_blank">View in GCS</a>'
+        elif CLOUD_RUN:
+            # Derive bucket from UI_OUTPUT_DIR mount or default
+            gcs_html = f'<br>Output: <code>{UI_OUTPUT_DIR}/{run_id}</code>'
+        st.markdown(
+            f'<div class="run-info">Run: <code>{run_id[:12]}</code>{gcs_html}</div>',
+            unsafe_allow_html=True,
+        )
+
     if status in ("complete", "error"):
         if st.button("New Run", use_container_width=True):
             logger.info("User initiated New Run — resetting session state", extra={"user_event": "new_run", "action": "reset_session"})
@@ -312,8 +338,17 @@ if status == "complete":
     if run_dir and dataset_name:
         output_dir = Path(run_dir) / "output" / dataset_name
 
-        logger.info("Showing results for %s", dataset_name, extra={"user_event": "pipeline_complete", "run_id": st.session_state.get("run_id", ""), "dataset_name": dataset_name})
+        current_run_id = st.session_state.get("run_id", "")
+        logger.info("Showing results for %s", dataset_name, extra={"user_event": "pipeline_complete", "run_id": current_run_id, "dataset_name": dataset_name})
         st.subheader(f"Results: `{dataset_name}`")
+
+        # Run info with GCS link
+        if current_run_id:
+            info_parts = [f"Run ID: `{current_run_id[:12]}`"]
+            if CLOUD_RUN and GCS_BUCKET:
+                gcs_url = f"https://console.cloud.google.com/storage/browser/{GCS_BUCKET}/{current_run_id}/output/{dataset_name}"
+                info_parts.append(f"[View output in GCS]({gcs_url})")
+            st.caption(" | ".join(info_parts))
         render_output_tabs(output_dir)
 
         st.divider()
@@ -334,8 +369,11 @@ if status == "complete":
 # ── Error state ──────────────────────────────────────────────────
 if status == "error":
     err = st.session_state.get("pipeline_error", "Unknown error")
-    logger.error("Pipeline error state displayed: %s", err, extra={"user_event": "pipeline_error", "run_id": st.session_state.get("run_id", ""), "dataset_name": st.session_state.get("dataset_name", "")})
+    error_run_id = st.session_state.get("run_id", "")
+    logger.error("Pipeline error state displayed: %s", err, extra={"user_event": "pipeline_error", "run_id": error_run_id, "dataset_name": st.session_state.get("dataset_name", "")})
     st.error(f"Pipeline failed: {err}")
+    if error_run_id:
+        st.caption(f"Run ID: `{error_run_id[:12]}`")
 
     if st.button("Try Again"):
         st.session_state["pipeline_status"] = "idle"
