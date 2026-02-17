@@ -233,7 +233,7 @@ output_adk_verify
 ground_truth/*
 output_adk_improved
 http_cache.sqlite
-schema/
+/schema/
 ui_output/
 ui_runs/
 src/resources/schema_org/schemaorg_full.jsonld
