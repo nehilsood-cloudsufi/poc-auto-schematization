@@ -1,0 +1,250 @@
+{
+  "category": "Economy",
+  "stat_var_skeletons": {
+    "BLSEstablishment": [
+      "establishmentOwnership",
+      "naics"
+    ],
+    "BLSWorker": [
+      "naics"
+    ],
+    "EconomicActivity": [
+      "activitySource",
+      "expenditureType",
+      "expensor",
+      "measuredProperty",
+      "measurementDenominator",
+      "measurementQualifier",
+      "naics"
+    ],
+    "FarmInventory": [
+      "farmInventoryType",
+      "measuredProperty"
+    ],
+    "Household": [
+      "householdType",
+      "incomeStatus",
+      "measuredProperty",
+      "statType"
+    ],
+    "Person": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "employmentStatus",
+      "gender",
+      "income",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "measuredProperty",
+      "measurementQualifier",
+      "naics",
+      "placeOfResidenceClassification",
+      "povertyStatus",
+      "race",
+      "statType"
+    ],
+    "USCEstablishment": [
+      "measuredProperty",
+      "naics",
+      "payrollStatus"
+    ]
+  },
+  "property_vocabulary": {
+    "activitySource": [
+      "ExpenditureActivity",
+      "GrossDomesticProduction"
+    ],
+    "age": [
+      "Years15Onwards",
+      "Years16Onwards",
+      "Years5Onwards"
+    ],
+    "armedForcesStatus": [
+      "Civilian"
+    ],
+    "censusACSTableId": [
+      "B24031"
+    ],
+    "employmentStatus": [
+      "BLS_Employed"
+    ],
+    "establishmentOwnership": [
+      "FederalGovernmentOwned",
+      "LocalGovernmentOwned",
+      "PrivatelyOwned",
+      "StateGovernmentOwned"
+    ],
+    "expenditureType": [
+      "EducationExpenditure"
+    ],
+    "expensor": [
+      "Government"
+    ],
+    "farmInventoryType": [
+      "BarleyForGrain",
+      "BeefCows",
+      "Broilers",
+      "CattleAndCalves",
+      "CornForGrain",
+      "CornForSilageOrGreenchop",
+      "Cotton",
+      "DryEdibleBeans",
+      "DurumWheatForGrain",
+      "Forage",
+      "HogsAndPigs",
+      "Layers",
+      "UplandCotton",
+      "WheatForGrain",
+      "WinterWheatForGrain"
+    ],
+    "gender": [
+      "Female",
+      "Male"
+    ],
+    "householdType": [
+      "FamilyHousehold",
+      "MarriedCoupleFamilyHousehold",
+      "NonfamilyHousehold"
+    ],
+    "income": [
+      "USDollar10000To14999",
+      "USDollar25000To34999",
+      "USDollar35000To49999",
+      "USDollar50000To64999",
+      "USDollar65000To74999",
+      "USDollar75000Onwards",
+      "USDollarUpto9999"
+    ],
+    "incomeStatus": [
+      "WithEarnings",
+      "WithIncome"
+    ],
+    "languageSpokenAtHome": [
+      "LanguageOtherThanEnglish",
+      "OnlyEnglish",
+      "Spanish",
+      "SpanishOrSpanishCreole"
+    ],
+    "measuredProperty": [
+      "amount",
+      "income",
+      "receipts",
+      "receiptsBillingsOrSales",
+      "receiptsOrRevenue",
+      "revenue",
+      "sales",
+      "shipmentsOrReceipts"
+    ],
+    "measurementDenominator": [
+      "Amount_EconomicActivity_ExpenditureActivity_Government",
+      "Amount_EconomicActivity_GrossDomesticProduction_Nominal"
+    ],
+    "measurementQualifier": [
+      "RealIndividualEarningsBeforeDeductions",
+      "RealValue"
+    ],
+    "naics": [
+      "NAICS/10",
+      "NAICS/11",
+      "NAICS/21",
+      "NAICS/22",
+      "NAICS/23",
+      "NAICS/31-33",
+      "NAICS/321",
+      "NAICS/322",
+      "NAICS/323",
+      "NAICS/324",
+      "NAICS/325",
+      "NAICS/326",
+      "NAICS/72",
+      "NAICS/81",
+      "NAICS/92"
+    ],
+    "payrollStatus": [
+      "WithPayroll"
+    ],
+    "placeOfResidenceClassification": [
+      "Rural",
+      "Urban"
+    ],
+    "povertyStatus": [
+      "BelowPovertyLevelInThePast12Months",
+      "USC_IncomeInThePast12MonthsBelowPovertyLevel"
+    ],
+    "race": [
+      "AsianAlone",
+      "BlackOrAfricanAmericanAlone",
+      "HispanicOrLatino",
+      "NativeHawaiianOrOtherPacificIslanderAlone",
+      "SomeOtherRaceAlone",
+      "TwoOrMoreRaces",
+      "WhiteAlone",
+      "WhiteAloneNotHispanicOrLatino"
+    ],
+    "statType": [
+      "medianValue"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Revenue of Establishment: Utilities (NAICS/22), With Payroll",
+      "mapping": "measuredProperty:revenue, naics:NAICS/22, payrollStatus:WithPayroll, populationType:USCEstablishment"
+    },
+    {
+      "label": "Population With an Income of Up to $9,999",
+      "mapping": "age:Years15Onwards, income:USDollarUpto9999, incomeStatus:WithIncome"
+    },
+    {
+      "label": "Male Population Below Poverty Status in the Last Year",
+      "mapping": "gender:Male, povertyStatus:BelowPovertyLevelInThePast12Months"
+    },
+    {
+      "label": "Oats Grown",
+      "mapping": "farmInventoryType:OatsForGrain, measuredProperty:amount, populationType:FarmInventory"
+    },
+    {
+      "label": "Beef Cows on a Farm",
+      "mapping": "farmInventoryType:BeefCows, populationType:FarmInventory"
+    },
+    {
+      "label": "Count of Establishment: Utilities (NAICS/22)",
+      "mapping": "naics:NAICS/22, populationType:BLSEstablishment"
+    },
+    {
+      "label": "dc/zz 6gwv 83 8v 9w",
+      "mapping": "activitySource:GrossDomesticProduction, measuredProperty:amount, measurementQualifier:RealValue, naics:NAICS/48-49, populationType:EconomicActivity"
+    },
+    {
+      "label": "Median Income for Family Households",
+      "mapping": "householdType:FamilyHousehold, incomeStatus:WithIncome, measuredProperty:income, populationType:Household, statType:medianValue"
+    }
+  ],
+  "schema_org": {
+    "primary_type": "Organization",
+    "type_hierarchy": [
+      "Organization",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "naics": {
+        "range": [
+          "Text"
+        ],
+        "desc": "The North American Industry Classification System (NAICS) code for a particular organization or busi"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "employmentStatus",
+      "householdType",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "placeOfResidenceClassification",
+      "povertyStatus",
+      "race"
+    ]
+  }
+}

@@ -35,17 +35,18 @@ SequentialAgent([
     StatePrep,
     StatVarDiscovery,      # Inside loop, attempt-aware
     Generator,             # Has MCP toolset for direct lookups
+    MetadataGenerator,     # Generates output_metadata.csv
+    MCPSpotCheck,          # Post-generation spot-check of mappings
     Validator,
-    MCPErrorResolver,      # New: post-validation error resolution
+    MCPErrorResolver,      # Post-validation error resolution
     QualityEval,
-    QualityFeedback,
-    ErrorFeedback,
-    MaxRetry
+    MaxRetry,
+    UnifiedFeedback
   ])
 ])
 ```
 
-- 9 agents in loop (vs 7 without MCP)
+- 10 agents in loop (vs 7 without MCP)
 - StatVarDiscovery runs every iteration with attempt-aware behavior
 - Generator has direct MCP tool access for on-demand lookups
 - MCPErrorResolver makes targeted queries after validation failures
@@ -176,7 +177,7 @@ The pipeline completes successfully even if:
 | Test File | Tests | What It Covers |
 |-----------|:-----:|----------------|
 | `tests/agents/test_dc_query_agent_enrichment.py` | 23 | Enrichment/error resolver factories, parse_statvars, run_mcp_query, instruction templates |
-| `tests/agents/test_retry_loop_with_mcp.py` | 13 | Loop agent count (9 vs 7), agent ordering, state defaults, MCPErrorResolver skip logic |
+| `tests/agents/test_retry_loop_with_mcp.py` | 13 | Loop agent count (10 vs 7), agent ordering, state defaults, MCPErrorResolver skip logic |
 | `tests/agents/test_pvmap_generator_with_mcp.py` | 12 | Generator with/without MCP toolset, instruction content, confidence-weighted injection |
 | `tests/mcp/test_statvar_discovery.py` | 1 | Integration test (gated behind `RUN_MCP_INTEGRATION_TESTS=true`) |
 
@@ -188,7 +189,7 @@ PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest \
   tests/agents/test_retry_loop_with_mcp.py \
   tests/agents/test_pvmap_generator_with_mcp.py -x -q
 
-# Full regression (499 tests)
+# Full regression (~982 tests)
 PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
 
 # Integration test (requires running MCP server)

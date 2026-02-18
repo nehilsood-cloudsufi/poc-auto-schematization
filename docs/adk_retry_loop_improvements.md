@@ -12,7 +12,7 @@ This document tracks the improvements made to the ADK retry loop for PVMAP gener
 - **Path A (Validation Failed):** Provides structural error feedback from validation subprocess output
 - **Path B (Quality Low):** Provides quality-focused feedback using heuristic scores + ground truth metrics
 - Single output key: `error_feedback` (removed `quality_feedback` from active paths)
-- Loop sequence reduced: without MCP 7→6 agents, with MCP 9→8
+- Loop sequence: 7 agents without MCP, 10 with MCP
 
 **Files changed:** `pvmap_retry_loop.py`, `feedback_agent.py`, `__init__.py`
 
@@ -254,17 +254,33 @@ Only captures calls from `"Generator"` / `"PVMAPGenerator"` agents. `ValidationA
 
 ## Architecture: Retry Loop Agents
 
+**Without MCP (7 agents):**
 ```
-LoopAgent (max_iterations=6)
+LoopAgent (max_iterations=max_retries+1)
 ├── StatePreparationAgent        — Prepares state, logs feedback presence
 ├── PVMAPGenerationAgent         — Generates PVMAP with error feedback
 ├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
-├── ValidationAgent              — Runs stat_var_processor with output_metadata, extracts StatVar analysis
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor, extracts StatVar analysis
 ├── QualityEvaluationAgent       — Computes heuristic + GT metrics, sets reject reason
-├── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
-│   ├── Path A: Validation failed → structural error feedback
-│   └── Path B: Quality low → PV-aware or structural feedback with schema context
-└── MaxRetriesCheckAgent         — Escalates after max attempts
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+    ├── Path A: Validation failed → structural error feedback
+    └── Path B: Quality low → PV-aware or structural feedback with schema context
+```
+
+**With MCP (10 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── StatVarDiscoveryAgent        — Loop-aware MCP StatVar discovery
+├── PVMAPGenerationAgent         — Generates PVMAP with MCP toolset + error feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP
+├── MCPSpotCheckAgent            — Post-generation MCP spot-check of mappings
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor
+├── MCPErrorResolverAgent        — Post-validation MCP error resolution
+├── QualityEvaluationAgent       — Computes heuristic + GT metrics, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
 ```
 
 **Key state keys:**
@@ -288,7 +304,7 @@ LoopAgent (max_iterations=6)
 ## Verification
 
 ```bash
-# Unit tests (all 703+ pass)
+# Unit tests (all ~982 pass)
 PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
 
 # Test StatVar extraction standalone

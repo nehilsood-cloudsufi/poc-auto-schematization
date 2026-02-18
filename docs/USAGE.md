@@ -39,16 +39,18 @@ ls -la output/bis_bis_central_bank_policy_rate/
 # Check the generated PVMAP
 head -20 output/bis_bis_central_bank_policy_rate/generated_pvmap.csv
 
-# View Claude's reasoning
+# View LLM reasoning
 cat output/bis_bis_central_bank_policy_rate/generation_notes.md
 ```
 
 **Expected Output Files:**
 - `generated_pvmap.csv` - The generated property-value mapping
+- `output_metadata.csv` - Auto-generated metadata config (PVMAP-derived + merged values)
 - `processed.csv` - Validated StatVarObservations
 - `processed.tmcf` - Template MCF file
 - `processed_stat_vars.mcf` - StatVar definitions
-- `generation_notes.md` - Claude's analysis and reasoning
+- `generation_notes.md` - LLM analysis and reasoning
+- `data_context.json` - Structural analysis cache from sampling
 
 ---
 
@@ -94,7 +96,14 @@ python src/run_pipeline.py --dry-run
 | **Model Selection** |
 | `--model` or `-m` | Override default LLM model | `gemini-3-pro-preview` | `--model=gemini-2.5-pro` |
 | **MCP Integration** |
-| `--enable-mcp` | Enable MCP integration for StatVar discovery | False | `--enable-mcp` |
+| `--enable-mcp` | Enable Data Commons MCP for StatVar discovery | False | `--enable-mcp` |
+| `--enable-schemaorg-mcp` | Enable Schema.org MCP for vocabulary lookup | False | `--enable-schemaorg-mcp` |
+| **Model & Generation** |
+| `--thinking-level` | Gemini thinking level: low, medium, high, minimal, none | `high` | `--thinking-level=medium` |
+| `--prompt-version` | PVMAP prompt template version (v1 or v2) | `v2` | `--prompt-version=v1` |
+| `--structured-output` | Use structured output (deterministic CSV) | `True` | `--structured-output` |
+| `--no-structured-output` | Disable structured output | False | `--no-structured-output` |
+| `--verbose` | Enable verbose logging | False | `--verbose` |
 | **Evaluation Configuration** |
 | `--ground-truth-pvmap` | Path to single ground truth PVMAP file (Tier 1 precedence) | None | `--ground-truth-pvmap=/path/to/file.csv` |
 | `--ground-truth-dir` | Directory containing ground truth files (Tier 2 precedence) | None | `--ground-truth-dir=/path/to/ground_truth` |
@@ -102,14 +111,36 @@ python src/run_pipeline.py --dry-run
 
 ---
 
+## Streamlit UI
+
+The pipeline includes a web-based UI for interactive runs with file upload, real-time progress, and feedback iteration.
+
+### Launch the UI
+
+```bash
+PYTHONPATH="$(pwd):$(pwd)/src" streamlit run src/ui/app.py
+```
+
+### Features
+
+- **CSV Upload** — Upload any CSV file directly for processing
+- **Real-Time Progress** — Live tracking of pipeline phases via progress plugin
+- **PVMAP Feedback** — Edit generated PVMAPs and re-run with human feedback
+- **Output Versioning** — Each run creates a `v{N}/` snapshot with `run_manifest.json`
+- **Cloud Run Support** — Deploys to Google Cloud Run with GCS FUSE for persistent output
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloud Run deployment instructions.
+
+---
+
 ## Pipeline Workflow
 
-The pipeline runs six automated phases:
+The pipeline runs through the following automated phases using Google ADK agents:
 
 ### Phase 1: Auto-Sampling (Optional)
 
 **What it does:**
-- Checks for existing `*_sampled_data.csv` files
+- Checks for existing sampled data files
 - If not found: Automatically generates sampled data (max 100 rows) using LLM-driven agentic sampling
 - Generates `skeleton_summary` (column classifications) and `data_context.json` for downstream agents
 
@@ -182,13 +213,31 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 **Output:**
 - `output_metadata.csv` — enriched metadata config used by stat_var_processor
 
+### Phase 2.75: PVMAP Repair (Automatic)
+
+**What it does:**
+- Programmatically fixes common PVMAP issues BEFORE running the expensive validation subprocess
+- Key repair: case-insensitive matching, whitespace normalization, fuzzy matching (>=0.80 cutoff)
+- Placeholder normalization: `[DATA]` -> `{Data}`, `[NUMBER]` -> `{Number}`
+- Pre-validation: skips subprocess for structurally broken PVMAPs (fast fail)
+- Generates key match report for feedback agent
+
 ### Phase 3: Validation
 
 **What it does:**
 - Runs `stat_var_processor.py` to validate generated PVMAP on the **full dataset**
 - Passes `output_metadata.csv` as `--config_file` (preferred over GT/user metadata)
 - Extracts StatVar MCF analysis for semantic feedback
-- If validation fails: Provides error feedback for retry (up to 2 retries)
+- If validation fails: Provides error feedback for retry
+
+### Phase 3.5: Quality Evaluation
+
+**What it does:**
+- Heuristic scoring (structural quality) and ground truth comparison (if available)
+- Computes PV accuracy, node accuracy metrics
+- **Quality-based exit**: Pipeline stops early if quality exceeds threshold
+- **Stagnation detection**: Stops retrying if metrics aren't improving between attempts
+- **`min_attempts`**: In UI mode, enforces minimum 2 attempts before quality exit is allowed
 
 **Metadata Priority (for `--config_file`):**
 1. **Tier 1:** Auto-generated config (`output_metadata.csv`) — has PVMAP-derived params + merged values
@@ -199,6 +248,16 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 - `processed.csv`
 - `processed.tmcf`
 - `processed_stat_vars.mcf`
+
+### Phase 3.75: Feedback Loop (Automatic)
+
+**What it does:**
+- Unified `ConditionalFeedbackAgent` determines feedback path:
+  - **Path A (Validation Failed):** Structural error feedback from subprocess output
+  - **Path B (Quality Low):** Context-aware feedback with schema vocab + StatVar analysis
+- Feedback includes anti-regression guidance (identifies correct rows to preserve)
+- Maximum 3 attempts total (configurable), tracked by `MaxRetriesCheckAgent`
+- Best attempt is tracked and restored if later attempts regress
 
 ### Phase 4: Evaluation (Optional)
 

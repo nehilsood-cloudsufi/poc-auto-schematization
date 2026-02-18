@@ -56,15 +56,13 @@ JP,2023-01,-0.10,M
 
 ### Multiple Input Files
 
-If you have multiple input files, they will be combined automatically:
+If you have multiple input files, they will be discovered and processed automatically:
 
 ```
 test_data/
 ├── dataset_part1_input.csv
 ├── dataset_part2_input.csv
 └── dataset_part3_input.csv
-
-→ Combined into: combined_input.csv (auto-generated)
 ```
 
 ---

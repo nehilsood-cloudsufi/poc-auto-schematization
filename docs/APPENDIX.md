@@ -45,47 +45,29 @@ source ~/.zshrc
 
 ---
 
-### 2. Claude Code CLI Not Found
+### 2. Gemini API Key Not Set
 
 **Error:**
 ```
-FileNotFoundError: [Errno 2] No such file or directory: 'claude'
+Error: GEMINI_API_KEY environment variable not set
 ```
 
-**Cause:** Claude Code CLI is not installed or not in PATH.
+**Cause:** The pipeline requires a Gemini API key for LLM calls via Google ADK.
 
 **Solution:**
 ```bash
-# Install Claude Code CLI
-# Visit: https://github.com/anthropics/claude-code
+# Option 1: Create .env file (recommended — loaded first, takes priority)
+echo 'GEMINI_API_KEY=your-api-key-here' > .env
 
-# Verify installation
-claude --version
-
-# If installed but not found, check PATH
-which claude
-```
-
----
-
-### 3. ANTHROPIC_API_KEY Not Set
-
-**Error:**
-```
-Error: ANTHROPIC_API_KEY environment variable not set
-```
-
-**Solution:**
-```bash
-# Set API key for current session
-export ANTHROPIC_API_KEY="your-api-key-here"
+# Option 2: Set for current session
+export GEMINI_API_KEY="your-api-key-here"
 
 # Or add to your shell profile for persistence
-echo 'export ANTHROPIC_API_KEY="your-api-key-here"' >> ~/.zshrc
+echo 'export GEMINI_API_KEY="your-api-key-here"' >> ~/.zshrc
 source ~/.zshrc
 
 # Verify it's set
-echo $ANTHROPIC_API_KEY | head -c 10
+echo $GEMINI_API_KEY | head -c 10
 ```
 
 ---
@@ -137,12 +119,12 @@ cat output/your_dataset/generated_pvmap.csv
 **Solutions:**
 1. **Check metadata CSV** - Verify column mappings are correct:
    ```bash
-   cat input/your_dataset/*_metadata.csv
+   cat input/your_dataset/input_metadata/*_metadata.csv
    ```
 
 2. **Verify sampled data** - Ensure it's representative:
    ```bash
-   head -20 input/your_dataset/test_data/combined_sampled_data.csv
+   head -20 output/your_dataset/agentic_sampled.csv
    ```
 
 3. **Force regenerate samples**:
@@ -152,10 +134,12 @@ cat output/your_dataset/generated_pvmap.csv
 
 4. **Manually edit PVMAP** and re-run validation:
    ```bash
-   python3 tools/stat_var_processor.py \
-       --input_data=input/your_dataset/test_data/combined_sampled_data.csv \
+   PYTHONPATH="$(pwd):$(pwd)/src" python3 tools/stat_var_processor.py \
+       --input_data=input/your_dataset/test_data/*_input.csv \
        --pv_map=output/your_dataset/generated_pvmap.csv \
-       --config_file=input/your_dataset/*_metadata.csv
+       --config_file=output/your_dataset/output_metadata.csv \
+       --generate_statvar_name=True \
+       --output_path=output/your_dataset/processed
    ```
 
 ---
@@ -358,18 +342,18 @@ KeyError: 'column_name' not found in sampled data
 Error: Generated PVMAP is empty or malformed
 ```
 
-**Cause:** Claude generated invalid PVMAP format.
+**Cause:** LLM generated invalid PVMAP format.
 
 **Investigation:**
 ```bash
-# Check Claude's response
+# Check LLM response
 cat output/your_dataset/generated_response/attempt_0.md
 
 # Check the populated prompt
 cat output/your_dataset/populated_prompt.txt
 
 # Check schema examples
-cat input/your_dataset/scripts_*_schema_examples_*.txt
+cat input/your_dataset/schema/scripts_*_schema_examples_*.txt
 ```
 
 **Solutions:**
@@ -412,7 +396,7 @@ ERROR: Schema base directory not found: schema_example_files/
 
 **Causes:**
 - Schema base directory missing or invalid
-- Claude CLI invocation failed
+- Gemini API call failed (check GEMINI_API_KEY)
 - Missing or invalid metadata files
 - No sampled data available for analysis
 
@@ -443,8 +427,9 @@ ERROR: Schema base directory not found: schema_example_files/
 5. **Skip schema selection and manually copy files:**
    ```bash
    # Copy schema files for your category (e.g., Health)
-   cp src/resources/schema_examples/Health/*.txt input/your_dataset/
-   cp src/resources/schema_examples/Health/*.mcf input/your_dataset/
+   mkdir -p input/your_dataset/schema/
+   cp src/resources/schema_examples/Health/*.txt input/your_dataset/schema/
+   cp src/resources/schema_examples/Health/*.mcf input/your_dataset/schema/
 
    # Run pipeline with schema selection skipped
    python src/run_pipeline.py --dataset=your_dataset --skip-schema-selection
@@ -475,14 +460,14 @@ If you encounter issues not covered here:
    # Check Python version (should be 3.12+)
    python --version
 
-   # Check Claude CLI version
-   claude --version
+   # Verify ADK is installed
+   python -c "from google.adk.agents import LlmAgent; print('OK')"
 
    # Verify PYTHONPATH
    echo $PYTHONPATH
 
-   # Verify API key is set
-   echo $ANTHROPIC_API_KEY | head -c 10
+   # Verify Gemini API key is set
+   echo $GEMINI_API_KEY | head -c 10
    ```
 
 3. **Check GitHub repository issues:**
@@ -495,7 +480,7 @@ If you encounter issues not covered here:
 
 ## Pipeline Architecture
 
-The PVMAP Pipeline is a fully automated system that generates Property-Value maps from source data using Claude Code CLI.
+The PVMAP Pipeline is a fully automated system that generates Property-Value maps from source data using Google ADK with Gemini.
 
 ### Design Principles
 
@@ -534,9 +519,9 @@ Phase 4: Evaluation (Optional)
    - WITHOUT `--force-resample`: Reuse existing file
    - WITH `--force-resample`: Regenerate sample
 3. **If sampled file does NOT exist:**
-   - Automatically calls `src/pipeline/sampling/data_sampler.py`
-   - Generates `{input_filename_without_extension}_sampled_data.csv`
-   - Creates `combined_sampled_data.csv` for pipeline
+   - Runs LLM-driven agentic sampling via `src/pipeline/sampling/sampling_interface.py`
+   - Generates `agentic_sampled.csv` in the output directory
+   - Creates `data_context.json` (structural analysis) and `skeleton_summary` (column classifications)
 
 ### Sampling Algorithm
 
@@ -594,9 +579,9 @@ Controlled via metadata CSV:
    - Validate input directory structure
    - Merge multiple metadata files if present
    - Generate data preview from sampled data
-   - Build Claude prompt with context
-   - Invoke Claude CLI to select category
-   - Copy selected schema files to dataset directory
+   - Build prompt with context
+   - Invoke Gemini API to select category
+   - Copy selected schema files to dataset's `schema/` subdirectory
 
 ### Selection Algorithm
 
@@ -605,9 +590,9 @@ Controlled via metadata CSV:
 - Generates data preview (first 20 rows of sampled data)
 - Provides category descriptions and examples
 
-**Claude Classification:**
-- Reviews metadata fields (place_property, date_property, value_property, etc.)
-- Analyzes sample data columns and values
+**Gemini Classification:**
+- Reviews skeleton_summary (column classifications from sampling)
+- Analyzes dataset structure and values
 - Compares against 7 category descriptions
 - Selects best-matching category
 
@@ -628,16 +613,17 @@ Controlled via metadata CSV:
 **Files Copied:**
 ```
 input/{dataset_name}/
-└── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
+└── schema/
+    ├── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
+    └── schema_vocab.json   # Compressed schema vocabulary
 ```
 
 **Logging:**
 ```
 INFO: Phase 1.5: Selecting schema for india_nfhs...
-INFO: Invoking Claude CLI to select schema category...
+INFO: Invoking Gemini API to select schema category...
 INFO: Selected schema category: Health
-INFO: Successfully copied schema file:
-INFO:   - scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt
+INFO: Successfully copied schema files to schema/ subdirectory
 ```
 
 ### Configuration
@@ -962,17 +948,33 @@ PVMAP generation may fail for two distinct reasons:
 
 ### Retry Loop Architecture (ADK)
 
-The retry loop uses Google ADK's `LoopAgent` with 7 sub-agents:
+The retry loop uses Google ADK's `LoopAgent` with 7 sub-agents (10 with MCP enabled):
 
+**Without MCP (7 agents):**
 ```
-LoopAgent (max_iterations=6)
+LoopAgent (max_iterations=max_retries+1)
 ├── StatePreparationAgent        — Prepares state, logs feedback presence
 ├── PVMAPGenerationAgent         — Generates PVMAP with accumulated feedback
 ├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
-├── ValidationAgent              — Runs stat_var_processor with output_metadata, extracts StatVar analysis
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor, extracts StatVar analysis
 ├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
-├── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
-└── MaxRetriesCheckAgent         — Escalates after max attempts (EventActions.escalate)
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+```
+
+**With MCP (10 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── StatVarDiscoveryAgent        — Loop-aware MCP StatVar discovery
+├── PVMAPGenerationAgent         — Generates PVMAP with MCP toolset + accumulated feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP
+├── MCPSpotCheckAgent            — Post-generation MCP spot-check of mappings
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor
+├── MCPErrorResolverAgent        — Post-validation MCP error resolution
+├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
 ```
 
 **Key design:** The `MetadataGenerationAgent` runs on every iteration, so when the PVMAP changes during retry, `output_metadata.csv` is regenerated with updated parameters. The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent` that determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
@@ -1070,7 +1072,7 @@ logs/
 **Decision:** Provide detailed error feedback for retries instead of blind retries
 
 **Rationale:**
-- Claude can learn from specific errors
+- LLM can learn from specific errors
 - Higher success rate on retry
 - Faster convergence to valid PVMAP
 
@@ -1089,14 +1091,14 @@ logs/
 
 **Rationale:**
 - Reduces manual effort and human error
-- Leverages Claude's understanding of dataset content
+- Leverages LLM understanding of dataset content
 - Scales to large numbers of datasets
 - Allows dynamic re-selection based on data changes
 - Provides flexibility with skip/force options
 
 **Implementation:**
 - Phase 1.5 analyzes metadata + sampled data
-- Claude CLI classifies into 7 predefined categories
+- Gemini API classifies into 7 predefined categories
 - Schema files automatically copied to dataset directory
 - Falls back gracefully if selection fails
 
