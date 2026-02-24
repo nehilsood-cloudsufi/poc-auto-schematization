@@ -1,11 +1,8 @@
 """
-Tests for SamplingAgent (LlmAgent-based implementation).
+Tests for sampling tool functions (shared infrastructure).
 
-Tests the agent creation and tool functionality.
-For the new agentic implementation, we test:
-1. Agent creation and configuration
-2. Tool functions directly (they provide the core logic)
-3. Tool integration patterns
+Tests the 5 tool functions used by the programmatic sampling pipeline:
+preview_data, analyze_columns, sample_rows, check_coverage, generate_context.
 """
 
 import pytest
@@ -14,11 +11,6 @@ from unittest.mock import MagicMock, patch
 import tempfile
 import csv
 
-from src.agents.sampling_agent import (
-    create_sampling_agent,
-    SamplingAgent,
-    SAMPLING_AGENT_INSTRUCTION
-)
 from src.tools.sampling_tools import (
     preview_data,
     analyze_columns,
@@ -31,64 +23,10 @@ from src.state.dataset_info import DatasetInfo
 
 
 # ============================================================================
-# Agent Creation Tests
+# Tool Registry Tests
 # ============================================================================
 
-def test_sampling_agent_creation():
-    """Test SamplingAgent can be created using factory function."""
-    agent = create_sampling_agent(name="SamplingAgent")
-    assert agent is not None
-    assert agent.name == "SamplingAgent"
-    assert len(agent.tools) == 5
-
-
-def test_sampling_agent_custom_name():
-    """Test SamplingAgent with custom name."""
-    agent = create_sampling_agent(name="CustomSampler")
-    assert agent.name == "CustomSampler"
-
-
-def test_sampling_agent_wrapper_class():
-    """Test backward-compatible SamplingAgent class wrapper."""
-    wrapper = SamplingAgent(name="WrapperAgent")
-    assert wrapper.name == "WrapperAgent"
-    # Access underlying agent
-    assert wrapper.agent is not None
-    assert wrapper.agent.name == "WrapperAgent"
-
-
-def test_sampling_agent_model_default():
-    """Test default model is gemini-2.5-flash."""
-    agent = create_sampling_agent()
-    from google.adk.models import Gemini
-    if isinstance(agent.model, Gemini):
-        assert "gemini" in agent.model.model.lower()
-    else:
-        assert "gemini" in agent.model.lower()
-
-
-def test_sampling_agent_model_override():
-    """Test model can be overridden."""
-    agent = create_sampling_agent(model="gemini-2.5-pro")
-    from google.adk.models import Gemini
-    if isinstance(agent.model, Gemini):
-        assert agent.model.model == "gemini-2.5-pro"
-    else:
-        assert agent.model == "gemini-2.5-pro"
-
-
-def test_sampling_agent_instruction():
-    """Test that instruction is comprehensive."""
-    assert "preview_data" in SAMPLING_AGENT_INSTRUCTION
-    assert "analyze_columns" in SAMPLING_AGENT_INSTRUCTION
-    assert "sample_rows" in SAMPLING_AGENT_INSTRUCTION
-    assert "check_coverage" in SAMPLING_AGENT_INSTRUCTION
-    assert "generate_context" in SAMPLING_AGENT_INSTRUCTION
-    assert "Data Commons" in SAMPLING_AGENT_INSTRUCTION
-    assert "StatVar" in SAMPLING_AGENT_INSTRUCTION
-
-
-def test_sampling_agent_tools_registered():
+def test_sampling_tools_registered():
     """Test all 5 tools are registered."""
     tools = get_sampling_tools()
     assert len(tools) == 5

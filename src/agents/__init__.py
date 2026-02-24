@@ -2,7 +2,7 @@
 
 Main agents:
 - DiscoveryAgent: Discovers datasets in input directory
-- SamplingAgent: Agentic data sampling with LLM-driven decisions
+- ProgrammaticSamplingAgent: Code-orchestrated data sampling (2 LLM calls)
 - SchemaSelectionAgent: Selects appropriate schema category
 - PVMAPRetryLoop: ADK LoopAgent-based PVMAP generation with retry loop
 - ValidationAgent: Validates PVMAP and escalates on success
@@ -19,15 +19,10 @@ Retry Loop Architecture:
 - Generator produces structured JSON via output_schema
 - Validator converts to CSV and runs subprocess; escalates on success
 - Feedback analyzes errors for next iteration
-
-Sampling Agent:
-The SamplingAgent uses an LLM to make intelligent sampling decisions based on
-data evidence. It has 5 tools: preview_data, analyze_columns, sample_rows,
-check_coverage, and generate_context. Use create_sampling_agent() for new code.
 """
 
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import create_sampling_agent, SamplingAgent
+from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
@@ -67,8 +62,7 @@ except ImportError:
 __all__ = [
     # Core agents
     'DiscoveryAgent',
-    'create_sampling_agent',
-    'SamplingAgent',
+    'ProgrammaticSamplingAgent',
     'create_schema_selection_agent',
     'EvaluationAgent',
     # ADK LoopAgent-based architecture

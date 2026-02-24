@@ -87,14 +87,11 @@ def test_coordinator_custom_model():
             schema_agent = agent
 
     assert sampling_agent is not None
-    # model is now a Gemini instance with retry options, not a plain string
-    from google.adk.models import Gemini
-    if isinstance(sampling_agent.model, Gemini):
-        assert sampling_agent.model.model == "gemini-2.0-flash-exp"
-    else:
-        assert sampling_agent.model == "gemini-2.0-flash-exp"
+    # ProgrammaticSamplingAgent stores model as _model (private attr)
+    assert sampling_agent._model == "gemini-2.0-flash-exp"
 
     assert schema_agent is not None
+    from google.adk.models import Gemini
     if isinstance(schema_agent.model, Gemini):
         assert schema_agent.model.model == "gemini-2.0-flash-exp"
     else:
@@ -141,7 +138,8 @@ def test_coordinator_agent_types():
 
     # Check specific types
     assert isinstance(coordinator.sub_agents[0], DiscoveryAgent)
-    assert isinstance(coordinator.sub_agents[1], LlmAgent)  # SamplingAgent
+    from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
+    assert isinstance(coordinator.sub_agents[1], ProgrammaticSamplingAgent)  # SamplingAgent
     assert isinstance(coordinator.sub_agents[2], LlmAgent)  # SchemaSelectionAgent
     assert isinstance(coordinator.sub_agents[3], LoopAgent)  # PVMAPRetryLoop
     assert isinstance(coordinator.sub_agents[4], EvaluationAgent)

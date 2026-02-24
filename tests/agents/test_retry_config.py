@@ -94,14 +94,6 @@ class TestAgentIntegration:
         source = inspect.getsource(create_schema_selection_agent)
         assert "create_resilient_model" in source
 
-    def test_sampling_agent_uses_resilient_model(self):
-        """Verify create_sampling_agent uses create_resilient_model."""
-        import inspect
-        from src.agents.sampling_agent import create_sampling_agent
-
-        source = inspect.getsource(create_sampling_agent)
-        assert "create_resilient_model" in source
-
     def test_metadata_enrichment_agent_uses_resilient_model(self):
         """Verify _create_enrichment_agent uses create_resilient_model."""
         import inspect

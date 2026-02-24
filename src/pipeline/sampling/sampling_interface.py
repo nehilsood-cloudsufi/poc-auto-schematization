@@ -157,7 +157,7 @@ def _sample_agentic(
 ) -> SamplingResult:
     """Run agentic (LLM-driven) sampling.
 
-    Uses the SamplingAgentWrapper to run an LLM that makes intelligent
+    Uses the ProgrammaticSamplingAgent to run an LLM that makes intelligent
     sampling decisions based on data evidence.
 
     Args:

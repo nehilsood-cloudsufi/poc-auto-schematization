@@ -36,7 +36,7 @@ from google.genai import types
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import SamplingAgent, SamplingAgentWrapper
+from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
@@ -356,7 +356,6 @@ def run_dataset_pipeline(
         min_attempts: Minimum pipeline attempts before allowing quality exit
         max_retries: Max retry attempts after initial generation (default: 2, for 3 total)
         extra_plugins: Additional ADK plugins (e.g., progress tracking for UI)
-
     Returns:
         Final state dictionary
     """
@@ -378,12 +377,14 @@ def run_dataset_pipeline(
         skip_evaluation, use_metadata, max_retries, prompt_version,
     )
 
-    # Create Sampling agent (agentic sampling with LLM)
-    sampling_agent = SamplingAgentWrapper(
+    # Create Sampling agent (programmatic, code-orchestrated)
+    sampling_agent = ProgrammaticSamplingAgent(
         name="Sampling",
         model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview"),
-        thinking_level=thinking_level,
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
     )
+    logger.info("Using ProgrammaticSamplingAgent (code-orchestrated)")
 
     # Create PVMAP retry loop (ADK LoopAgent-based)
     pvmap_agent = create_pvmap_retry_loop(
@@ -404,7 +405,7 @@ def run_dataset_pipeline(
 
     # Build sub_agents list - Sampling first, then StatVar discovery, then generation, then evaluation
     sub_agents = [sampling_agent]
-    logger.info("SamplingAgentWrapper added to pipeline")
+    logger.info("SamplingAgent added to pipeline")
 
     # Add SchemaSelectionAgent if not skipped (Phase 2.5)
     if not skip_schema_selection:

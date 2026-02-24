@@ -54,7 +54,6 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Force re-sampling even if sampled data exists'
     )
-
     # Schema selection phase options
     parser.add_argument(
         '--skip-schema-selection',

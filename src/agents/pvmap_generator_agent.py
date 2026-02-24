@@ -111,7 +111,6 @@ def create_pvmap_generator(
         instruction=PVMAP_GENERATOR_INSTRUCTION,
         output_schema=PVMAPOutput,
         output_key="pvmap_output",
-        include_contents="none",  # Prevent conversation history accumulation across loop iterations
     )
 
     if tools:
@@ -153,7 +152,6 @@ def create_pvmap_generator_without_schema(
         model=create_resilient_model(model),
         instruction=PVMAP_GENERATOR_INSTRUCTION,
         output_key="pvmap_raw_output",  # Store raw output for parsing
-        include_contents="none",  # Prevent conversation history accumulation across loop iterations
     )
 
     thinking_config = build_thinking_config(thinking_level, model=model)
