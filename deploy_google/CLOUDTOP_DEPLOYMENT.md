@@ -86,7 +86,7 @@ gcloud compute ssh CLOUDTOP_NAME -- -L 8080:localhost:8080
 2. Install the **Remote - SSH** extension (by Microsoft)
 3. `Ctrl+Shift+P` → "Remote-SSH: Connect to Host" → `CLOUDTOP_NAME.c.googlers.com`
 4. VS Code opens a new window connected to Cloudtop
-5. Open the project folder: `~/poc-agent-b`
+5. Open the project folder: `~/poc-auto-schematization`
 
 > **Tip:** VS Code Remote-SSH automatically handles port forwarding. When Streamlit starts on port 8080, VS Code detects it and offers to open it in Chrome.
 
@@ -170,8 +170,8 @@ Add to `~/.bashrc` if persistent.
 
 ```bash
 cd ~
-git clone https://github.com/nehilsood-cloudsufi/poc-agent-b.git
-cd poc-agent-b
+git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
+cd poc-auto-schematization
 git checkout release/nehil/agentB_google_deploy
 
 # Install all dependencies
@@ -209,7 +209,7 @@ chmod 600 .env
 Run the permission check, then the infrastructure setup (one-time):
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 
 # Check permissions
 chmod +x deploy_google/permission_check.sh
@@ -227,7 +227,7 @@ The script is idempotent (safe to re-run) and will prompt you for API keys inter
 ## 6. Deploy to Cloud Run
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 git pull origin release/nehil/agentB_google_deploy
 
 chmod +x deploy_google/deploy_cloudtop.sh
@@ -257,7 +257,7 @@ See [CLOUDSHELL_DEPLOYMENT.md Section 6](./CLOUDSHELL_DEPLOYMENT.md#6-post-deplo
 This is the main advantage of Cloudtop over Cloud Shell — you can run the full app locally for development and testing.
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 source .venv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
@@ -275,7 +275,7 @@ streamlit run src/ui/app.py --server.port=8080
 ## 8. Run Tests
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 source .venv/bin/activate
 
 PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
@@ -287,7 +287,7 @@ PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
 
 ```bash
 # === Morning Setup (on Cloudtop) ===
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 source .venv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 export PROJECT_ID="datcom-infosys-dev"
@@ -303,9 +303,13 @@ pytest tests/ -x -q                                  # Run tests
 # === Deploy to Cloud Run ===
 ./deploy_google/deploy_cloudtop.sh
 
-# === Check status ===
-URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
-curl -sf "${URL}/_stcore/health"
+# === Access deployed app via proxy ===
+gcloud run services proxy auto-schematization --region=$REGION --port=9090
+# Open http://localhost:9090 in browser
+
+# === Health check ===
+curl -sf -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  $(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')/_stcore/health
 
 # === View logs ===
 gcloud logging read \

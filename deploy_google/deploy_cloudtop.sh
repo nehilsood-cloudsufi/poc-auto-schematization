@@ -164,11 +164,19 @@ if ! gcloud run deploy "${SERVICE}" \
 fi
 rm -f "$DEPLOY_OUTPUT"
 
-# --- Grant domain-level access (google.com users) ---
-echo ">>> Granting access to google.com domain..."
+# --- Grant access to google.com domain + project groups ---
+echo ">>> Granting access to google.com domain and project groups..."
 gcloud run services add-iam-policy-binding "${SERVICE}" \
   --region="${REGION}" \
   --member="domain:google.com" \
+  --role="roles/run.invoker" --quiet 2>/dev/null || true
+gcloud run services add-iam-policy-binding "${SERVICE}" \
+  --region="${REGION}" \
+  --member="group:datcom-cloudsufi@google.com" \
+  --role="roles/run.invoker" --quiet 2>/dev/null || true
+gcloud run services add-iam-policy-binding "${SERVICE}" \
+  --region="${REGION}" \
+  --member="group:datcom-core@google.com" \
   --role="roles/run.invoker" --quiet 2>/dev/null || true
 echo "    Done."
 
@@ -178,9 +186,25 @@ echo ""
 echo "============================================"
 echo "  DEPLOY SUCCESS"
 echo "============================================"
+echo ""
 echo "  URL:    ${URL}"
 echo "  Bucket: gs://${BUCKET}"
 echo ""
-echo "  Access:       All @google.com users (sign in with corporate account)"
-echo "  Health check: curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${URL}/_stcore/health"
-echo "  Logs:         gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"auto-schematization\"' --project=${PROJECT_ID} --limit=20"
+echo "  NOTE: This service requires authentication (Google org policy)."
+echo "  The app is NOT accessible by opening the URL directly in a browser."
+echo ""
+echo "  === How to Access ==="
+echo ""
+echo "  Option 1: Cloud Run Proxy (recommended)"
+echo "    gcloud run services proxy ${SERVICE} --region=${REGION} --port=8080"
+echo "    Then open: http://localhost:8080"
+echo "    (In Cloud Shell, use Web Preview button → 'Preview on port 8080')"
+echo ""
+echo "  Option 2: Authenticated curl"
+echo "    curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${URL}/_stcore/health"
+echo ""
+echo "  === Share with Others ==="
+echo "  Anyone with @google.com / datcom-cloudsufi / datcom-core group access"
+echo "  can run the proxy command above from their own Cloud Shell to access the app."
+echo ""
+echo "  Logs: gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"auto-schematization\"' --project=${PROJECT_ID} --limit=20"

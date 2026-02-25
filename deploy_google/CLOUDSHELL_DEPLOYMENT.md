@@ -40,15 +40,15 @@ gcloud config set project datcom-infosys-dev
 gcloud config set run/region europe-west1
 
 # Clone the repo (persists in your 5GB Cloud Shell home directory)
-git clone https://github.com/nehilsood-cloudsufi/poc-agent-b.git
-cd poc-agent-b
+git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
+cd poc-auto-schematization
 git checkout release/nehil/agentB_google_deploy
 ```
 
 ### Deploy (after infrastructure is set up — see Sections 2-4)
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 git pull origin release/nehil/agentB_google_deploy
 
 chmod +x deploy_google/deploy_cloudtop.sh
@@ -114,7 +114,7 @@ Before anything else, you need IAM roles on the GCP project. Copy-paste this mes
 After your manager says "done," run the permission check script in **Cloud Shell**:
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 chmod +x deploy_google/permission_check.sh
 ./deploy_google/permission_check.sh
 ```
@@ -134,7 +134,7 @@ To check a different project:
 Run the infrastructure setup script in **Cloud Shell**. You only need to do this once per project.
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 chmod +x deploy_google/infra_setup.sh
 ./deploy_google/infra_setup.sh
 ```
@@ -172,7 +172,7 @@ If using the developer feedback feature:
 From **Cloud Shell**:
 
 ```bash
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 git pull origin release/nehil/agentB_google_deploy
 
 chmod +x deploy_google/deploy_cloudtop.sh
@@ -198,13 +198,48 @@ Defaults: project=`datcom-infosys-dev`, region=`europe-west1`. Override with pos
    - Session affinity (required for Streamlit WebSocket)
    - GCS FUSE volume mount at `/app/ui_output`
    - Secrets injected as env vars from Secret Manager
-   - Public access (no authentication)
+   - Authenticated access (google.com domain + project groups)
 
 ### Get the URL
 
 ```bash
 gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
+
+### Access the App
+
+The service requires authentication (Google org policy blocks public access). You **cannot** open the URL directly in a browser.
+
+**Option 1: Cloud Run Proxy (recommended)**
+
+```bash
+gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
+```
+
+Then click **Web Preview** (top-right of Cloud Shell) → **"Preview on port 8080"**.
+
+> This proxies requests through your authenticated gcloud session. The app opens in a new browser tab.
+
+**Option 2: Authenticated curl (for health checks)**
+
+```bash
+curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  $(gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)')/_stcore/health
+```
+
+### Share Access with Others
+
+Anyone with a `@google.com` account or in the `datcom-cloudsufi` / `datcom-core` groups can access the app. They just need to:
+
+1. Open **Cloud Shell** (https://console.cloud.google.com → terminal icon)
+2. Run:
+   ```bash
+   gcloud config set project datcom-infosys-dev
+   gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
+   ```
+3. Click **Web Preview** → **"Preview on port 8080"**
+
+No code checkout or setup needed — just the two commands above.
 
 ---
 
@@ -219,12 +254,13 @@ export BUCKET="${PROJECT_ID}-agent-b-output"
 URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
 echo "Service URL: $URL"
 
-# 2. Health check
-curl -sf "${URL}/_stcore/health"
+# 2. Health check (authenticated)
+curl -sf -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${URL}/_stcore/health"
 # Expected: "ok"
 
-# 3. Open in browser
-echo "Open this in your Chromebook browser: $URL"
+# 3. Open via proxy
+gcloud run services proxy auto-schematization --region=$REGION --port=8080
+# Then use Web Preview → "Preview on port 8080"
 
 # 4. Check Cloud Run logs for startup
 gcloud logging read \
@@ -237,11 +273,12 @@ gcloud storage ls gs://${BUCKET}/
 
 ### Smoke Test
 
-1. Open the Cloud Run URL in Chrome on your Chromebook
-2. Upload a small CSV file
-3. Click "Run Pipeline"
-4. Wait for completion (~2-5 min)
-5. Check output: `gcloud storage ls gs://${BUCKET}/ --recursive`
+1. Start the proxy: `gcloud run services proxy auto-schematization --region=europe-west1 --port=8080`
+2. Open via **Web Preview** → **"Preview on port 8080"**
+3. Upload a small CSV file
+4. Click "Run Pipeline"
+5. Wait for completion (~2-5 min)
+6. Check output: `gcloud storage ls gs://${BUCKET}/ --recursive`
 
 ---
 
@@ -251,7 +288,7 @@ Open **Cloud Shell** (https://console.cloud.google.com → terminal icon), then:
 
 ```bash
 # === Setup (every session) ===
-cd ~/poc-agent-b
+cd ~/poc-auto-schematization
 export PROJECT_ID="datcom-infosys-dev"
 export REGION="europe-west1"
 
@@ -259,9 +296,13 @@ export REGION="europe-west1"
 git pull origin release/nehil/agentB_google_deploy
 ./deploy_google/deploy_cloudtop.sh
 
-# === Check status ===
-URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
-curl -sf "${URL}/_stcore/health"
+# === Access the app ===
+gcloud run services proxy auto-schematization --region=$REGION --port=8080
+# Click Web Preview → "Preview on port 8080"
+
+# === Health check (in a separate terminal) ===
+curl -sf -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  $(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')/_stcore/health
 
 # === View logs ===
 gcloud logging read \
@@ -282,7 +323,7 @@ echo -n "new-api-key" | gcloud secrets versions add GOOGLE_API_KEY --data-file=-
 
 ### Cloud Shell session disconnected
 
-Cloud Shell times out after ~20 min idle. Just reopen it — your home directory (including the cloned repo) persists. Reconnect and `cd ~/poc-agent-b`.
+Cloud Shell times out after ~20 min idle. Just reopen it — your home directory (including the cloned repo) persists. Reconnect and `cd ~/poc-auto-schematization`.
 
 If a deploy was interrupted mid-build, check if it's still running:
 
