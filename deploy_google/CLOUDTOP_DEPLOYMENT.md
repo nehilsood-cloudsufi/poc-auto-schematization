@@ -170,7 +170,7 @@ Add to `~/.bashrc` if persistent.
 
 ```bash
 cd ~
-git clone https://github.com/anthropics/poc-auto-schematization.git
+git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
 cd poc-auto-schematization
 git checkout release/nehil/agentB_google_deploy
 
