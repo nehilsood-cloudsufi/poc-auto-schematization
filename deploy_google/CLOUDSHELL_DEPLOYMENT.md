@@ -208,28 +208,16 @@ gcloud run services describe auto-schematization --region=europe-west1 --format=
 
 ### Access the App
 
-The service requires authentication (Google org policy blocks public access). You **cannot** open the URL directly in a browser.
-
-**Option 1: Convenience script (recommended)**
+The service uses Identity-Aware Proxy (IAP) for authentication. **Open the URL directly in your browser** — Google will prompt you to sign in, then show the Streamlit app.
 
 ```bash
-chmod +x deploy_google/start_app.sh
-./deploy_google/start_app.sh
+# Get the URL
+gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
 
-This script verifies auth, runs a health check, and starts the proxy with clear instructions. Then click **Web Preview** (top-right of Cloud Shell) → **"Preview on port 8080"**.
+> **First time?** If you see 403 after a fresh deploy, run `./deploy_google/setup_iap.sh` to configure IAP, then wait 1-2 minutes for propagation.
 
-**Option 2: Manual proxy**
-
-```bash
-gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
-```
-
-Then click **Web Preview** → **"Preview on port 8080"**.
-
-> Both options proxy requests through your authenticated gcloud session. The app opens in a new browser tab.
-
-**Option 3: Authenticated curl (for health checks)**
+**Health check (for debugging):**
 
 ```bash
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
@@ -238,23 +226,7 @@ curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
 
 ### Share Access with Others
 
-Anyone with a `@google.com` account or in the `datcom-cloudsufi` / `datcom-core` groups can access the app. They just need to:
-
-1. Open **Cloud Shell** (https://console.cloud.google.com → terminal icon)
-2. Run:
-   ```bash
-   gcloud config set project datcom-infosys-dev
-   git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
-   cd poc-auto-schematization && git checkout release/nehil/agentB_google_deploy
-   ./deploy_google/start_app.sh
-   ```
-3. Click **Web Preview** → **"Preview on port 8080"**
-
-Or without cloning, just run the proxy directly:
-   ```bash
-   gcloud config set project datcom-infosys-dev
-   gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
-   ```
+Anyone with a `@google.com` account or in the `datcom-cloudsufi` / `datcom-core` groups can access the app. Just share the Cloud Run URL — they open it in their browser and sign in with Google. No setup, proxy, or Cloud Shell needed.
 
 ---
 

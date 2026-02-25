@@ -30,7 +30,7 @@ CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 # ==========================================================
 # STEP 1: Permission Check
 # ==========================================================
-echo ">>> Step 1/7: Permission check..."
+echo ">>> Step 1/8: Permission check..."
 echo ""
 
 PASSED=0
@@ -76,13 +76,14 @@ echo ""
 # ==========================================================
 # STEP 2: Enable APIs
 # ==========================================================
-echo ">>> Step 2/7: Enabling APIs..."
+echo ">>> Step 2/8: Enabling APIs..."
 gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   secretmanager.googleapis.com \
   storage.googleapis.com \
   artifactregistry.googleapis.com \
+  iap.googleapis.com \
   --quiet
 echo "    Done."
 echo ""
@@ -90,7 +91,7 @@ echo ""
 # ==========================================================
 # STEP 3: Create Infrastructure (idempotent)
 # ==========================================================
-echo ">>> Step 3/7: Creating infrastructure..."
+echo ">>> Step 3/8: Creating infrastructure..."
 
 # Artifact Registry
 echo -n "    Artifact Registry: "
@@ -144,7 +145,7 @@ echo ""
 # ==========================================================
 # STEP 4: Fix Build Permissions
 # ==========================================================
-echo ">>> Step 4/7: Fixing build permissions..."
+echo ">>> Step 4/8: Fixing build permissions..."
 
 # Storage access for source upload
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
@@ -178,7 +179,7 @@ echo ""
 # ==========================================================
 # STEP 5: Build & Push Image
 # ==========================================================
-echo ">>> Step 5/7: Building and pushing image via Cloud Build..."
+echo ">>> Step 5/8: Building and pushing image via Cloud Build..."
 echo "    (First build: ~5-8 min. Subsequent: ~2-3 min)"
 echo ""
 
@@ -204,15 +205,16 @@ echo ""
 # ==========================================================
 # STEP 6: Deploy to Cloud Run
 # ==========================================================
-echo ">>> Step 6/7: Deploying to Cloud Run..."
+echo ">>> Step 6/8: Deploying to Cloud Run..."
 echo ""
 
 DEPLOY_OUTPUT=$(mktemp)
-if ! gcloud run deploy "${SERVICE}" \
+if ! gcloud beta run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
   --region "${REGION}" \
   --no-allow-unauthenticated \
+  --iap \
   --ingress=all \
   --port 8080 \
   --cpu 2 \
@@ -244,9 +246,9 @@ rm -f "$DEPLOY_OUTPUT"
 echo ""
 
 # ==========================================================
-# STEP 7: Grant Access & Show Instructions
+# STEP 7: Grant Access & Configure IAP
 # ==========================================================
-echo ">>> Step 7/7: Granting access..."
+echo ">>> Step 7/8: Granting Cloud Run invoker access..."
 
 gcloud run services add-iam-policy-binding "${SERVICE}" \
   --region="${REGION}" --member="domain:google.com" \
@@ -257,6 +259,42 @@ gcloud run services add-iam-policy-binding "${SERVICE}" \
 gcloud run services add-iam-policy-binding "${SERVICE}" \
   --region="${REGION}" --member="group:datcom-core@google.com" \
   --role="roles/run.invoker" --quiet >/dev/null 2>&1 || true
+echo "    Done."
+echo ""
+
+# ==========================================================
+# STEP 8: Configure IAP for browser access
+# ==========================================================
+echo ">>> Step 8/8: Configuring IAP for browser access..."
+
+# Enable IAP API
+gcloud services enable iap.googleapis.com --quiet 2>/dev/null || true
+
+# Create IAP service agent
+gcloud beta services identity create --service=iap.googleapis.com --project="$PROJECT_ID" 2>/dev/null || true
+
+# Grant IAP service agent Cloud Run invoker
+IAP_SA="service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com"
+gcloud run services add-iam-policy-binding "$SERVICE" \
+  --region="$REGION" \
+  --member="serviceAccount:${IAP_SA}" \
+  --role="roles/run.invoker" \
+  --quiet >/dev/null 2>&1 || true
+
+# Grant IAP web access to authorized groups
+gcloud beta iap web add-iam-policy-binding \
+  --resource-type=cloud-run --service="$SERVICE" --region="$REGION" \
+  --member="domain:google.com" --role="roles/iap.httpsResourceAccessor" \
+  --condition=None --quiet 2>/dev/null || true
+gcloud beta iap web add-iam-policy-binding \
+  --resource-type=cloud-run --service="$SERVICE" --region="$REGION" \
+  --member="group:datcom-cloudsufi@google.com" --role="roles/iap.httpsResourceAccessor" \
+  --condition=None --quiet 2>/dev/null || true
+gcloud beta iap web add-iam-policy-binding \
+  --resource-type=cloud-run --service="$SERVICE" --region="$REGION" \
+  --member="group:datcom-core@google.com" --role="roles/iap.httpsResourceAccessor" \
+  --condition=None --quiet 2>/dev/null || true
+
 echo "    Done."
 
 URL=$(gcloud run services describe "${SERVICE}" --region="${REGION}" --format='value(status.url)')
@@ -272,21 +310,16 @@ echo "  Bucket:  gs://${BUCKET}"
 echo ""
 echo "  === How to Access the App ==="
 echo ""
-echo "  Option 1: Convenience script (recommended)"
-echo "    ./deploy_google/start_app.sh"
-echo ""
-echo "  Option 2: Manual proxy"
-echo "    gcloud run services proxy $SERVICE --region=$REGION --port=8080"
-echo ""
-echo "  Then use Web Preview → port 8080 (Cloud Shell)"
-echo "  or open http://localhost:8080 (Cloudtop/local)"
+echo "  Open the URL above directly in your browser."
+echo "  Google will prompt for login, then show the Streamlit app."
 echo ""
 echo "  === Share with Others ==="
 echo ""
-echo "  Anyone with @google.com account can access via Cloud Shell:"
+echo "  Anyone with @google.com account can open the URL directly."
+echo "  No proxy, Cloud Shell, or setup needed."
 echo ""
-echo "    gcloud config set project $PROJECT_ID"
-echo "    gcloud run services proxy $SERVICE --region=$REGION --port=8080"
+echo "  === Troubleshooting ==="
 echo ""
-echo "  Then Web Preview → 'Preview on port 8080'. No setup needed."
+echo "  If you see 403, run: ./deploy_google/setup_iap.sh"
+echo "  IAP propagation may take 1-2 minutes."
 echo ""

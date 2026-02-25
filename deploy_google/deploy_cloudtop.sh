@@ -111,11 +111,12 @@ echo ">>> Step 3/3: Deploying to Cloud Run..."
 echo ""
 
 DEPLOY_OUTPUT=$(mktemp)
-if ! gcloud run deploy "${SERVICE}" \
+if ! gcloud beta run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
   --region "${REGION}" \
   --no-allow-unauthenticated \
+  --iap \
   --ingress=all \
   --port 8080 \
   --cpu 2 \
@@ -191,24 +192,16 @@ echo ""
 echo "  URL:    ${URL}"
 echo "  Bucket: gs://${BUCKET}"
 echo ""
-echo "  NOTE: This service requires authentication (Google org policy)."
-echo "  The app is NOT accessible by opening the URL directly in a browser."
-echo ""
-echo "  === How to Access ==="
-echo ""
-echo "  Option 1: Convenience script (recommended)"
-echo "    ./deploy_google/start_app.sh"
-echo "    (In Cloud Shell, use Web Preview button → 'Preview on port 8080')"
-echo ""
-echo "  Option 2: Manual proxy"
-echo "    gcloud run services proxy ${SERVICE} --region=${REGION} --port=8080"
-echo "    Then open: http://localhost:8080"
-echo ""
-echo "  Option 3: Authenticated curl (health check)"
-echo "    curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${URL}/_stcore/health"
+echo "  IAP is enabled — open the URL directly in your browser."
+echo "  Google will prompt for login, then show the Streamlit app."
 echo ""
 echo "  === Share with Others ==="
 echo "  Anyone with @google.com / datcom-cloudsufi / datcom-core group access"
-echo "  can run the proxy command above from their own Cloud Shell to access the app."
+echo "  can open the URL directly in their browser. No setup needed."
+echo ""
+echo "  === Troubleshooting ==="
+echo "  If you see 403 after first deploy, run:"
+echo "    ./deploy_google/setup_iap.sh"
+echo "  IAP propagation may take 1-2 minutes after setup."
 echo ""
 echo "  Logs: gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"auto-schematization\"' --project=${PROJECT_ID} --limit=20"

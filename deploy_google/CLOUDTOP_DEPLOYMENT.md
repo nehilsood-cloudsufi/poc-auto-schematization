@@ -248,21 +248,14 @@ gcloud run services describe auto-schematization --region=europe-west1 --format=
 
 ### Access the Deployed App
 
-**Option 1: Convenience script (recommended)**
+Open the Cloud Run URL directly in your browser — IAP handles Google login automatically.
 
 ```bash
-chmod +x deploy_google/start_app.sh
-./deploy_google/start_app.sh
+# Get the URL
+gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
 
-This verifies auth, runs a health check, and starts the proxy. Then open `http://localhost:8080` in your browser.
-
-**Option 2: Manual proxy**
-
-```bash
-gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
-# Open http://localhost:8080 in browser
-```
+> If you see 403 after first deploy, run `./deploy_google/setup_iap.sh` and wait 1-2 minutes.
 
 ### Post-Deploy Verification
 
