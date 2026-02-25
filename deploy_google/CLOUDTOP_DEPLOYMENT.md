@@ -206,57 +206,21 @@ chmod 600 .env
 
 ## 5. GCP Infrastructure Creation
 
-Run the permission self-check first:
+Run the permission check, then the infrastructure setup (one-time):
 
 ```bash
+cd ~/poc-auto-schematization
+
+# Check permissions
 chmod +x deploy_google/permission_check.sh
 ./deploy_google/permission_check.sh
+
+# Create all infrastructure (APIs, Artifact Registry, secrets, GCS bucket)
+chmod +x deploy_google/infra_setup.sh
+./deploy_google/infra_setup.sh
 ```
 
-Then create infrastructure (one-time):
-
-```bash
-export PROJECT_ID="datcom-infosys-dev"
-export REGION="europe-west1"
-export BUCKET="${PROJECT_ID}-agent-b-output"
-export PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-export SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-
-# Enable APIs
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  secretmanager.googleapis.com \
-  storage.googleapis.com \
-  artifactregistry.googleapis.com
-
-# Create Artifact Registry
-gcloud artifacts repositories create agent-b \
-  --repository-format=docker \
-  --location=$REGION \
-  --description="Agent B container images"
-
-# Create secrets
-echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets create GOOGLE_API_KEY --data-file=-
-gcloud secrets add-iam-policy-binding GOOGLE_API_KEY \
-  --member="serviceAccount:${SA}" --role="roles/secretmanager.secretAccessor"
-
-echo -n "YOUR_DC_API_KEY" | gcloud secrets create DC_API_KEY --data-file=-
-gcloud secrets add-iam-policy-binding DC_API_KEY \
-  --member="serviceAccount:${SA}" --role="roles/secretmanager.secretAccessor"
-
-echo -n "YOUR_SHEET_ID" | gcloud secrets create GOOGLE_SHEET_ID --data-file=-
-gcloud secrets add-iam-policy-binding GOOGLE_SHEET_ID \
-  --member="serviceAccount:${SA}" --role="roles/secretmanager.secretAccessor"
-
-# Create GCS bucket
-gcloud storage buckets create gs://${BUCKET} \
-  --location=$REGION \
-  --uniform-bucket-level-access
-
-gcloud storage buckets add-iam-policy-binding gs://${BUCKET} \
-  --member="serviceAccount:${SA}" --role="roles/storage.objectAdmin"
-```
+The script is idempotent (safe to re-run) and will prompt you for API keys interactively. See [CLOUDSHELL_DEPLOYMENT.md Section 4](./CLOUDSHELL_DEPLOYMENT.md#4-gcp-infrastructure-creation) for details.
 
 ---
 
