@@ -111,80 +111,21 @@ Before anything else, you need IAM roles on the GCP project. Copy-paste this mes
 
 ## 3. Permission Self-Check
 
-After your manager says "done," run this in **Cloud Shell** to verify every required permission:
+After your manager says "done," run the permission check script in **Cloud Shell**:
 
 ```bash
-# ============================================================
-# PERMISSION SELF-CHECK SCRIPT
-# ============================================================
-
-export PROJECT_ID="datcom-infosys-dev"
-gcloud config set project "$PROJECT_ID"
-
-echo "=== Permission Self-Check ==="
-echo ""
-
-# 1. Can I view the project?
-echo "1. Project access (basic):"
-gcloud projects describe $PROJECT_ID --format="value(projectId)" 2>&1 | head -3
-echo "   PASS: shows project ID | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 2. Can I enable APIs? (roles/serviceusage.serviceUsageAdmin)
-echo "2. Enable APIs:"
-gcloud services list --enabled --limit=1 2>&1 | head -3
-echo "   PASS: shows a service | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 3. Can I create Cloud Run services? (roles/run.admin)
-echo "3. Cloud Run access:"
-gcloud run services list --region=europe-west1 2>&1 | head -3
-echo "   PASS: empty list or services | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 4. Can I submit Cloud Builds? (roles/cloudbuild.builds.editor)
-echo "4. Cloud Build access:"
-gcloud builds list --limit=1 2>&1 | head -3
-echo "   PASS: empty list or builds | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 5. Can I manage Artifact Registry? (roles/artifactregistry.admin)
-echo "5. Artifact Registry access:"
-gcloud artifacts repositories list --location=europe-west1 2>&1 | head -3
-echo "   PASS: empty list or repos | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 6. Can I manage secrets? (roles/secretmanager.admin)
-echo "6. Secret Manager access:"
-gcloud secrets list 2>&1 | head -3
-echo "   PASS: empty list or secrets | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 7. Can I manage storage? (roles/storage.admin)
-echo "7. GCS access:"
-gcloud storage buckets list --limit=1 2>&1 | head -3
-echo "   PASS: empty or buckets | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 8. Can I use service accounts? (roles/iam.serviceAccountUser)
-echo "8. Service Account access:"
-gcloud iam service-accounts list 2>&1 | head -3
-echo "   PASS: shows SA list | FAIL: PERMISSION_DENIED"
-echo ""
-
-# 9. Can I view logs? (roles/logging.viewer)
-echo "9. Logging access:"
-gcloud logging read "" --limit=1 --freshness=1d 2>&1 | head -3
-echo "   PASS: empty or log entry | FAIL: PERMISSION_DENIED"
-echo ""
-
-echo "=== Self-Check Complete ==="
-echo "If any check shows PERMISSION_DENIED, ask your manager to grant the corresponding role (see table in Section 2)."
+cd ~/poc-auto-schematization
+chmod +x deploy_google/permission_check.sh
+./deploy_google/permission_check.sh
 ```
 
-**If any check fails**, reply to your manager with:
+The script checks all 9 required IAM roles and prints a summary with PASS/FAIL for each. If any fail, it generates a ready-to-send message for your manager listing the missing roles.
 
-> Check #N failed with PERMISSION_DENIED. Could you grant me `roles/xxx` on project `datcom-infosys-dev`?
+To check a different project:
+
+```bash
+./deploy_google/permission_check.sh my-other-project
+```
 
 ---
 

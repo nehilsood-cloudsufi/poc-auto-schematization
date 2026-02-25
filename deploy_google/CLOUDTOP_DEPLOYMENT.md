@@ -206,7 +206,12 @@ chmod 600 .env
 
 ## 5. GCP Infrastructure Creation
 
-Run the permission self-check first: see [CLOUDSHELL_DEPLOYMENT.md Section 3](./CLOUDSHELL_DEPLOYMENT.md#3-permission-self-check).
+Run the permission self-check first:
+
+```bash
+chmod +x deploy_google/permission_check.sh
+./deploy_google/permission_check.sh
+```
 
 Then create infrastructure (one-time):
 
@@ -377,7 +382,7 @@ Or use Remote Desktop and open the browser on Cloudtop itself.
 
 ### "PERMISSION_DENIED" during deploy
 
-Run the permission self-check from [CLOUDSHELL_DEPLOYMENT.md Section 3](./CLOUDSHELL_DEPLOYMENT.md#3-permission-self-check).
+Run `./deploy_google/permission_check.sh` to identify the missing role.
 
 ### For all other Cloud Run issues
 
