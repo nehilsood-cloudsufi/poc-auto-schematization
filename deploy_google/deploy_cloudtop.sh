@@ -115,7 +115,7 @@ if ! gcloud run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
   --region "${REGION}" \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --port 8080 \
   --cpu 2 \
   --memory 4Gi \
@@ -164,11 +164,11 @@ if ! gcloud run deploy "${SERVICE}" \
 fi
 rm -f "$DEPLOY_OUTPUT"
 
-# --- Fix public access (--allow-unauthenticated may warn) ---
-echo ">>> Setting public access (IAM invoker binding)..."
+# --- Grant domain-level access (google.com users) ---
+echo ">>> Granting access to google.com domain..."
 gcloud run services add-iam-policy-binding "${SERVICE}" \
   --region="${REGION}" \
-  --member="allUsers" \
+  --member="domain:google.com" \
   --role="roles/run.invoker" --quiet 2>/dev/null || true
 echo "    Done."
 
@@ -181,5 +181,6 @@ echo "============================================"
 echo "  URL:    ${URL}"
 echo "  Bucket: gs://${BUCKET}"
 echo ""
-echo "  Health check: curl -sf ${URL}/_stcore/health"
+echo "  Access:       All @google.com users (sign in with corporate account)"
+echo "  Health check: curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${URL}/_stcore/health"
 echo "  Logs:         gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"auto-schematization\"' --project=${PROJECT_ID} --limit=20"
