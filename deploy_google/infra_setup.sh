@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# GCP Infrastructure Setup for Agent B (one-time)
+# GCP Infrastructure Setup for Auto-Schematization (one-time)
 # Creates: APIs, Artifact Registry, Secrets, GCS bucket
 # Usage: ./deploy_google/infra_setup.sh [PROJECT_ID] [REGION]
 # ============================================================
@@ -9,7 +9,7 @@ set -euo pipefail
 
 PROJECT_ID="${1:-datcom-infosys-dev}"
 REGION="${2:-europe-west1}"
-BUCKET="${PROJECT_ID}-agent-b-output"
+BUCKET="${PROJECT_ID}-auto-schematization-output"
 
 gcloud config set project "$PROJECT_ID" --quiet
 
@@ -36,13 +36,13 @@ echo ""
 
 # --- 2. Artifact Registry ---
 echo ">>> Creating Artifact Registry repository..."
-if gcloud artifacts repositories describe agent-b --location="$REGION" &>/dev/null; then
+if gcloud artifacts repositories describe auto-schematization --location="$REGION" &>/dev/null; then
   echo "    Already exists, skipping."
 else
-  gcloud artifacts repositories create agent-b \
+  gcloud artifacts repositories create auto-schematization \
     --repository-format=docker \
     --location="$REGION" \
-    --description="Agent B container images"
+    --description="Auto-Schematization container images"
   echo "    Created."
 fi
 echo ""
@@ -98,7 +98,7 @@ echo "  INFRASTRUCTURE SETUP COMPLETE"
 echo "==========================================="
 echo ""
 echo "  APIs:              Enabled"
-echo "  Artifact Registry: europe-west1-docker.pkg.dev/$PROJECT_ID/agent-b"
+echo "  Artifact Registry: ${REGION}-docker.pkg.dev/$PROJECT_ID/auto-schematization"
 echo "  Secrets:           $(gcloud secrets list --format='value(name)' | tr '\n' ', ')"
 echo "  GCS Bucket:        gs://$BUCKET"
 echo ""

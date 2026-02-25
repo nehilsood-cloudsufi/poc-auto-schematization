@@ -1,6 +1,6 @@
 # Cloud Shell Deployment Guide
 
-> **Audience:** xw@ (external workforce) deploying Agent B to `datcom-infosys-dev` / `europe-west1` from a Chromebook using Cloud Shell.
+> **Audience:** xw@ (external workforce) deploying Auto-Schematization to `datcom-infosys-dev` / `europe-west1` from a Chromebook using Cloud Shell.
 >
 > **Branch:** `release/nehil/agentB_google_deploy`
 >
@@ -75,11 +75,11 @@ That's it. Cloud Build handles the Docker image build remotely on Google's serve
 
 Before anything else, you need IAM roles on the GCP project. Copy-paste this message to your manager (or TL):
 
-> **Subject: IAM roles needed on datcom-infosys-dev for Agent B deployment**
+> **Subject: IAM roles needed on datcom-infosys-dev for Auto-Schematization deployment**
 >
 > Hi [Manager],
 >
-> I need access to the GCP project **`datcom-infosys-dev`** to deploy the Agent B (Auto-Schematization) Streamlit app to Cloud Run.
+> I need access to the GCP project **`datcom-infosys-dev`** to deploy the Auto-Schematization (Auto-Schematization) Streamlit app to Cloud Run.
 >
 > **Project requirements:**
 > - Billing enabled
@@ -203,7 +203,7 @@ Defaults: project=`datcom-infosys-dev`, region=`europe-west1`. Override with pos
 ### Get the URL
 
 ```bash
-gcloud run services describe agent-b --region=europe-west1 --format='value(status.url)'
+gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
 
 ---
@@ -213,10 +213,10 @@ gcloud run services describe agent-b --region=europe-west1 --format='value(statu
 ```bash
 export REGION="europe-west1"
 export PROJECT_ID="datcom-infosys-dev"
-export BUCKET="${PROJECT_ID}-agent-b-output"
+export BUCKET="${PROJECT_ID}-auto-schematization-output"
 
 # 1. Get the service URL
-URL=$(gcloud run services describe agent-b --region=$REGION --format='value(status.url)')
+URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
 echo "Service URL: $URL"
 
 # 2. Health check
@@ -228,7 +228,7 @@ echo "Open this in your Chromebook browser: $URL"
 
 # 4. Check Cloud Run logs for startup
 gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="agent-b"' \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="auto-schematization"' \
   --project=$PROJECT_ID --limit=20 --format="table(timestamp,jsonPayload.message)"
 
 # 5. Verify GCS bucket is accessible
@@ -260,16 +260,16 @@ git pull origin release/nehil/agentB_google_deploy
 ./deploy_google/deploy_cloudtop.sh
 
 # === Check status ===
-URL=$(gcloud run services describe agent-b --region=$REGION --format='value(status.url)')
+URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
 curl -sf "${URL}/_stcore/health"
 
 # === View logs ===
 gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="agent-b"' \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="auto-schematization"' \
   --project=$PROJECT_ID --limit=20 --format="table(timestamp,jsonPayload.message)"
 
 # === View output files ===
-gcloud storage ls gs://${PROJECT_ID}-agent-b-output/ --recursive
+gcloud storage ls gs://${PROJECT_ID}-auto-schematization-output/ --recursive
 
 # === Update a secret ===
 echo -n "new-api-key" | gcloud secrets versions add GOOGLE_API_KEY --data-file=-
@@ -340,7 +340,7 @@ echo "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
 ```bash
 # Check execution environment is gen2
-gcloud run services describe agent-b --region=europe-west1 \
+gcloud run services describe auto-schematization --region=europe-west1 \
   --format='value(spec.template.metadata.annotations["run.googleapis.com/execution-environment"])'
 # Must show: gen2
 ```
@@ -348,7 +348,7 @@ gcloud run services describe agent-b --region=europe-west1 \
 ### Streamlit WebSocket disconnects
 
 ```bash
-gcloud run services describe agent-b --region=europe-west1 \
+gcloud run services describe auto-schematization --region=europe-west1 \
   --format='value(spec.template.metadata.annotations["run.googleapis.com/sessionAffinity"])'
 # Must show: true
 ```
@@ -374,7 +374,7 @@ gcloud run services describe agent-b --region=europe-west1 \
 │                                                          │
 │  ┌──────────────────────────────────────────────────────┐ │
 │  │ GCS FUSE Volume Mount                                │ │
-│  │ /app/ui_output ↔ gs://datcom-infosys-dev-agent-b-output │
+│  │ /app/ui_output ↔ gs://datcom-infosys-dev-auto-schematization-output │
 │  └──────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
          │                    │                    │

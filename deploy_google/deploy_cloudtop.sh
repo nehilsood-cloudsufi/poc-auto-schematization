@@ -2,21 +2,21 @@
 set -euo pipefail
 
 # ============================================================
-# Agent B — Google Cloudtop / europe-west1 deployment
+# Auto-Schematization — Google Cloudtop / europe-west1 deployment
 # Usage: ./deploy_google/deploy_cloudtop.sh [PROJECT_ID] [REGION]
 # ============================================================
 
 PROJECT_ID="${1:-datcom-infosys-dev}"
 REGION="${2:-europe-west1}"
-SERVICE="agent-b"
-IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/agent-b/app:latest"
-BUCKET="${PROJECT_ID}-agent-b-output"
+SERVICE="auto-schematization"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/auto-schematization/app:latest"
+BUCKET="${PROJECT_ID}-auto-schematization-output"
 
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)
 CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 
 echo "============================================"
-echo "  Agent B Deploy → ${PROJECT_ID} / ${REGION}"
+echo "  Auto-Schematization Deploy → ${PROJECT_ID} / ${REGION}"
 echo "============================================"
 echo "  Image:          ${IMAGE}"
 echo "  Bucket:         ${BUCKET}"
@@ -27,9 +27,9 @@ echo ""
 echo ">>> Step 1/3: Pre-flight checks..."
 
 # Check Artifact Registry repo exists
-if ! gcloud artifacts repositories describe agent-b --location="$REGION" &>/dev/null; then
+if ! gcloud artifacts repositories describe auto-schematization --location="$REGION" &>/dev/null; then
   echo ""
-  echo "DEPLOY FAILED: Artifact Registry repo 'agent-b' not found in ${REGION}."
+  echo "DEPLOY FAILED: Artifact Registry repo 'auto-schematization' not found in ${REGION}."
   echo ""
   echo "FIX: Run ./deploy_google/infra_setup.sh first to create infrastructure."
   exit 1
@@ -164,6 +164,14 @@ if ! gcloud run deploy "${SERVICE}" \
 fi
 rm -f "$DEPLOY_OUTPUT"
 
+# --- Fix public access (--allow-unauthenticated may warn) ---
+echo ">>> Setting public access (IAM invoker binding)..."
+gcloud run services add-iam-policy-binding "${SERVICE}" \
+  --region="${REGION}" \
+  --member="allUsers" \
+  --role="roles/run.invoker" --quiet 2>/dev/null || true
+echo "    Done."
+
 # --- Success ---
 URL=$(gcloud run services describe "${SERVICE}" --region="${REGION}" --format='value(status.url)')
 echo ""
@@ -174,4 +182,4 @@ echo "  URL:    ${URL}"
 echo "  Bucket: gs://${BUCKET}"
 echo ""
 echo "  Health check: curl -sf ${URL}/_stcore/health"
-echo "  Logs:         gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"agent-b\"' --project=${PROJECT_ID} --limit=20"
+echo "  Logs:         gcloud logging read 'resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"auto-schematization\"' --project=${PROJECT_ID} --limit=20"

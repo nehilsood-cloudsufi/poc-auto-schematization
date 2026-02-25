@@ -33,7 +33,7 @@
 
 Send this to your manager:
 
-> Hi, I need a Cloudtop instance provisioned for my xw@ account (`YOUR_EMAIL`). I'll be using it for Agent B development and Cloud Run deployment. Standard config (4+ vCPU, 16+ GB RAM) should be fine.
+> Hi, I need a Cloudtop instance provisioned for my xw@ account (`YOUR_EMAIL`). I'll be using it for Auto-Schematization development and Cloud Run deployment. Standard config (4+ vCPU, 16+ GB RAM) should be fine.
 
 Once provisioned, it typically takes 5-10 minutes for the VM to be ready.
 
@@ -243,7 +243,7 @@ Defaults: project=`datcom-infosys-dev`, region=`europe-west1`.
 ### Get the URL
 
 ```bash
-gcloud run services describe agent-b --region=europe-west1 --format='value(status.url)'
+gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
 
 ### Post-Deploy Verification
@@ -304,16 +304,16 @@ pytest tests/ -x -q                                  # Run tests
 ./deploy_google/deploy_cloudtop.sh
 
 # === Check status ===
-URL=$(gcloud run services describe agent-b --region=$REGION --format='value(status.url)')
+URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
 curl -sf "${URL}/_stcore/health"
 
 # === View logs ===
 gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="agent-b"' \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="auto-schematization"' \
   --project=$PROJECT_ID --limit=20 --format="table(timestamp,jsonPayload.message)"
 
 # === View output files ===
-gcloud storage ls gs://${PROJECT_ID}-agent-b-output/ --recursive
+gcloud storage ls gs://${PROJECT_ID}-auto-schematization-output/ --recursive
 ```
 
 > **Tip:** Use `tmux new -s dev` so your processes survive SSH disconnects.
@@ -373,7 +373,7 @@ See [CLOUDSHELL_DEPLOYMENT.md Section 8](./CLOUDSHELL_DEPLOYMENT.md#8-troublesho
 │                                                          │
 │  ┌──────────────────────────────────────────────────────┐ │
 │  │ GCS FUSE Volume Mount                                │ │
-│  │ /app/ui_output ↔ gs://datcom-infosys-dev-agent-b-output │
+│  │ /app/ui_output ↔ gs://datcom-infosys-dev-auto-schematization-output │
 │  └──────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
          │                    │                    │
