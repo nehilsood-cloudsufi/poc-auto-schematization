@@ -9,8 +9,8 @@ set -euo pipefail
 PROJECT_ID="${1:-datcom-infosys-dev}"
 REGION="${2:-europe-west1}"
 SERVICE="auto-schematization"
-IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/auto-schematization/app:latest"
-BUCKET="${PROJECT_ID}-auto-schematization-output"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/agent-b/app:latest"
+BUCKET="${PROJECT_ID}-agent-b-output"
 
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)
 CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
@@ -27,9 +27,9 @@ echo ""
 echo ">>> Step 1/3: Pre-flight checks..."
 
 # Check Artifact Registry repo exists
-if ! gcloud artifacts repositories describe auto-schematization --location="$REGION" &>/dev/null; then
+if ! gcloud artifacts repositories describe agent-b --location="$REGION" &>/dev/null; then
   echo ""
-  echo "DEPLOY FAILED: Artifact Registry repo 'auto-schematization' not found in ${REGION}."
+  echo "DEPLOY FAILED: Artifact Registry repo 'agent-b' not found in ${REGION}."
   echo ""
   echo "FIX: Run ./deploy_google/infra_setup.sh first to create infrastructure."
   exit 1

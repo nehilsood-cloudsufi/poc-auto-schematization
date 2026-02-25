@@ -40,15 +40,15 @@ gcloud config set project datcom-infosys-dev
 gcloud config set run/region europe-west1
 
 # Clone the repo (persists in your 5GB Cloud Shell home directory)
-git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
-cd poc-auto-schematization
+git clone https://github.com/nehilsood-cloudsufi/poc-agent-b.git
+cd poc-agent-b
 git checkout release/nehil/agentB_google_deploy
 ```
 
 ### Deploy (after infrastructure is set up — see Sections 2-4)
 
 ```bash
-cd ~/poc-auto-schematization
+cd ~/poc-agent-b
 git pull origin release/nehil/agentB_google_deploy
 
 chmod +x deploy_google/deploy_cloudtop.sh
@@ -114,7 +114,7 @@ Before anything else, you need IAM roles on the GCP project. Copy-paste this mes
 After your manager says "done," run the permission check script in **Cloud Shell**:
 
 ```bash
-cd ~/poc-auto-schematization
+cd ~/poc-agent-b
 chmod +x deploy_google/permission_check.sh
 ./deploy_google/permission_check.sh
 ```
@@ -134,7 +134,7 @@ To check a different project:
 Run the infrastructure setup script in **Cloud Shell**. You only need to do this once per project.
 
 ```bash
-cd ~/poc-auto-schematization
+cd ~/poc-agent-b
 chmod +x deploy_google/infra_setup.sh
 ./deploy_google/infra_setup.sh
 ```
@@ -172,7 +172,7 @@ If using the developer feedback feature:
 From **Cloud Shell**:
 
 ```bash
-cd ~/poc-auto-schematization
+cd ~/poc-agent-b
 git pull origin release/nehil/agentB_google_deploy
 
 chmod +x deploy_google/deploy_cloudtop.sh
@@ -213,7 +213,7 @@ gcloud run services describe auto-schematization --region=europe-west1 --format=
 ```bash
 export REGION="europe-west1"
 export PROJECT_ID="datcom-infosys-dev"
-export BUCKET="${PROJECT_ID}-auto-schematization-output"
+export BUCKET="${PROJECT_ID}-agent-b-output"
 
 # 1. Get the service URL
 URL=$(gcloud run services describe auto-schematization --region=$REGION --format='value(status.url)')
@@ -251,7 +251,7 @@ Open **Cloud Shell** (https://console.cloud.google.com → terminal icon), then:
 
 ```bash
 # === Setup (every session) ===
-cd ~/poc-auto-schematization
+cd ~/poc-agent-b
 export PROJECT_ID="datcom-infosys-dev"
 export REGION="europe-west1"
 
@@ -269,7 +269,7 @@ gcloud logging read \
   --project=$PROJECT_ID --limit=20 --format="table(timestamp,jsonPayload.message)"
 
 # === View output files ===
-gcloud storage ls gs://${PROJECT_ID}-auto-schematization-output/ --recursive
+gcloud storage ls gs://${PROJECT_ID}-agent-b-output/ --recursive
 
 # === Update a secret ===
 echo -n "new-api-key" | gcloud secrets versions add GOOGLE_API_KEY --data-file=-
@@ -282,7 +282,7 @@ echo -n "new-api-key" | gcloud secrets versions add GOOGLE_API_KEY --data-file=-
 
 ### Cloud Shell session disconnected
 
-Cloud Shell times out after ~20 min idle. Just reopen it — your home directory (including the cloned repo) persists. Reconnect and `cd ~/poc-auto-schematization`.
+Cloud Shell times out after ~20 min idle. Just reopen it — your home directory (including the cloned repo) persists. Reconnect and `cd ~/poc-agent-b`.
 
 If a deploy was interrupted mid-build, check if it's still running:
 
@@ -374,7 +374,7 @@ gcloud run services describe auto-schematization --region=europe-west1 \
 │                                                          │
 │  ┌──────────────────────────────────────────────────────┐ │
 │  │ GCS FUSE Volume Mount                                │ │
-│  │ /app/ui_output ↔ gs://datcom-infosys-dev-auto-schematization-output │
+│  │ /app/ui_output ↔ gs://datcom-infosys-dev-agent-b-output │
 │  └──────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
          │                    │                    │

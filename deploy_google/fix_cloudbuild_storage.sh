@@ -14,7 +14,7 @@ PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectN
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 CLOUDBUILD_BUCKET="gs://${PROJECT_ID}_cloudbuild"
-AR_REPO="${REGION}-docker.pkg.dev/${PROJECT_ID}/auto-schematization"
+AR_REPO="${REGION}-docker.pkg.dev/${PROJECT_ID}/agent-b"
 
 echo "=== Fixing Deploy Permissions ==="
 echo "  Project:            $PROJECT_ID"
@@ -52,7 +52,7 @@ fi
 
 # 4. Grant Cloud Build SA Artifact Registry write access (for docker push)
 echo ">>> 4/6 Granting Cloud Build SA Artifact Registry writer..."
-gcloud artifacts repositories add-iam-policy-binding auto-schematization \
+gcloud artifacts repositories add-iam-policy-binding agent-b \
   --location="$REGION" \
   --member="serviceAccount:${CLOUDBUILD_SA}" \
   --role="roles/artifactregistry.writer" --quiet
@@ -60,7 +60,7 @@ echo "    Done."
 
 # 5. Grant compute SA Artifact Registry write access
 echo ">>> 5/6 Granting compute SA Artifact Registry writer..."
-gcloud artifacts repositories add-iam-policy-binding auto-schematization \
+gcloud artifacts repositories add-iam-policy-binding agent-b \
   --location="$REGION" \
   --member="serviceAccount:${COMPUTE_SA}" \
   --role="roles/artifactregistry.writer" --quiet
