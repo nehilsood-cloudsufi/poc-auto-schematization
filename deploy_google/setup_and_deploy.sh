@@ -42,10 +42,10 @@ check() {
   echo -n "    $num. $label: "
   if "$@" &>/dev/null; then
     echo "PASS"
-    ((PASSED++))
+    ((PASSED++)) || true
   else
     echo "FAIL — need $role"
-    ((FAILED++))
+    ((FAILED++)) || true
     FAILED_ROLES+=("$role")
   fi
 }
