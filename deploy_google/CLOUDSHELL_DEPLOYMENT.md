@@ -210,17 +210,26 @@ gcloud run services describe auto-schematization --region=europe-west1 --format=
 
 The service requires authentication (Google org policy blocks public access). You **cannot** open the URL directly in a browser.
 
-**Option 1: Cloud Run Proxy (recommended)**
+**Option 1: Convenience script (recommended)**
+
+```bash
+chmod +x deploy_google/start_app.sh
+./deploy_google/start_app.sh
+```
+
+This script verifies auth, runs a health check, and starts the proxy with clear instructions. Then click **Web Preview** (top-right of Cloud Shell) → **"Preview on port 8080"**.
+
+**Option 2: Manual proxy**
 
 ```bash
 gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
 ```
 
-Then click **Web Preview** (top-right of Cloud Shell) → **"Preview on port 8080"**.
+Then click **Web Preview** → **"Preview on port 8080"**.
 
-> This proxies requests through your authenticated gcloud session. The app opens in a new browser tab.
+> Both options proxy requests through your authenticated gcloud session. The app opens in a new browser tab.
 
-**Option 2: Authenticated curl (for health checks)**
+**Option 3: Authenticated curl (for health checks)**
 
 ```bash
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
@@ -235,11 +244,17 @@ Anyone with a `@google.com` account or in the `datcom-cloudsufi` / `datcom-core`
 2. Run:
    ```bash
    gcloud config set project datcom-infosys-dev
-   gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
+   git clone https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git
+   cd poc-auto-schematization && git checkout release/nehil/agentB_google_deploy
+   ./deploy_google/start_app.sh
    ```
 3. Click **Web Preview** → **"Preview on port 8080"**
 
-No code checkout or setup needed — just the two commands above.
+Or without cloning, just run the proxy directly:
+   ```bash
+   gcloud config set project datcom-infosys-dev
+   gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
+   ```
 
 ---
 

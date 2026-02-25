@@ -116,6 +116,7 @@ if ! gcloud run deploy "${SERVICE}" \
   --platform managed \
   --region "${REGION}" \
   --no-allow-unauthenticated \
+  --ingress=all \
   --port 8080 \
   --cpu 2 \
   --memory 4Gi \
@@ -195,12 +196,15 @@ echo "  The app is NOT accessible by opening the URL directly in a browser."
 echo ""
 echo "  === How to Access ==="
 echo ""
-echo "  Option 1: Cloud Run Proxy (recommended)"
-echo "    gcloud run services proxy ${SERVICE} --region=${REGION} --port=8080"
-echo "    Then open: http://localhost:8080"
+echo "  Option 1: Convenience script (recommended)"
+echo "    ./deploy_google/start_app.sh"
 echo "    (In Cloud Shell, use Web Preview button → 'Preview on port 8080')"
 echo ""
-echo "  Option 2: Authenticated curl"
+echo "  Option 2: Manual proxy"
+echo "    gcloud run services proxy ${SERVICE} --region=${REGION} --port=8080"
+echo "    Then open: http://localhost:8080"
+echo ""
+echo "  Option 3: Authenticated curl (health check)"
 echo "    curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${URL}/_stcore/health"
 echo ""
 echo "  === Share with Others ==="

@@ -213,6 +213,7 @@ if ! gcloud run deploy "${SERVICE}" \
   --platform managed \
   --region "${REGION}" \
   --no-allow-unauthenticated \
+  --ingress=all \
   --port 8080 \
   --cpu 2 \
   --memory 4Gi \
@@ -271,9 +272,14 @@ echo "  Bucket:  gs://${BUCKET}"
 echo ""
 echo "  === How to Access the App ==="
 echo ""
-echo "  Run this command, then use Web Preview → port 8080:"
+echo "  Option 1: Convenience script (recommended)"
+echo "    ./deploy_google/start_app.sh"
 echo ""
+echo "  Option 2: Manual proxy"
 echo "    gcloud run services proxy $SERVICE --region=$REGION --port=8080"
+echo ""
+echo "  Then use Web Preview → port 8080 (Cloud Shell)"
+echo "  or open http://localhost:8080 (Cloudtop/local)"
 echo ""
 echo "  === Share with Others ==="
 echo ""

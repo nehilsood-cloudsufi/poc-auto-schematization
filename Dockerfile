@@ -13,6 +13,7 @@ COPY tools/ tools/
 COPY pyproject.toml .
 COPY deploy/startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh
+COPY deploy/.streamlit /app/.streamlit
 
 # Remove any stale bytecode from host (cross-platform safety)
 RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; true

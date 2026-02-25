@@ -246,6 +246,24 @@ Defaults: project=`datcom-infosys-dev`, region=`europe-west1`.
 gcloud run services describe auto-schematization --region=europe-west1 --format='value(status.url)'
 ```
 
+### Access the Deployed App
+
+**Option 1: Convenience script (recommended)**
+
+```bash
+chmod +x deploy_google/start_app.sh
+./deploy_google/start_app.sh
+```
+
+This verifies auth, runs a health check, and starts the proxy. Then open `http://localhost:8080` in your browser.
+
+**Option 2: Manual proxy**
+
+```bash
+gcloud run services proxy auto-schematization --region=europe-west1 --port=8080
+# Open http://localhost:8080 in browser
+```
+
 ### Post-Deploy Verification
 
 See [CLOUDSHELL_DEPLOYMENT.md Section 6](./CLOUDSHELL_DEPLOYMENT.md#6-post-deploy-verification) for the full verification checklist.
