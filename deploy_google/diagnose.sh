@@ -58,3 +58,10 @@ gcloud logging read \
 echo ""
 
 echo "=== Diagnosis complete. Paste this output to get help. ==="
+echo ""
+echo "=== Common Fixes ==="
+echo "  403 Forbidden?       → ./deploy_google/setup_iap.sh"
+echo "  Container crashing?  → Check logs above for ModuleNotFoundError or missing secrets"
+echo "  No revisions?        → ./deploy_google/deploy_cloudtop.sh"
+echo "  Permission denied?   → ./deploy_google/permission_check.sh"
+echo "  See DEPLOYMENT.md Section 10 for detailed troubleshooting."

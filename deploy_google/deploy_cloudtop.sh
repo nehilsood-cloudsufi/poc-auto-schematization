@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # ============================================================
-# Auto-Schematization — Google Cloudtop / europe-west1 deployment
+# Auto-Schematization — Quick Rebuild & Deploy
+# Skips infrastructure setup — use after code changes (~2-3 min).
+# For first-time setup, run setup_and_deploy.sh instead.
+# See DEPLOYMENT.md for the full guide.
 # Usage: ./deploy_google/deploy_cloudtop.sh [PROJECT_ID] [REGION]
 # ============================================================
 
@@ -31,7 +34,7 @@ if ! gcloud artifacts repositories describe agent-b --location="$REGION" &>/dev/
   echo ""
   echo "DEPLOY FAILED: Artifact Registry repo 'agent-b' not found in ${REGION}."
   echo ""
-  echo "FIX: Run ./deploy_google/infra_setup.sh first to create infrastructure."
+  echo "FIX: Run ./deploy_google/setup_and_deploy.sh first to create infrastructure."
   exit 1
 fi
 echo "    Artifact Registry: OK"
@@ -47,7 +50,7 @@ if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
   echo ""
   echo "DEPLOY FAILED: Required secrets missing: ${MISSING_SECRETS[*]}"
   echo ""
-  echo "FIX: Run ./deploy_google/infra_setup.sh to create secrets."
+  echo "FIX: Run ./deploy_google/setup_and_deploy.sh to create secrets."
   exit 1
 fi
 echo "    Secrets: OK"
@@ -57,7 +60,7 @@ if ! gcloud storage buckets describe "gs://${BUCKET}" &>/dev/null; then
   echo ""
   echo "DEPLOY FAILED: GCS bucket gs://${BUCKET} not found."
   echo ""
-  echo "FIX: Run ./deploy_google/infra_setup.sh to create the bucket."
+  echo "FIX: Run ./deploy_google/setup_and_deploy.sh to create the bucket."
   exit 1
 fi
 echo "    GCS Bucket: OK"
@@ -79,11 +82,11 @@ if ! gcloud builds submit --tag "${IMAGE}" --project "${PROJECT_ID}" --timeout=1
   if grep -q "storage.objects.get" "$BUILD_OUTPUT"; then
     echo "CAUSE: Cloud Build SA lacks storage access for source upload."
     echo ""
-    echo "FIX: Run ./deploy_google/fix_cloudbuild_storage.sh"
+    echo "FIX: Run ./deploy_google/setup_and_deploy.sh (Step 4 fixes build permissions)"
   elif grep -q "artifactregistry.repositories.uploadArtifacts" "$BUILD_OUTPUT"; then
     echo "CAUSE: Cloud Build SA lacks permission to push to Artifact Registry."
     echo ""
-    echo "FIX: Run ./deploy_google/fix_cloudbuild_storage.sh"
+    echo "FIX: Run ./deploy_google/setup_and_deploy.sh (Step 4 fixes build permissions)"
   elif grep -q "TIMEOUT" "$BUILD_OUTPUT"; then
     echo "CAUSE: Build timed out (>20 min)."
     echo ""

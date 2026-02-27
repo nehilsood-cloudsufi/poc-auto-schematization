@@ -1,11 +1,34 @@
 #!/bin/bash
 # ============================================================
 # Auto-Schematization — Full Setup & Deploy (one script)
-# Runs: permission check → infra setup → build → deploy → access
+# Runs: permission check → infra setup → build → deploy → IAP
+# For code-only redeployment, use deploy_cloudtop.sh instead.
+# See DEPLOYMENT.md for the full guide.
 # Usage: ./deploy_google/setup_and_deploy.sh [PROJECT_ID] [REGION]
 # ============================================================
 
 set -euo pipefail
+
+CURRENT_STEP=""
+on_error() {
+  local exit_code=$?
+  echo ""
+  echo "============================================"
+  echo "  SETUP FAILED at: ${CURRENT_STEP:-unknown step} (exit code $exit_code)"
+  echo "============================================"
+  echo ""
+  echo "  Quick fixes by step:"
+  echo "    Step 1 (Permissions)  → Ask manager for missing roles"
+  echo "    Step 2 (APIs)         → Run: gcloud services enable run.googleapis.com --quiet"
+  echo "    Step 3 (Infra)        → Re-run this script (idempotent)"
+  echo "    Step 4 (Build perms)  → Re-run this script (idempotent)"
+  echo "    Step 5 (Build)        → Check .gcloudignore, then re-run"
+  echo "    Step 6 (Deploy)       → Run ./deploy_google/diagnose.sh"
+  echo "    Step 7-8 (Access/IAP) → Run ./deploy_google/setup_iap.sh"
+  echo ""
+  echo "  See DEPLOYMENT.md Section 10 for detailed troubleshooting."
+}
+trap on_error ERR
 
 PROJECT_ID="${1:-datcom-infosys-dev}"
 REGION="${2:-europe-west1}"
@@ -30,6 +53,7 @@ CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 # ==========================================================
 # STEP 1: Permission Check
 # ==========================================================
+CURRENT_STEP="Step 1/8: Permission check"
 echo ">>> Step 1/8: Permission check..."
 echo ""
 
@@ -76,6 +100,7 @@ echo ""
 # ==========================================================
 # STEP 2: Enable APIs
 # ==========================================================
+CURRENT_STEP="Step 2/8: Enable APIs"
 echo ">>> Step 2/8: Enabling APIs..."
 gcloud services enable \
   run.googleapis.com \
@@ -91,6 +116,7 @@ echo ""
 # ==========================================================
 # STEP 3: Create Infrastructure (idempotent)
 # ==========================================================
+CURRENT_STEP="Step 3/8: Create infrastructure"
 echo ">>> Step 3/8: Creating infrastructure..."
 
 # Artifact Registry
@@ -145,6 +171,7 @@ echo ""
 # ==========================================================
 # STEP 4: Fix Build Permissions
 # ==========================================================
+CURRENT_STEP="Step 4/8: Fix build permissions"
 echo ">>> Step 4/8: Fixing build permissions..."
 
 # Storage access for source upload
@@ -179,6 +206,7 @@ echo ""
 # ==========================================================
 # STEP 5: Build & Push Image
 # ==========================================================
+CURRENT_STEP="Step 5/8: Build & push image"
 echo ">>> Step 5/8: Building and pushing image via Cloud Build..."
 echo "    (First build: ~5-8 min. Subsequent: ~2-3 min)"
 echo ""
@@ -205,6 +233,7 @@ echo ""
 # ==========================================================
 # STEP 6: Deploy to Cloud Run
 # ==========================================================
+CURRENT_STEP="Step 6/8: Deploy to Cloud Run"
 echo ">>> Step 6/8: Deploying to Cloud Run..."
 echo ""
 
@@ -248,6 +277,7 @@ echo ""
 # ==========================================================
 # STEP 7: Grant Access & Configure IAP
 # ==========================================================
+CURRENT_STEP="Step 7/8: Grant access"
 echo ">>> Step 7/8: Granting Cloud Run invoker access..."
 
 gcloud run services add-iam-policy-binding "${SERVICE}" \
@@ -265,6 +295,7 @@ echo ""
 # ==========================================================
 # STEP 8: Configure IAP for browser access
 # ==========================================================
+CURRENT_STEP="Step 8/8: Configure IAP"
 echo ">>> Step 8/8: Configuring IAP for browser access..."
 
 # Enable IAP API

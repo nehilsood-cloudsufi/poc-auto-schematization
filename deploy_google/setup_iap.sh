@@ -9,6 +9,23 @@
 
 set -euo pipefail
 
+on_error() {
+  local exit_code=$?
+  echo ""
+  echo "============================================"
+  echo "  IAP SETUP FAILED (exit code $exit_code)"
+  echo "============================================"
+  echo ""
+  echo "  Quick fixes:"
+  echo "  1. Service not found?  → Run ./deploy_google/setup_and_deploy.sh first"
+  echo "  2. PERMISSION_DENIED?  → Run ./deploy_google/permission_check.sh"
+  echo "  3. beta not installed? → gcloud components install beta"
+  echo "  4. Still stuck?        → Run ./deploy_google/diagnose.sh and share output"
+  echo ""
+  echo "  See DEPLOYMENT.md Section 10 for more troubleshooting."
+}
+trap on_error ERR
+
 PROJECT_ID="${1:-datcom-infosys-dev}"
 REGION="${2:-europe-west1}"
 SERVICE="auto-schematization"
