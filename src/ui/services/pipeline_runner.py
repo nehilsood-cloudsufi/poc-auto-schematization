@@ -21,7 +21,7 @@ class PipelineConfig:
     input_dir: Path
     output_dir: Path
     input_file: Optional[str] = None
-    model: str = "gemini-3-pro-preview"
+    model: str = "gemini-3.1-pro-preview"
     enable_mcp: bool = True
     mcp_url: Optional[str] = None
     skip_sampling: bool = False

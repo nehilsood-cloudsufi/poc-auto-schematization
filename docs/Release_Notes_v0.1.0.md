@@ -44,7 +44,7 @@ Key highlights:
 
 | | |
 |---|---|
-| **Model** | `gemini-3-pro-preview` (configurable via `--model` CLI flag) |
+| **Model** | `gemini-3.1-pro-preview` (configurable via `--model` CLI flag) |
 | **Thinking levels** | Configurable (low / medium / high / minimal / none) |
 | **Prompt versions** | v1 and v2 with decision-tree guidance, archetype classification, and worked examples |
 | **Structured output** | Deterministic CSV format (default: enabled via `--structured-output`) |

@@ -15,7 +15,7 @@ set -euo pipefail
 #
 # Environment variables:
 #   MCP_PORT   - MCP server port (default: 3000)
-#   MODEL      - Gemini model name (default: gemini-3-pro-preview)
+#   MODEL      - Gemini model name (default: gemini-3.1-pro-preview)
 #   OUTPUT_DIR - Override output directory (default: output/batch_<timestamp>)
 # =============================================================================
 
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INPUT_DIR="${PROJECT_ROOT}/input"
 MCP_PORT="${MCP_PORT:-3000}"
-MODEL="${MODEL:-gemini-3-pro-preview}"
+MODEL="${MODEL:-gemini-3.1-pro-preview}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BATCH_OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/output/batch_${TIMESTAMP}}"
 RESULTS_FILE="${BATCH_OUTPUT_DIR}/batch_results.txt"

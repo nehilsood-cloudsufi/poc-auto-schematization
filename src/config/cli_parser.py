@@ -119,8 +119,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--model', '-m',
         type=str,
-        default='gemini-3-pro-preview',
-        help='Gemini model to use (default: gemini-3-pro-preview)'
+        default='gemini-3.1-pro-preview',
+        help='Gemini model to use (default: gemini-3.1-pro-preview)'
     )
     parser.add_argument(
         '--thinking-level',

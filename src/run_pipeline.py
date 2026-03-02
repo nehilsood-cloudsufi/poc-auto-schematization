@@ -305,7 +305,7 @@ def run_dataset_pipeline(
     input_dir: Path,
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
@@ -380,7 +380,7 @@ def run_dataset_pipeline(
     # Create Sampling agent (programmatic, code-orchestrated)
     sampling_agent = ProgrammaticSamplingAgent(
         name="Sampling",
-        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview"),
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3.1-pro-preview"),
         enable_mcp=enable_mcp,
         mcp_url=mcp_url,
     )
@@ -735,8 +735,8 @@ if __name__ == "__main__":
                         help="Output directory (default: output/)")
     parser.add_argument("--input-dir", "-i", type=str, default=None,
                         help="Input directory (default: input/)")
-    parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
-                        help="Gemini model to use (default: gemini-3-pro-preview)")
+    parser.add_argument("--model", "-m", type=str, default="gemini-3.1-pro-preview",
+                        help="Gemini model to use (default: gemini-3.1-pro-preview)")
     parser.add_argument("--thinking-level", type=str,
                         choices=["low", "medium", "high", "minimal", "none"],
                         default="high",

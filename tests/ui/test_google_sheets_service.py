@@ -92,7 +92,7 @@ class TestAppendFeedback:
             quality_score="86.0",
             exit_reason="quality_acceptable",
             attempts="2",
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             mcp_enabled="True",
         )
 
@@ -109,7 +109,7 @@ class TestAppendFeedback:
         assert row[6] == "86.0"
         assert row[7] == "quality_acceptable"
         assert row[8] == "2"
-        assert row[9] == "gemini-3-pro-preview"
+        assert row[9] == "gemini-3.1-pro-preview"
         assert row[10] == "True"
 
     @patch("src.ui.services.google_sheets_service._get_gspread_client")

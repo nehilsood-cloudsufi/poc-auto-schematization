@@ -71,7 +71,7 @@ The pipeline supports three mutually exclusive input modes:
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--model` | `gemini-3-pro-preview` | Gemini model for PVMAP generation |
+| `--model` | `gemini-3.1-pro-preview` | Gemini model for PVMAP generation |
 | `--thinking-level` | `high` | Extended thinking mode (`low`, `medium`, `high`, `none`) |
 | `--max-retries` | `2` | Retry attempts after initial generation (3 total) |
 | `--enable-mcp` | `False` | Enable Data Commons MCP integration |
@@ -173,7 +173,7 @@ else → run LLM sampling agent
 
 A fresh `LlmAgent` is created per invocation using `create_sampling_agent()`:
 
-- **Model:** `SAMPLING_AGENT_MODEL` env var (default: `gemini-3-pro-preview`)
+- **Model:** `SAMPLING_AGENT_MODEL` env var (default: `gemini-3.1-pro-preview`)
 - **Tool calling mode:** `FunctionCallingConfigMode.ANY` (forces tool usage)
 - **Max events:** 50 (prevents infinite loops)
 - **Timeout:** `SAMPLING_AGENT_TIMEOUT` env var (default: 300s)
@@ -361,7 +361,7 @@ Without MCP: 7 agents. With MCP: 10 agents.
 **Purpose:** Generate a structured PVMAP using Gemini with output schema enforcement.
 
 **Inner LlmAgent configuration:**
-- **Model:** `PVMAP_GENERATOR_MODEL` env var (default: `gemini-3-pro-preview`)
+- **Model:** `PVMAP_GENERATOR_MODEL` env var (default: `gemini-3.1-pro-preview`)
 - **Instruction:** `{populated_pvmap_prompt}` — resolved from session state at runtime
 - **Output schema:** `PVMAPOutput` (Pydantic model) — guarantees valid JSON structure
 - **Output key:** `pvmap_output` — stored automatically in session state

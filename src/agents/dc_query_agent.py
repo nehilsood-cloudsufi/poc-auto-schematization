@@ -85,7 +85,7 @@ def create_dc_query_agent(
 
     Args:
         mcp_url: URL of the MCP server endpoint
-        model: Gemini model to use (default: gemini-2.5-pro)
+        model: Gemini model to use (default: DC_AGENT_MODEL env var)
         name: Agent name (default: "DCQueryAgent")
         instruction: Custom instruction (default: DC_QUERY_AGENT_INSTRUCTION)
         data_context: Optional data context from SamplingAgent for enhanced queries
@@ -510,12 +510,12 @@ Use this context to build more targeted queries.
 
 def create_statvar_discovery_agent(
     mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro"
+    model: str = None
 ) -> LlmAgent:
     """Create an agent specialized for discovering StatVars."""
     return create_dc_query_agent(
         mcp_url=mcp_url,
-        model=model,
+        model=model or _DC_AGENT_MODEL,
         name="StatVarDiscoveryAgent",
         instruction=STATVAR_DISCOVERY_INSTRUCTION
     )
@@ -523,12 +523,12 @@ def create_statvar_discovery_agent(
 
 def create_observation_fetch_agent(
     mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro"
+    model: str = None
 ) -> LlmAgent:
     """Create an agent specialized for fetching observations."""
     return create_dc_query_agent(
         mcp_url=mcp_url,
-        model=model,
+        model=model or _DC_AGENT_MODEL,
         name="ObservationFetchAgent",
         instruction=OBSERVATION_FETCH_INSTRUCTION
     )
@@ -541,7 +541,7 @@ def create_observation_fetch_agent(
 async def discover_statvars_for_topic(
     topic: str,
     mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro",
+    model: str = None,
     data_context: Optional[dict] = None
 ) -> str:
     """
@@ -553,6 +553,8 @@ async def discover_statvars_for_topic(
     from google.adk import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
+
+    model = model or _DC_AGENT_MODEL
 
     # Create agent with data_context if available
     if data_context:

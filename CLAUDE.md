@@ -688,7 +688,7 @@ PYTHONPATH="$(pwd):$(pwd)/src" python3 tools/stat_var_processor.py \
 - `--ground-truth-repo` - Ground truth repository path
 
 **Model selection:**
-- `--model` or `-m` - Override default Gemini model (default: gemini-3-pro-preview)
+- `--model` or `-m` - Override default Gemini model (default: gemini-3.1-pro-preview)
 
 **Input modes:**
 - `--input-file` - Standalone input file (no dataset folder required)

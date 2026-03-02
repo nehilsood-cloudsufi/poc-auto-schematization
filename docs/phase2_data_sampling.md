@@ -260,7 +260,7 @@ Profiling samples at most 500 rows for analysis, making it efficient even on mil
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SAMPLING_AGENT_MODEL` | `gemini-3-pro-preview` | LLM model for sampling |
+| `SAMPLING_AGENT_MODEL` | `gemini-3.1-pro-preview` | LLM model for sampling |
 
 ---
 

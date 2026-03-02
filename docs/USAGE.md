@@ -94,7 +94,7 @@ python src/run_pipeline.py --dry-run
 | `--metadata-file-path` | Explicit metadata file (auto-enables `--use-metadata`) | None | `--metadata-file-path=meta.csv` |
 | `--schema-file` | Explicit schema file override | None | `--schema-file=schema.txt` |
 | **Model Selection** |
-| `--model` or `-m` | Override default LLM model | `gemini-3-pro-preview` | `--model=gemini-2.5-pro` |
+| `--model` or `-m` | Override default LLM model | `gemini-3.1-pro-preview` | `--model=gemini-2.5-pro` |
 | **MCP Integration** |
 | `--enable-mcp` | Enable Data Commons MCP for StatVar discovery | False | `--enable-mcp` |
 | `--enable-schemaorg-mcp` | Enable Schema.org MCP for vocabulary lookup | False | `--enable-schemaorg-mcp` |
@@ -194,7 +194,7 @@ python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_
 
 **What it does:**
 - Populates prompt with schema vocab, sampled data, skeleton summary, and optional metadata
-- Calls Gemini API to generate PVMAP (default model: `gemini-3-pro-preview`)
+- Calls Gemini API to generate PVMAP (default model: `gemini-3.1-pro-preview`)
 - Saves response, reasoning, and attempt metadata (model name, token counts)
 
 **Output:**
@@ -470,7 +470,7 @@ Log file: logs/pipeline_20260115_134545.log
 | Setting | Value |
 |---------|-------|
 | Max retries | 2 (3 total attempts) |
-| Default model | `gemini-3-pro-preview` |
+| Default model | `gemini-3.1-pro-preview` |
 | Validation timeout | 5 minutes |
 | Generation timeout | 15 minutes |
 | Sampling max rows | 100 |

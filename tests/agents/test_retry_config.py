@@ -61,7 +61,7 @@ class TestCreateResilientModel:
         from google.adk.models import Gemini
         from src.agents.retry_config import create_resilient_model
 
-        for model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview"]:
             result = create_resilient_model(model_name)
             assert isinstance(result, Gemini)
             assert result.model == model_name

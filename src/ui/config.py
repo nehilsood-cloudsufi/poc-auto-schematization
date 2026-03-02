@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 # Default model for pipeline
-DEFAULT_MODEL = "gemini-3-pro-preview"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
 # MCP settings
 MCP_DEFAULT_PORT = 3000

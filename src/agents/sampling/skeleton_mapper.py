@@ -23,13 +23,13 @@ def create_skeleton_mapper(model: str = None) -> LlmAgent:
 
     Args:
         model: Gemini model name. Defaults to SAMPLING_AGENT_MODEL env var
-               or "gemini-3-pro-preview".
+               or "gemini-3.1-pro-preview".
 
     Returns:
         Configured LlmAgent with output_schema=RelationalSkeleton.
     """
     if model is None:
-        model = os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
+        model = os.getenv("SAMPLING_AGENT_MODEL", "gemini-3.1-pro-preview")
 
     return LlmAgent(
         name="SkeletonMapper",

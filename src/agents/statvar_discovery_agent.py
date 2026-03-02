@@ -23,6 +23,7 @@ ADK State Outputs:
     - mcp_enrichment_context: dict (structured discovery results)
 """
 
+import os
 from pathlib import Path
 from typing import AsyncGenerator
 import sys
@@ -51,9 +52,9 @@ class StatVarDiscoveryAgent(BaseAgent):
     When placed outside the loop (legacy): Always does broad discovery.
     """
 
-    def __init__(self, name: str = "StatVarDiscoveryAgent", model: str = "gemini-3-flash-preview"):
+    def __init__(self, name: str = "StatVarDiscoveryAgent", model: str = None):
         super().__init__(name=name)
-        self._model = model
+        self._model = model or os.getenv("STATVAR_DISCOVERY_MODEL", "gemini-3-flash-preview")
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Run StatVar discovery using MCP."""

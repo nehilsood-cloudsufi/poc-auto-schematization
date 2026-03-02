@@ -5,7 +5,7 @@ This module provides a client for interacting with Google's Gemini API
 using the API key from the .env file.
 
 Usage:
-    python -m util.gemini_client --model gemini-3-pro-preview "Your prompt here"
+    python -m util.gemini_client --model gemini-3.1-pro-preview "Your prompt here"
 """
 
 import argparse
@@ -63,13 +63,13 @@ def load_gemini_api_key() -> str:
 class GeminiClient:
     """Client for interacting with Google's Gemini 3 Pro API."""
 
-    DEFAULT_MODEL = "gemini-3-pro-preview"
+    DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
     def __init__(self, model_name: Optional[str] = None):
         """Initialize the Gemini client.
 
         Args:
-            model_name: The Gemini model to use. Defaults to gemini-3-pro-preview.
+            model_name: The Gemini model to use. Defaults to gemini-3.1-pro-preview.
         """
         self.api_key = load_gemini_api_key()
         self.model_name = model_name or self.DEFAULT_MODEL

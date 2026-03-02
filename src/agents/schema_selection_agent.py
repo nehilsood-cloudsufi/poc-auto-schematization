@@ -64,7 +64,7 @@ def create_schema_selection_agent(
 
     Args:
         name: Agent name (default: "SchemaSelectionAgent")
-        model: Gemini model to use (default: "gemini-3-pro-preview")
+        model: Gemini model to use (default: "gemini-3.1-pro-preview")
 
     Returns:
         Configured LlmAgent ready to use

@@ -357,7 +357,7 @@ class GeneratorWrapperAgent(BaseAgent):
             from src.agents.pvmap_generator_agent import create_pvmap_generator_without_schema
             generator = create_pvmap_generator_without_schema(
                 name=self.name,
-                model=self._generator_kwargs.get("model", "gemini-3-pro-preview"),
+                model=self._generator_kwargs.get("model", "gemini-3.1-pro-preview"),
                 thinking_level=self._generator_kwargs.get("thinking_level"),
             )
         try:

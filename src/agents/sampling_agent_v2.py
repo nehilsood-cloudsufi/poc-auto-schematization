@@ -60,7 +60,7 @@ class ProgrammaticSamplingAgent(BaseAgent):
         mcp_url: Optional[str] = None,
     ):
         super().__init__(name=name)
-        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
+        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-3.1-pro-preview")
         self._enable_mcp = enable_mcp
         self._mcp_url = mcp_url
 

@@ -15,6 +15,7 @@ MCP Integration:
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 def create_pipeline_coordinator(
     name: str = "PipelineCoordinator",
     max_retries: int = 2,
-    model: str = "gemini-3-pro-preview",
+    model: str = None,
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None
 ) -> SequentialAgent:
@@ -63,7 +64,7 @@ def create_pipeline_coordinator(
     Args:
         name: Coordinator name (default: "PipelineCoordinator")
         max_retries: Max retries for PVMAP generation (default: 2, for 3 total attempts)
-        model: Gemini model to use for LLM agents (default: "gemini-3-pro-preview")
+        model: Gemini model to use for LLM agents (default: "gemini-3.1-pro-preview")
         enable_mcp: Enable MCP integration for StatVar discovery (default: False)
         mcp_url: MCP server URL (default: None, uses "http://localhost:3000/mcp" if enable_mcp=True)
 
@@ -95,6 +96,8 @@ def create_pipeline_coordinator(
             result = runner.run(session_state=initial_state)
         ```
     """
+
+    model = model or os.getenv("PIPELINE_MODEL", "gemini-3.1-pro-preview")
 
     # Create individual agents
     discovery = DiscoveryAgent(name="DiscoveryAgent")

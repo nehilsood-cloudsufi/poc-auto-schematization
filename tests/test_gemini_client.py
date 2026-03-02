@@ -95,7 +95,7 @@ class TestGeminiClientInit:
 
         client = GeminiClient()
 
-        assert client.model_name == 'gemini-3-pro-preview'
+        assert client.model_name == 'gemini-3.1-pro-preview'
         # Client is now called with http_options for retry configuration
         mock_client_class.assert_called_once()
         call_kwargs = mock_client_class.call_args
@@ -215,7 +215,7 @@ class TestGeminiClientGenerateContentWithMetadata:
         assert 'prompt_tokens' in result
         assert 'response_tokens' in result
         assert result['text'] == 'Generated text'
-        assert result['model'] == 'gemini-3-pro-preview'
+        assert result['model'] == 'gemini-3.1-pro-preview'
 
     @patch('src.data_commons.api.gemini_client.load_gemini_api_key')
     @patch('src.data_commons.api.gemini_client.genai.Client')

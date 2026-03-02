@@ -27,7 +27,7 @@ class TestPvmapGeneratorWithMCP:
     def test_without_mcp_no_tools(self):
         """Generator without MCP has no tools."""
         generator = create_pvmap_generator(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             name="TestGen",
             enable_mcp=False,
         )
@@ -38,9 +38,9 @@ class TestPvmapGeneratorWithMCP:
         # model is now a Gemini instance with retry options
         from google.adk.models import Gemini
         if isinstance(generator.model, Gemini):
-            assert generator.model.model == "gemini-3-pro-preview"
+            assert generator.model.model == "gemini-3.1-pro-preview"
         else:
-            assert generator.model == "gemini-3-pro-preview"
+            assert generator.model == "gemini-3.1-pro-preview"
 
     @patch("src.data_commons.api.mcp_toolset_factory.create_dc_mcp_toolset")
     def test_with_mcp_has_tools(self, mock_toolset):
@@ -49,7 +49,7 @@ class TestPvmapGeneratorWithMCP:
         mock_toolset.return_value = mock_ts
 
         generator = create_pvmap_generator(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             name="TestGen",
             enable_mcp=True,
             mcp_url="http://localhost:3000/mcp",
@@ -60,7 +60,7 @@ class TestPvmapGeneratorWithMCP:
     def test_mcp_enabled_without_url_no_mcp_tools(self):
         """MCP enabled but no URL = no MCP toolset added (schema.org + local DC tools present)."""
         generator = create_pvmap_generator(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             enable_mcp=True,
             mcp_url=None,
         )
@@ -127,7 +127,7 @@ class TestPvmapGeneratorWithMCP:
 
     def test_backward_compat_no_mcp_params(self):
         """Calling without MCP params works (backward compatible)."""
-        generator = create_pvmap_generator(model="gemini-3-pro-preview")
+        generator = create_pvmap_generator(model="gemini-3.1-pro-preview")
         assert generator.name == "PVMAPGenerator"
         assert generator.output_key == "pvmap_output"
 
@@ -135,7 +135,7 @@ class TestPvmapGeneratorWithMCP:
         """Generator always has output_schema for structured output."""
         from src.agents.pvmap_generation.schemas import PVMAPOutput
 
-        generator = create_pvmap_generator(model="gemini-3-pro-preview")
+        generator = create_pvmap_generator(model="gemini-3.1-pro-preview")
         assert generator.output_schema == PVMAPOutput
 
     @patch("src.data_commons.api.mcp_toolset_factory.create_dc_mcp_toolset")

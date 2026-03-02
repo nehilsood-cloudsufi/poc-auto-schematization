@@ -42,7 +42,7 @@ PVMAP_GENERATOR_INSTRUCTION = "{populated_pvmap_prompt}"
 
 
 def create_pvmap_generator(
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
     name: str = "PVMAPGenerator",
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None,
@@ -127,7 +127,7 @@ def create_pvmap_generator(
 
 
 def create_pvmap_generator_without_schema(
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
     name: str = "PVMAPGenerator",
     thinking_level: Optional[str] = None,
 ) -> LlmAgent:
