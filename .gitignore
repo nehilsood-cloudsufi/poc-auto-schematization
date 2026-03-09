@@ -237,3 +237,6 @@ http_cache.sqlite
 ui_output/
 ui_runs/
 src/resources/schema_org/schemaorg_full.jsonld
+
+# NotebookLM credentials
+**/storage_state.json
