@@ -6,6 +6,9 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "=== NotebookLM Viewer — Full Setup ==="
 echo ""
 
+# Suppress Cloud Shell apt-get warning
+mkdir -p ~/.cloudshell && touch ~/.cloudshell/no-apt-get-warning
+
 # Step 1: Install VNC + browser deps
 echo "[1/5] Installing virtual display + VNC..."
 sudo apt-get update -qq
