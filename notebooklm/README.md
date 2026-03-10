@@ -57,7 +57,7 @@ The viewer app runs on **Cloudtop** (gLinux VM). This is the only working auth a
 In the Cloudtop terminal, run:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/setup_cloudtop.sh | bash
+curl -sL https://raw.githubusercontent.com/nehilsood-cloudsufi/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/setup_cloudtop.sh | bash
 ```
 
 **What happens automatically:**
@@ -96,13 +96,13 @@ Open Firefox/Chrome on the Cloudtop desktop → go to `http://localhost:8501`
 No need to re-install. Just run:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash
+curl -sL https://raw.githubusercontent.com/nehilsood-cloudsufi/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash
 ```
 
 **If your session expired** (auth errors after ~2 weeks):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash -s -- --reauth
+curl -sL https://raw.githubusercontent.com/nehilsood-cloudsufi/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash -s -- --reauth
 ```
 
 ### Troubleshooting

@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/datacommonsorg/poc-auto-schematization.git"
+REPO_URL="https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git"
 REPO_BRANCH="feature/nehil/notebooklm-agentb"
 REPO_DIR="$HOME/work/poc-auto-schematization"
 STORAGE_STATE="$HOME/.notebooklm/storage_state.json"
