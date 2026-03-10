@@ -8,9 +8,9 @@
 # This script:
 #   1. Checks prerequisites (Python 3.10+, DISPLAY)
 #   2. Clones/updates the repo
-#   3. Creates a venv and installs deps (bypasses Corp Airlock via PyPI direct)
-#   4. Installs Playwright + Chromium
-#   5. Runs `notebooklm login` (opens browser for Google sign-in)
+#   3. Creates a venv and installs deps
+#   4. Launches Chrome with remote debugging for sign-in
+#   5. Auto-extracts cookies from Chrome
 #   6. Launches Streamlit viewer on port 8501
 
 set -euo pipefail
@@ -21,6 +21,7 @@ REPO_DIR="$HOME/work/poc-auto-schematization"
 VENV_DIR="$REPO_DIR/.cloudtop_venv"
 STORAGE_STATE="$HOME/.notebooklm/storage_state.json"
 PORT=8501
+CDP_PORT=9222
 
 SKIP_AUTH=false
 for arg in "$@"; do
@@ -56,7 +57,7 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }
 fi
 ok "Python $PY_VERSION"
 
-# DISPLAY — needed for Playwright login (opens browser)
+# DISPLAY — needed for Chrome sign-in
 if [ "$SKIP_AUTH" = false ] && [ -z "${DISPLAY:-}" ]; then
   fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop via go/crd), not SSH."
 fi
@@ -106,30 +107,14 @@ source "$VENV_DIR/bin/activate"
 
 info "Installing Python packages..."
 # Try default pip first; if Corp Airlock blocks it, fall back to PyPI direct
-if ! pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio 2>/dev/null; then
+if ! pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio websocket-client 2>/dev/null; then
   warn "Default pip failed (likely Corp Airlock). Trying PyPI direct..."
-  pip install --index-url https://pypi.org/simple/ --quiet streamlit "notebooklm-py[browser]" nest-asyncio
+  pip install --index-url https://pypi.org/simple/ --quiet streamlit "notebooklm-py[browser]" nest-asyncio websocket-client
 fi
 ok "Python packages installed"
 
 # ---------------------------------------------------------------------------
-# 4. Install Playwright + Chromium
-# ---------------------------------------------------------------------------
-
-info "Installing Playwright Chromium..."
-playwright install chromium 2>/dev/null || python3 -m playwright install chromium
-
-# Install system deps (needs sudo on gLinux)
-if command -v sudo &>/dev/null; then
-  info "Installing Playwright system dependencies (may ask for sudo)..."
-  sudo "$(which playwright)" install-deps chromium 2>/dev/null || \
-    playwright install-deps chromium 2>/dev/null || \
-    warn "Could not install system deps for Playwright (may already be present)"
-fi
-ok "Playwright ready"
-
-# ---------------------------------------------------------------------------
-# 5. Authenticate with NotebookLM
+# 4. Authenticate with NotebookLM (via Chrome + CDP cookie extraction)
 # ---------------------------------------------------------------------------
 
 if [ "$SKIP_AUTH" = true ]; then
@@ -138,22 +123,45 @@ if [ "$SKIP_AUTH" = true ]; then
     warn "No auth file found at $STORAGE_STATE — you may need to run without --skip-auth"
   fi
 else
-  info "Authenticating with NotebookLM..."
-  info "Your security key is on your Chromebook, so we'll extract cookies from there."
+  # Check if Chrome is already running with debugging
+  if curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
+    info "Chrome already running with remote debugging."
+  else
+    info "Launching Chrome with remote debugging..."
+    google-chrome --remote-debugging-port="$CDP_PORT" "https://notebooklm.google.com/" &>/dev/null &
+    sleep 3
+  fi
+
+  echo ""
+  echo "=============================================="
+  info "ACTION REQUIRED: Sign in to NotebookLM"
+  echo "=============================================="
+  echo ""
+  echo "  A Chrome window has opened on the Cloudtop desktop."
+  echo "  1. Sign in with your @google.com account"
+  echo "  2. Tap your security key when prompted"
+  echo "  3. Wait until NotebookLM loads fully"
+  echo ""
+  read -rp "  Press ENTER here after you've signed in... "
   echo ""
 
-  python3 "$REPO_DIR/notebooklm/build_storage_state.py"
+  # Extract cookies from Chrome via CDP
+  info "Extracting cookies from Chrome..."
+  python3 "$REPO_DIR/notebooklm/refresh_cookies.py"
 
   # Verify auth file was created
   if [ -f "$STORAGE_STATE" ]; then
     ok "Authentication successful — $STORAGE_STATE created"
   else
-    fail "Authentication file not found at $STORAGE_STATE. Sign-in may have failed."
+    fail "Cookie extraction failed. Make sure you're signed into notebooklm.google.com in Chrome."
   fi
+
+  echo ""
+  info "Keep Chrome open! Cookies are auto-refreshed from it on each launch."
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Launch Streamlit
+# 5. Launch Streamlit
 # ---------------------------------------------------------------------------
 
 echo ""

@@ -5,6 +5,7 @@
 #   bash notebooklm/run_cloudtop.sh
 #   bash notebooklm/run_cloudtop.sh --reauth
 #
+# Auto-refreshes cookies from the running Chrome instance before launch.
 # Prerequisites: run setup_cloudtop.sh first (one-time).
 
 set -euo pipefail
@@ -13,6 +14,7 @@ REPO_DIR="$HOME/work/poc-auto-schematization"
 VENV_DIR="$REPO_DIR/.cloudtop_venv"
 STORAGE_STATE="$HOME/.notebooklm/storage_state.json"
 PORT=8501
+CDP_PORT=9222
 
 REAUTH=false
 for arg in "$@"; do
@@ -23,6 +25,7 @@ done
 
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()    { echo -e "\033[1;32m[OK]\033[0m    $*"; }
+warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 fail()  { echo -e "\033[1;31m[FAIL]\033[0m  $*"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -33,7 +36,7 @@ if [ ! -d "$REPO_DIR/notebooklm" ]; then
   fail "Repo not found at $REPO_DIR. Run setup_cloudtop.sh first."
 fi
 
-if [ ! -d "$VENV_DIR" ]; then
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
   fail "Venv not found at $VENV_DIR. Run setup_cloudtop.sh first."
 fi
 
@@ -41,30 +44,52 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # ---------------------------------------------------------------------------
-# 2. Re-authenticate if requested
+# 2. Re-authenticate if requested (opens Chrome for sign-in)
 # ---------------------------------------------------------------------------
 
 if [ "$REAUTH" = true ]; then
   if [ -z "${DISPLAY:-}" ]; then
     fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop) for re-auth."
   fi
-  info "Re-authenticating — extract fresh cookies from Chromebook..."
-  source "$VENV_DIR/bin/activate"
-  python3 "$REPO_DIR/notebooklm/build_storage_state.py"
-  ok "Re-authentication complete"
+
+  # Launch Chrome if not already running
+  if ! curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
+    info "Launching Chrome with remote debugging..."
+    google-chrome --remote-debugging-port="$CDP_PORT" "https://notebooklm.google.com/" &>/dev/null &
+    sleep 3
+  else
+    info "Chrome already running. Opening NotebookLM tab..."
+    # Just tell user to sign in in the existing Chrome
+  fi
+
+  echo ""
+  info "Sign in to NotebookLM in the Chrome window, then press ENTER."
+  read -rp "  Press ENTER after sign-in... "
+  echo ""
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Check auth file
+# 3. Auto-refresh cookies from Chrome (if running)
+# ---------------------------------------------------------------------------
+
+if curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
+  info "Refreshing cookies from Chrome..."
+  python3 "$REPO_DIR/notebooklm/refresh_cookies.py" && ok "Cookies refreshed" || warn "Cookie refresh failed"
+else
+  warn "Chrome not running (no CDP on port $CDP_PORT). Using existing cookies."
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Check auth file
 # ---------------------------------------------------------------------------
 
 if [ ! -f "$STORAGE_STATE" ]; then
   fail "No auth file at $STORAGE_STATE. Run setup_cloudtop.sh first, or use --reauth."
 fi
-ok "Auth file found ($(stat -c '%y' "$STORAGE_STATE" 2>/dev/null || stat -f '%Sm' "$STORAGE_STATE" 2>/dev/null || echo 'unknown date'))"
+ok "Auth file present"
 
 # ---------------------------------------------------------------------------
-# 4. Launch Streamlit
+# 5. Launch Streamlit
 # ---------------------------------------------------------------------------
 
 echo ""
