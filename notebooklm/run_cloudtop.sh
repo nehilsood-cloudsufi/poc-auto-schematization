@@ -49,7 +49,7 @@ if [ "$REAUTH" = true ]; then
     fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop) for re-auth."
   fi
   info "Re-authenticating — sign in and tap your security key..."
-  notebooklm login
+  python3 "$REPO_DIR/notebooklm/cloudtop_login.py"
   ok "Re-authentication complete"
 fi
 
