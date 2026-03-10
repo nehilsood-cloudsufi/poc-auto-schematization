@@ -66,14 +66,14 @@ fi
 if [ -d "$REPO_DIR/.git" ]; then
   info "Updating existing repo at $REPO_DIR..."
   cd "$REPO_DIR"
-  git fetch origin "$REPO_BRANCH" 2>/dev/null || true
+  GIT_TERMINAL_PROMPT=0 git fetch origin "$REPO_BRANCH" 2>/dev/null || true
   git checkout "$REPO_BRANCH" 2>/dev/null || true
-  git pull origin "$REPO_BRANCH" 2>/dev/null || true
+  GIT_TERMINAL_PROMPT=0 git pull origin "$REPO_BRANCH" 2>/dev/null || true
   ok "Repo updated"
 else
   info "Cloning repo to $REPO_DIR..."
   mkdir -p "$(dirname "$REPO_DIR")"
-  git clone --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
+  GIT_TERMINAL_PROMPT=0 git clone --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
   cd "$REPO_DIR"
   ok "Repo cloned"
 fi
