@@ -50,11 +50,19 @@ def _extract_notebook_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
-async def _connect(notebook_id: str):
-    """Create client, verify connectivity by listing sources."""
+async def _create_client():
+    """Create and initialize the NotebookLM client."""
     from notebooklm import NotebookLMClient
 
     client = await NotebookLMClient.from_storage()
+    # Initialize the client (equivalent to async with __aenter__)
+    await client.__aenter__()
+    return client
+
+
+async def _connect(notebook_id: str):
+    """Create client, verify connectivity by listing sources."""
+    client = await _create_client()
 
     # Try listing sources to verify connection
     sources = []
@@ -71,16 +79,16 @@ async def _connect(notebook_id: str):
 async def _ask(client, notebook_id: str, prompt: str) -> str:
     """Send a chat message and return the response text."""
     resp = await client.chat.ask(notebook_id, prompt)
-    # notebooklm-py may return a string or an object with .text
+    # notebooklm-py returns a response object with .answer
     if isinstance(resp, str):
         return resp
-    return getattr(resp, "text", str(resp))
+    return getattr(resp, "answer", getattr(resp, "text", str(resp)))
 
 
 async def _disconnect(client):
     """Cleanly close the client."""
     try:
-        await client.close()
+        await client.__aexit__(None, None, None)
     except Exception:
         pass
 
