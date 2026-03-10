@@ -107,9 +107,9 @@ source "$VENV_DIR/bin/activate"
 
 info "Installing Python packages..."
 # Try default pip first; if Corp Airlock blocks it, fall back to PyPI direct
-if ! pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio websocket-client 2>/dev/null; then
+if ! pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio 2>/dev/null; then
   warn "Default pip failed (likely Corp Airlock). Trying PyPI direct..."
-  pip install --index-url https://pypi.org/simple/ --quiet streamlit "notebooklm-py[browser]" nest-asyncio websocket-client
+  pip install --index-url https://pypi.org/simple/ --quiet streamlit "notebooklm-py[browser]" nest-asyncio
 fi
 ok "Python packages installed"
 
