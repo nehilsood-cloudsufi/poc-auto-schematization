@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
 # NotebookLM Viewer — Quick Launch for Cloudtop
 #
+# Prerequisites:
+#   1. Run setup_cloudtop.sh once (installs deps)
+#   2. Chrome must be running with:
+#      google-chrome --remote-debugging-port=9222 https://notebooklm.google.com/ &
+#      (and signed into @google.com)
+#
 # Usage:
 #   bash notebooklm/run_cloudtop.sh
-#   bash notebooklm/run_cloudtop.sh --reauth
-#
-# Auto-refreshes cookies from the running Chrome instance before launch.
-# Prerequisites: run setup_cloudtop.sh first (one-time).
 
 set -euo pipefail
 
 REPO_DIR="$HOME/work/poc-auto-schematization"
 VENV_DIR="$REPO_DIR/.cloudtop_venv"
-STORAGE_STATE="$HOME/.notebooklm/storage_state.json"
 PORT=8501
 CDP_PORT=9222
-
-REAUTH=false
-for arg in "$@"; do
-  case "$arg" in
-    --reauth) REAUTH=true ;;
-  esac
-done
 
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()    { echo -e "\033[1;32m[OK]\033[0m    $*"; }
@@ -32,64 +26,54 @@ fail()  { echo -e "\033[1;31m[FAIL]\033[0m  $*"; exit 1; }
 # 1. Verify setup and activate venv
 # ---------------------------------------------------------------------------
 
-if [ ! -d "$REPO_DIR/notebooklm" ]; then
-  fail "Repo not found at $REPO_DIR. Run setup_cloudtop.sh first."
-fi
-
 if [ ! -f "$VENV_DIR/bin/activate" ]; then
-  fail "Venv not found at $VENV_DIR. Run setup_cloudtop.sh first."
+  fail "Venv not found. Run setup_cloudtop.sh first."
 fi
 
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
 # ---------------------------------------------------------------------------
-# 2. Re-authenticate if requested (opens Chrome for sign-in)
+# 2. Ensure Chrome is running with CDP
 # ---------------------------------------------------------------------------
 
-if [ "$REAUTH" = true ]; then
-  if [ -z "${DISPLAY:-}" ]; then
-    fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop) for re-auth."
-  fi
+if ! curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
+  warn "Chrome not running with remote debugging on port $CDP_PORT."
+  echo ""
+  echo "  Start Chrome first:"
+  echo "    google-chrome --remote-debugging-port=$CDP_PORT https://notebooklm.google.com/ &"
+  echo ""
+  echo "  Sign in with @google.com in Chrome, then re-run this script."
+  echo ""
 
-  # Launch Chrome if not already running
-  if ! curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
-    info "Launching Chrome with remote debugging..."
+  # Try to launch Chrome automatically if DISPLAY is set
+  if [ -n "${DISPLAY:-}" ]; then
+    read -rp "  Or press ENTER to launch Chrome now... " || true
     google-chrome --remote-debugging-port="$CDP_PORT" "https://notebooklm.google.com/" &>/dev/null &
-    sleep 3
+    echo ""
+    echo "  Chrome launched. Sign in with @google.com, then press ENTER."
+    read -rp "  Press ENTER after sign-in... " || true
   else
-    info "Chrome already running. Opening NotebookLM tab..."
-    # Just tell user to sign in in the existing Chrome
+    fail "No DISPLAY set. Run from Cloudtop desktop."
   fi
-
-  echo ""
-  info "Sign in to NotebookLM in the Chrome window, then press ENTER."
-  read -rp "  Press ENTER after sign-in... "
-  echo ""
 fi
 
-# ---------------------------------------------------------------------------
-# 3. Auto-refresh cookies from Chrome (if running)
-# ---------------------------------------------------------------------------
-
-if curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
-  info "Refreshing cookies from Chrome..."
-  python3 "$REPO_DIR/notebooklm/refresh_cookies.py" && ok "Cookies refreshed" || warn "Cookie refresh failed"
-else
-  warn "Chrome not running (no CDP on port $CDP_PORT). Using existing cookies."
+# Verify Chrome is reachable now
+if ! curl -s "http://localhost:$CDP_PORT/json/version" &>/dev/null; then
+  fail "Chrome still not reachable on port $CDP_PORT."
 fi
+ok "Chrome running with CDP on port $CDP_PORT"
 
 # ---------------------------------------------------------------------------
-# 4. Check auth file
+# 3. Extract fresh cookies from Chrome
 # ---------------------------------------------------------------------------
 
-if [ ! -f "$STORAGE_STATE" ]; then
-  fail "No auth file at $STORAGE_STATE. Run setup_cloudtop.sh first, or use --reauth."
-fi
-ok "Auth file present"
+info "Extracting cookies from Chrome..."
+python3 "$REPO_DIR/notebooklm/refresh_cookies.py"
+ok "Cookies ready"
 
 # ---------------------------------------------------------------------------
-# 5. Launch Streamlit
+# 4. Launch Streamlit
 # ---------------------------------------------------------------------------
 
 echo ""
@@ -98,6 +82,9 @@ echo ""
 echo "  Access from Cloudtop browser:  http://localhost:$PORT"
 echo "  Access from Chromebook:        ssh -L $PORT:localhost:$PORT $(hostname)"
 echo "                                 then open http://localhost:$PORT"
+echo ""
+echo "  Cookies auto-refresh from Chrome on each Connect/question."
+echo "  Keep Chrome open and signed in!"
 echo ""
 echo "  Press Ctrl+C to stop the server."
 echo ""

@@ -1,9 +1,17 @@
-"""NotebookLM Viewer — Streamlit chat app for querying NotebookLM notebooks."""
+"""NotebookLM Viewer — Streamlit chat app for querying NotebookLM notebooks.
+
+Requires Chrome running with --remote-debugging-port=9222 and signed into
+notebooklm.google.com. Cookies are auto-refreshed from Chrome before each
+API call so they never expire.
+"""
 
 import asyncio
+import json
 import logging
 import re
+import subprocess
 import sys
+from pathlib import Path
 
 import nest_asyncio
 import streamlit as st
@@ -22,11 +30,32 @@ logging.basicConfig(
 )
 log = logging.getLogger("viewer")
 
+REFRESH_SCRIPT = Path(__file__).parent / "refresh_cookies.py"
+
 
 def run_async(coro):
     """Run an async coroutine synchronously."""
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(coro)
+
+
+def _refresh_cookies():
+    """Refresh cookies from Chrome CDP before creating a client."""
+    log.info("Refreshing cookies from Chrome (CDP)...")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(REFRESH_SCRIPT)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            log.info("Cookies refreshed: %s", result.stdout.strip().split("\n")[-1])
+            return True
+        else:
+            log.warning("Cookie refresh failed: %s", result.stderr.strip() or result.stdout.strip())
+            return False
+    except Exception as e:
+        log.warning("Cookie refresh error: %s", e)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +94,11 @@ def _extract_notebook_id(url: str) -> str | None:
 
 
 async def _create_client():
-    """Create and initialize the NotebookLM client."""
+    """Refresh cookies from Chrome, then create and initialize the client."""
     from notebooklm import NotebookLMClient
+
+    # Always refresh cookies from Chrome before creating client
+    _refresh_cookies()
 
     log.info("Creating NotebookLMClient from storage...")
     client = await NotebookLMClient.from_storage()
@@ -94,12 +126,19 @@ async def _connect(notebook_id: str):
     return client, sources
 
 
+async def _reconnect_and_ask(notebook_id: str, prompt: str) -> str:
+    """Create a fresh client (with refreshed cookies) and ask a question."""
+    client = await _create_client()
+    log.info("Reconnected with fresh cookies")
+    st.session_state["nlm_client"] = client
+    return await _ask(client, notebook_id, prompt)
+
+
 async def _ask(client, notebook_id: str, prompt: str) -> str:
     """Send a chat message and return the response text."""
     log.info("Asking: %s", prompt[:200])
     resp = await client.chat.ask(notebook_id, prompt)
     log.debug("Raw response type: %s", type(resp).__name__)
-    log.debug("Raw response attributes: %s", dir(resp) if not isinstance(resp, str) else "N/A")
 
     if isinstance(resp, str):
         log.info("Response (string): %d chars", len(resp))
@@ -176,7 +215,7 @@ with st.sidebar:
             st.session_state["notebook_url"] = url
             st.session_state["notebook_id"] = nb_id
 
-            with st.spinner("Connecting..."):
+            with st.spinner("Refreshing cookies & connecting..."):
                 try:
                     client, sources = run_async(_connect(nb_id))
                     st.session_state["nlm_client"] = client
@@ -223,7 +262,9 @@ with st.sidebar:
 if not st.session_state["connected"]:
     st.markdown(
         "### Welcome to NotebookLM Viewer\n\n"
-        "Connect to a NotebookLM notebook using the sidebar, then chat with it here."
+        "Connect to a NotebookLM notebook using the sidebar, then chat with it here.\n\n"
+        "**Requires:** Chrome running with `--remote-debugging-port=9222` "
+        "and signed into notebooklm.google.com"
     )
 else:
     # Render chat history
@@ -254,10 +295,33 @@ else:
                         {"role": "assistant", "content": answer}
                     )
                 except Exception as exc:
-                    import traceback
-                    err_msg = f"Error: {exc}"
-                    log.error("Chat error: %s\n%s", exc, traceback.format_exc())
-                    st.error(err_msg)
-                    st.session_state["chat_history"].append(
-                        {"role": "assistant", "content": err_msg}
-                    )
+                    # If auth expired, try reconnecting with fresh cookies
+                    if "expired" in str(exc).lower() or "redirect" in str(exc).lower():
+                        log.info("Auth expired, reconnecting with fresh cookies...")
+                        try:
+                            answer = run_async(
+                                _reconnect_and_ask(
+                                    st.session_state["notebook_id"],
+                                    prompt,
+                                )
+                            )
+                            st.markdown(answer)
+                            st.session_state["chat_history"].append(
+                                {"role": "assistant", "content": answer}
+                            )
+                        except Exception as exc2:
+                            import traceback
+                            err_msg = f"Error (after retry): {exc2}"
+                            log.error("Chat error after retry: %s\n%s", exc2, traceback.format_exc())
+                            st.error(err_msg)
+                            st.session_state["chat_history"].append(
+                                {"role": "assistant", "content": err_msg}
+                            )
+                    else:
+                        import traceback
+                        err_msg = f"Error: {exc}"
+                        log.error("Chat error: %s\n%s", exc, traceback.format_exc())
+                        st.error(err_msg)
+                        st.session_state["chat_history"].append(
+                            {"role": "assistant", "content": err_msg}
+                        )
