@@ -86,7 +86,14 @@ fi
 
 if [ ! -d "$VENV_DIR" ]; then
   info "Creating virtual environment at $VENV_DIR..."
-  python3 -m venv "$VENV_DIR"
+  if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+    warn "python3-venv not installed. Installing it now..."
+    sudo apt-get update -qq && sudo apt-get install -y -qq "python${PY_VERSION}-venv" 2>/dev/null || \
+      sudo apt-get install -y -qq python3-venv 2>/dev/null || \
+      fail "Could not install python3-venv. Run: sudo apt install python${PY_VERSION}-venv"
+    rm -rf "$VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+  fi
   ok "Venv created"
 else
   info "Using existing venv at $VENV_DIR"
