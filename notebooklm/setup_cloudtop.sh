@@ -138,12 +138,11 @@ if [ "$SKIP_AUTH" = true ]; then
     warn "No auth file found at $STORAGE_STATE — you may need to run without --skip-auth"
   fi
 else
-  info "Opening system Chrome for Google sign-in..."
-  info "Sign in with your @google.com account and tap your security key when prompted."
-  info "(Using system Chrome so CRD security key forwarding works)"
+  info "Authenticating with NotebookLM..."
+  info "Your security key is on your Chromebook, so we'll extract cookies from there."
   echo ""
 
-  python3 "$REPO_DIR/notebooklm/cloudtop_login.py"
+  python3 "$REPO_DIR/notebooklm/build_storage_state.py"
 
   # Verify auth file was created
   if [ -f "$STORAGE_STATE" ]; then

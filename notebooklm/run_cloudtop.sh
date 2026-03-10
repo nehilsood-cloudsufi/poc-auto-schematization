@@ -48,8 +48,9 @@ if [ "$REAUTH" = true ]; then
   if [ -z "${DISPLAY:-}" ]; then
     fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop) for re-auth."
   fi
-  info "Re-authenticating — sign in and tap your security key..."
-  python3 "$REPO_DIR/notebooklm/cloudtop_login.py"
+  info "Re-authenticating — extract fresh cookies from Chromebook..."
+  source "$VENV_DIR/bin/activate"
+  python3 "$REPO_DIR/notebooklm/build_storage_state.py"
   ok "Re-authentication complete"
 fi
 
