@@ -39,8 +39,12 @@ fi
 # 3. Kill existing Chrome (it blocks --remote-debugging-port if already running)
 # ---------------------------------------------------------------------------
 
-info "Stopping existing Chrome processes..."
-pkill -9 -f "chrome" 2>/dev/null || true
+info "Stopping existing Chrome browser processes (not CRD)..."
+# Only kill google-chrome/chromium, NOT chrome-remote-desktop or CRD host
+pkill -9 -f "google-chrome" 2>/dev/null || true
+pkill -9 -f "chromium-browser" 2>/dev/null || true
+pkill -9 -f "chromium " 2>/dev/null || true
+# Do NOT kill anything with just "chrome" — that kills Chrome Remote Desktop
 sleep 2
 
 # Verify port is free
