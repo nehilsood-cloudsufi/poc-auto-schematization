@@ -1,12 +1,26 @@
 """NotebookLM Viewer — Streamlit chat app for querying NotebookLM notebooks."""
 
 import asyncio
+import logging
 import re
+import sys
 
 import nest_asyncio
 import streamlit as st
 
 nest_asyncio.apply()
+
+# ---------------------------------------------------------------------------
+# Logging — prints to terminal where streamlit is running
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
+)
+log = logging.getLogger("viewer")
 
 
 def run_async(coro):
@@ -54,43 +68,72 @@ async def _create_client():
     """Create and initialize the NotebookLM client."""
     from notebooklm import NotebookLMClient
 
+    log.info("Creating NotebookLMClient from storage...")
     client = await NotebookLMClient.from_storage()
-    # Initialize the client (equivalent to async with __aenter__)
     await client.__aenter__()
+    log.info("Client initialized successfully")
     return client
 
 
 async def _connect(notebook_id: str):
     """Create client, verify connectivity by listing sources."""
     client = await _create_client()
+    log.info("Connecting to notebook: %s", notebook_id)
 
     # Try listing sources to verify connection
     sources = []
     try:
         raw = await client.sources.list(notebook_id)
         sources = [{"title": getattr(s, "title", str(s)), "id": getattr(s, "id", "")} for s in raw]
-    except Exception:
+        log.info("Listed %d sources", len(sources))
+    except Exception as e:
         # View-only notebooks may not support source listing — that's OK
-        pass
+        log.warning("Could not list sources (may be view-only): %s", e)
 
+    log.info("Connected to notebook %s", notebook_id)
     return client, sources
 
 
 async def _ask(client, notebook_id: str, prompt: str) -> str:
     """Send a chat message and return the response text."""
+    log.info("Asking: %s", prompt[:200])
     resp = await client.chat.ask(notebook_id, prompt)
-    # notebooklm-py returns a response object with .answer
+    log.debug("Raw response type: %s", type(resp).__name__)
+    log.debug("Raw response attributes: %s", dir(resp) if not isinstance(resp, str) else "N/A")
+
     if isinstance(resp, str):
+        log.info("Response (string): %d chars", len(resp))
         return resp
-    return getattr(resp, "answer", getattr(resp, "text", str(resp)))
+
+    # Try all known response attributes
+    answer = None
+    for attr in ("answer", "text", "content", "message"):
+        val = getattr(resp, attr, None)
+        if val:
+            answer = val
+            log.info("Response from .%s: %d chars", attr, len(str(val)))
+            break
+
+    if answer is None:
+        answer = str(resp)
+        log.warning("No known attribute found, using str(resp): %d chars", len(answer))
+
+    # Log if response has references/citations
+    refs = getattr(resp, "references", None) or getattr(resp, "citations", None)
+    if refs:
+        log.info("Response includes %d references", len(refs))
+
+    log.debug("Full response:\n%s", answer)
+    return answer
 
 
 async def _disconnect(client):
     """Cleanly close the client."""
     try:
         await client.__aexit__(None, None, None)
-    except Exception:
-        pass
+        log.info("Client disconnected")
+    except Exception as e:
+        log.warning("Disconnect error: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +187,7 @@ with st.sidebar:
                     import traceback
                     err = str(exc)
                     tb = traceback.format_exc()
+                    log.error("Connection failed: %s\n%s", err, tb)
                     st.session_state["connection_error"] = f"Connection failed: {err}\n\nTraceback:\n```\n{tb}\n```"
                     st.session_state["connected"] = False
 
@@ -210,7 +254,9 @@ else:
                         {"role": "assistant", "content": answer}
                     )
                 except Exception as exc:
+                    import traceback
                     err_msg = f"Error: {exc}"
+                    log.error("Chat error: %s\n%s", exc, traceback.format_exc())
                     st.error(err_msg)
                     st.session_state["chat_history"].append(
                         {"role": "assistant", "content": err_msg}
