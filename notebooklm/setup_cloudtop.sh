@@ -84,7 +84,9 @@ fi
 # 3. Create venv and install Python dependencies
 # ---------------------------------------------------------------------------
 
-if [ ! -d "$VENV_DIR" ]; then
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+  # Remove broken venv if directory exists but activate is missing
+  rm -rf "$VENV_DIR"
   info "Creating virtual environment at $VENV_DIR..."
   if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
     warn "python3-venv not installed. Installing it now..."
