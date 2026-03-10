@@ -34,9 +34,12 @@ REFRESH_SCRIPT = Path(__file__).parent / "refresh_cookies.py"
 
 
 def run_async(coro):
-    """Run an async coroutine synchronously."""
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coro)
+    """Run an async coroutine in a fresh event loop to avoid loop-binding issues."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _refresh_cookies():
@@ -126,18 +129,17 @@ async def _connect(notebook_id: str):
     return client, sources
 
 
-async def _reconnect_and_ask(notebook_id: str, prompt: str) -> str:
-    """Create a fresh client (with refreshed cookies) and ask a question."""
-    client = await _create_client()
-    log.info("Reconnected with fresh cookies")
-    st.session_state["nlm_client"] = client
-    return await _ask(client, notebook_id, prompt)
-
-
 async def _ask(client, notebook_id: str, prompt: str) -> str:
-    """Send a chat message and return the response text."""
+    """Send a chat message and return the response text.
+
+    Creates a fresh client each time to avoid event loop binding issues.
+    """
+    _refresh_cookies()
     log.info("Asking: %s", prompt[:200])
-    resp = await client.chat.ask(notebook_id, prompt)
+
+    from notebooklm import NotebookLMClient
+    async with await NotebookLMClient.from_storage() as fresh_client:
+        resp = await fresh_client.chat.ask(notebook_id, prompt)
     log.debug("Raw response type: %s", type(resp).__name__)
 
     if isinstance(resp, str):
@@ -295,33 +297,10 @@ else:
                         {"role": "assistant", "content": answer}
                     )
                 except Exception as exc:
-                    # If auth expired, try reconnecting with fresh cookies
-                    if "expired" in str(exc).lower() or "redirect" in str(exc).lower():
-                        log.info("Auth expired, reconnecting with fresh cookies...")
-                        try:
-                            answer = run_async(
-                                _reconnect_and_ask(
-                                    st.session_state["notebook_id"],
-                                    prompt,
-                                )
-                            )
-                            st.markdown(answer)
-                            st.session_state["chat_history"].append(
-                                {"role": "assistant", "content": answer}
-                            )
-                        except Exception as exc2:
-                            import traceback
-                            err_msg = f"Error (after retry): {exc2}"
-                            log.error("Chat error after retry: %s\n%s", exc2, traceback.format_exc())
-                            st.error(err_msg)
-                            st.session_state["chat_history"].append(
-                                {"role": "assistant", "content": err_msg}
-                            )
-                    else:
-                        import traceback
-                        err_msg = f"Error: {exc}"
-                        log.error("Chat error: %s\n%s", exc, traceback.format_exc())
-                        st.error(err_msg)
-                        st.session_state["chat_history"].append(
-                            {"role": "assistant", "content": err_msg}
-                        )
+                    import traceback
+                    err_msg = f"Error: {exc}"
+                    log.error("Chat error: %s\n%s", exc, traceback.format_exc())
+                    st.error(err_msg)
+                    st.session_state["chat_history"].append(
+                        {"role": "assistant", "content": err_msg}
+                    )
