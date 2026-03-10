@@ -6,11 +6,12 @@
 #   bash notebooklm/setup_cloudtop.sh --skip-auth
 #
 # This script:
-#   1. Checks prerequisites (Python 3.10+, DISPLAY, gcert)
+#   1. Checks prerequisites (Python 3.10+, DISPLAY)
 #   2. Clones/updates the repo
-#   3. Creates a venv and installs deps + Playwright
-#   4. Runs `notebooklm login` (opens browser for Google sign-in)
-#   5. Launches Streamlit viewer on port 8501
+#   3. Creates a venv and installs deps (bypasses Corp Airlock via PyPI direct)
+#   4. Installs Playwright + Chromium
+#   5. Runs `notebooklm login` (opens browser for Google sign-in)
+#   6. Launches Streamlit viewer on port 8501
 
 set -euo pipefail
 
@@ -60,18 +61,6 @@ if [ "$SKIP_AUTH" = false ] && [ -z "${DISPLAY:-}" ]; then
   fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop via go/crd), not SSH."
 fi
 
-# gcert — needed for Corp Airlock (pip install on gLinux)
-info "Checking SSO ticket (gcert)..."
-if command -v gcert &>/dev/null; then
-  if ! gcertstatus --check_remaining=5m &>/dev/null 2>&1; then
-    info "SSO ticket expired or missing. Running gcert..."
-    gcert
-  fi
-  ok "SSO ticket valid"
-else
-  warn "gcert not found — pip install may fail if Corp Airlock is enforced"
-fi
-
 # ---------------------------------------------------------------------------
 # 2. Clone or update repo
 # ---------------------------------------------------------------------------
@@ -107,7 +96,11 @@ fi
 source "$VENV_DIR/bin/activate"
 
 info "Installing Python packages..."
-pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio
+# Try default pip first; if Corp Airlock blocks it, fall back to PyPI direct
+if ! pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio 2>/dev/null; then
+  warn "Default pip failed (likely Corp Airlock). Trying PyPI direct..."
+  pip install --index-url https://pypi.org/simple/ --quiet streamlit "notebooklm-py[browser]" nest-asyncio
+fi
 ok "Python packages installed"
 
 # ---------------------------------------------------------------------------
@@ -116,7 +109,10 @@ ok "Python packages installed"
 
 info "Installing Playwright Chromium..."
 playwright install chromium 2>/dev/null || python3 -m playwright install chromium
+
+# Install system deps (needs sudo on gLinux)
 if command -v sudo &>/dev/null; then
+  info "Installing Playwright system dependencies (may ask for sudo)..."
   sudo "$(which playwright)" install-deps chromium 2>/dev/null || \
     playwright install-deps chromium 2>/dev/null || \
     warn "Could not install system deps for Playwright (may already be present)"
