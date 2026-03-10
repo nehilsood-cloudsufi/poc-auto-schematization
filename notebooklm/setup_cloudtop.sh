@@ -2,13 +2,13 @@
 # NotebookLM Viewer — Cloudtop One-Time Setup
 #
 # Usage (from Cloudtop desktop terminal):
-#   curl -sL <raw-url>/notebooklm/setup_cloudtop.sh | bash
-#   curl -sL <raw-url>/notebooklm/setup_cloudtop.sh | bash -s -- --skip-auth
+#   bash notebooklm/setup_cloudtop.sh
+#   bash notebooklm/setup_cloudtop.sh --skip-auth
 #
 # This script:
-#   1. Checks prerequisites (Python 3.10+, DISPLAY)
+#   1. Checks prerequisites (Python 3.10+, DISPLAY, gcert)
 #   2. Clones/updates the repo
-#   3. Installs Python deps + Playwright
+#   3. Creates a venv and installs deps + Playwright
 #   4. Runs `notebooklm login` (opens browser for Google sign-in)
 #   5. Launches Streamlit viewer on port 8501
 
@@ -17,6 +17,7 @@ set -euo pipefail
 REPO_URL="https://github.com/nehilsood-cloudsufi/poc-auto-schematization.git"
 REPO_BRANCH="feature/nehil/notebooklm-agentb"
 REPO_DIR="$HOME/work/poc-auto-schematization"
+VENV_DIR="$REPO_DIR/.cloudtop_venv"
 STORAGE_STATE="$HOME/.notebooklm/storage_state.json"
 PORT=8501
 
@@ -59,6 +60,18 @@ if [ "$SKIP_AUTH" = false ] && [ -z "${DISPLAY:-}" ]; then
   fail "DISPLAY not set. Run this from the Cloudtop desktop (Chrome Remote Desktop via go/crd), not SSH."
 fi
 
+# gcert — needed for Corp Airlock (pip install on gLinux)
+info "Checking SSO ticket (gcert)..."
+if command -v gcert &>/dev/null; then
+  if ! gcertstatus --check_remaining=5m &>/dev/null 2>&1; then
+    info "SSO ticket expired or missing. Running gcert..."
+    gcert
+  fi
+  ok "SSO ticket valid"
+else
+  warn "gcert not found — pip install may fail if Corp Airlock is enforced"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Clone or update repo
 # ---------------------------------------------------------------------------
@@ -79,22 +92,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Install Python dependencies
+# 3. Create venv and install Python dependencies
 # ---------------------------------------------------------------------------
 
-info "Installing Python packages..."
-python3 -m pip install --user --quiet streamlit "notebooklm-py[browser]" nest-asyncio
-
-# Ensure ~/.local/bin is on PATH
-LOCAL_BIN="$HOME/.local/bin"
-if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
-  export PATH="$LOCAL_BIN:$PATH"
-  # Persist for future shells
-  if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-    info "Added ~/.local/bin to PATH in ~/.bashrc"
-  fi
+if [ ! -d "$VENV_DIR" ]; then
+  info "Creating virtual environment at $VENV_DIR..."
+  python3 -m venv "$VENV_DIR"
+  ok "Venv created"
+else
+  info "Using existing venv at $VENV_DIR"
 fi
+
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+
+info "Installing Python packages..."
+pip install --quiet streamlit "notebooklm-py[browser]" nest-asyncio
 ok "Python packages installed"
 
 # ---------------------------------------------------------------------------
@@ -102,10 +115,10 @@ ok "Python packages installed"
 # ---------------------------------------------------------------------------
 
 info "Installing Playwright Chromium..."
-python3 -m playwright install chromium 2>/dev/null || playwright install chromium
+playwright install chromium 2>/dev/null || python3 -m playwright install chromium
 if command -v sudo &>/dev/null; then
-  sudo python3 -m playwright install-deps chromium 2>/dev/null || \
-    python3 -m playwright install-deps chromium 2>/dev/null || \
+  sudo "$(which playwright)" install-deps chromium 2>/dev/null || \
+    playwright install-deps chromium 2>/dev/null || \
     warn "Could not install system deps for Playwright (may already be present)"
 fi
 ok "Playwright ready"
@@ -124,11 +137,7 @@ else
   info "Sign in with your @google.com account and tap your security key when prompted."
   echo ""
 
-  if command -v notebooklm &>/dev/null; then
-    notebooklm login
-  else
-    python3 -m notebooklm login 2>/dev/null || "$LOCAL_BIN/notebooklm" login
-  fi
+  notebooklm login
 
   # Verify auth file was created
   if [ -f "$STORAGE_STATE" ]; then
@@ -157,4 +166,4 @@ echo "  Press Ctrl+C to stop the server."
 echo ""
 
 cd "$REPO_DIR/notebooklm"
-python3 -m streamlit run viewer_app.py --server.port="$PORT" --server.headless=true
+streamlit run viewer_app.py --server.port="$PORT" --server.headless=true
