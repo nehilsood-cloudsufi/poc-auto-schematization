@@ -33,7 +33,91 @@ Async functions that wrap `notebooklm-py` methods. Each returns `{"success": boo
 | `PodcastPipelineAgent` | BaseAgent | Deterministic pipeline: research -> podcast -> download |
 | `BulkImportAgent` | BaseAgent | Concurrent multi-source import with status reporting |
 
-## Setup
+---
+
+## Viewer App — Cloudtop Deployment (Recommended)
+
+The viewer app runs on **Cloudtop** (gLinux VM). This is the only working auth approach for @google.com accounts — see [AUTH_INVESTIGATION_REPORT.md](AUTH_INVESTIGATION_REPORT.md) for why.
+
+### Prerequisites
+
+- A **Cloudtop** VM (request one at go/cloudtop if you don't have one)
+- **Chrome Remote Desktop** access to Cloudtop (go/crd)
+- Your **hardware security key** (YubiKey/Titan) for Google sign-in
+
+### Step 1: Connect to Cloudtop Desktop
+
+1. On your Chromebook, open Chrome and go to: **go/crd** (Chrome Remote Desktop)
+2. Find your Cloudtop machine and click **Connect**
+3. Open a **Terminal** on the Cloudtop desktop:
+   - Right-click desktop → "Open Terminal", or press `Ctrl+Alt+T`
+
+### Step 2: First-Time Setup (one command)
+
+In the Cloudtop terminal, run:
+
+```bash
+curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/setup_cloudtop.sh | bash
+```
+
+**What happens automatically:**
+- Clones the repo to `~/work/poc-auto-schematization/`
+- Installs Python packages (streamlit, notebooklm-py, playwright)
+- Downloads Chromium browser for Playwright
+- Opens a Chromium browser window for Google sign-in
+
+**What you do manually:**
+- A browser window opens on the Cloudtop desktop
+- Sign in with your **@google.com** account
+- When prompted, **tap your security key** (YubiKey/Titan)
+- After sign-in succeeds, the browser closes automatically
+- The script continues and launches the Streamlit app
+
+### Step 3: Open the App
+
+**Option A — Cloudtop browser (easiest):**
+Open Firefox/Chrome on the Cloudtop desktop → go to `http://localhost:8501`
+
+**Option B — Chromebook browser (better experience):**
+1. On your Chromebook, open a new terminal
+2. Run: `ssh -L 8501:localhost:8501 <your-cloudtop-hostname>`
+   (e.g., `ssh -L 8501:localhost:8501 nehilsood.c.googlers.com`)
+3. Open Chrome on Chromebook → go to `http://localhost:8501`
+
+### Step 4: Use the App
+
+1. In the sidebar, paste your NotebookLM notebook URL
+2. Click **Connect**
+3. Type questions in the chat input
+4. Get answers from NotebookLM!
+
+### Step 5: Daily Use (subsequent days)
+
+No need to re-install. Just run:
+
+```bash
+curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash
+```
+
+**If your session expired** (auth errors after ~2 weeks):
+
+```bash
+curl -sL https://raw.githubusercontent.com/datacommonsorg/poc-auto-schematization/feature/nehil/notebooklm-agentb/notebooklm/run_cloudtop.sh | bash -s -- --reauth
+```
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| "DISPLAY not set" error | You're SSHed without a desktop. Use Chrome Remote Desktop (go/crd) instead. |
+| Browser doesn't open during setup | Make sure you're on the Cloudtop desktop, not SSH. |
+| "Connection failed" in the app | Cookies expired. Run `run_cloudtop.sh --reauth` to re-authenticate. |
+| Can't access from Chromebook | Check the SSH tunnel is running. The `ssh -L ...` terminal must stay open. |
+| Port 8501 already in use | Kill the old process: `pkill -f streamlit` then re-run. |
+
+---
+
+## Setup (Local / ADK Demos)
 
 ### 1. Install dependencies
 
@@ -131,60 +215,15 @@ This integration follows the same ADK patterns as the main project (`src/agents/
 
 ---
 
-## Viewer App
+## Deprecated Approaches
 
-A standalone Streamlit chat app for querying view-only NotebookLM notebooks. Deployed to Cloud Run — no ADK or Gemini dependency.
+The following approaches were investigated and **do not work** for @google.com accounts due to context-bound session cookies (GSSO/UberProxy). See [AUTH_INVESTIGATION_REPORT.md](AUTH_INVESTIGATION_REPORT.md) for full details.
 
-### Files
-
-| File | Purpose |
-|------|---------|
-| `viewer_app.py` | Streamlit chat UI |
-| `Dockerfile.viewer` | Container with Playwright/Chromium |
-| `deploy_viewer.sh` | Cloud Run deploy script |
-| `startup_viewer.sh` | Container entrypoint |
-| `requirements_viewer.txt` | Deps (streamlit, notebooklm-py, nest-asyncio) |
-| `.streamlit/config.toml` | Streamlit server config |
-
-### Auth Setup
-
-Auth uses `notebooklm-py` browser automation. The credentials (`storage_state.json`) must be generated on a machine logged into the google.com account that has NotebookLM access.
-
-**Step 1 — Chromebook Cloud Shell (one-time):**
-```bash
-pip install "notebooklm-py[browser]" && playwright install chromium
-notebooklm login
-# Download: Cloud Shell menu → Download file → ~/.notebooklm/storage_state.json
-```
-
-**Step 2 — Store as GCP secret:**
-```bash
-gcloud secrets create NOTEBOOKLM_STORAGE_STATE \
-  --data-file=~/Downloads/storage_state.json \
-  --project=<PROJECT_ID>
-```
-
-**To refresh expired auth:** Repeat Step 1, then:
-```bash
-gcloud secrets versions add NOTEBOOKLM_STORAGE_STATE \
-  --data-file=~/Downloads/storage_state.json
-```
-
-### Deploy
-
-```bash
-cd notebooklm
-bash deploy_viewer.sh              # uses current gcloud project
-bash deploy_viewer.sh PROJECT_ID   # explicit project
-```
-
-### Local Dev
-
-```bash
-cd notebooklm
-pip install -r requirements_viewer.txt
-playwright install chromium
-streamlit run viewer_app.py
-```
-
-Note: Chat requires a valid `~/.notebooklm/storage_state.json` locally.
+| Approach | Why it failed |
+|----------|--------------|
+| Cloud Run deployment | Cookies are context-bound — Cloud Run's IP is rejected |
+| Cloud Shell | Same issue — Cloud Shell egress IP not on corporate network |
+| Browser-like headers | Cookie validation is not header-based |
+| noVNC + Playwright login | Hardware security key can't be forwarded through VNC |
+| OAuth tokens | NotebookLM doesn't accept OAuth — only browser cookies |
+| Browser bridge (JS relay) | Unnecessary complexity — Cloudtop solves the auth problem directly |

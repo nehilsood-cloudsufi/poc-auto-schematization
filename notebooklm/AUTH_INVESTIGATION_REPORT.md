@@ -118,7 +118,7 @@ Redirect: https://accounts.google.com/ServiceLogin?passive=1209600&osid=1&contin
 
 ---
 
-### Attempt 6 (In Progress): Browser Bridge Architecture
+### Attempt 6: Browser Bridge Architecture
 
 **Approach:**
 1. Streamlit chat UI runs on Cloud Shell (port 8080, accessed via Web Preview)
@@ -128,9 +128,32 @@ Redirect: https://accounts.google.com/ServiceLogin?passive=1209600&osid=1&contin
 5. When a question arrives, the JS makes a `fetch()` call to NotebookLM's internal API — this is a **same-origin request** from `notebooklm.google.com`, so the browser automatically includes all authenticated cookies
 6. The JS sends the API response back through the bridge relay to Streamlit
 
-**Status:** Not yet tested. This approach should work in theory because the actual API calls are made from the authenticated browser context, not from Cloud Shell.
+**Result:** ABANDONED — unnecessary complexity once Cloudtop was identified as a solution.
 
-**Risk:** Cloud Shell Web Preview may add authentication layers that complicate cross-tab communication between the NotebookLM tab and the bridge relay.
+**Reason:** While this approach could theoretically work, it requires maintaining a JS injection snippet, a relay server, and cross-tab communication. Cloudtop eliminates all of this by running everything on a machine where cookies are natively valid.
+
+---
+
+### Attempt 7: Cloudtop (SUCCESS)
+
+**Approach:**
+1. Use a **Cloudtop** VM (gLinux workstation on Google's corporate network)
+2. Connect to Cloudtop via **Chrome Remote Desktop** (go/crd) for a full GUI desktop
+3. Run `notebooklm login` (Playwright) directly on Cloudtop — the browser opens on the real desktop
+4. Complete Google sign-in with hardware security key (USB forwarding works on Cloudtop)
+5. Cookies are saved to `~/.notebooklm/storage_state.json` — created and used on the same machine
+6. Run Streamlit viewer app on Cloudtop (port 8501)
+7. Access from Chromebook via SSH tunnel: `ssh -L 8501:localhost:8501 <cloudtop-hostname>`
+
+**Result:** SUCCESS
+
+**Why it works:**
+- Cloudtop is a full gLinux VM on Google's corporate network — cookies stay valid because they're created and used in the same network context
+- Real GUI desktop via Chrome Remote Desktop — Playwright opens a real Chromium browser, no VNC/Xvfb hacks needed
+- USB forwarding works — hardware security keys (YubiKey/Titan) function properly for WebAuthn challenges
+- No cookie replay across network boundaries — cookies are created on Cloudtop and used from Cloudtop = same context = no rejection
+
+**Setup:** One command via `setup_cloudtop.sh` — installs deps, runs Playwright login, launches Streamlit. See `README.md` for full instructions.
 
 ---
 
@@ -159,30 +182,48 @@ This is a **security feature by design** — it prevents session hijacking by en
 | Playwright login from Cloud Shell | Requires hardware security key, which can't be forwarded through VNC |
 | Crostini (Linux on Chromebook) | Blocked by corporate device management policy |
 
-### What Would Work
+### What Works
 
-| Solution | Feasibility |
-|----------|-------------|
-| **Browser bridge** (JS in NotebookLM tab relays API calls) | Possible — being tested |
-| **Playwright login on a machine with the security key and Python** | Requires a gLinux workstation or unmanaged laptop with Python + USB access |
-| **Google providing a public NotebookLM API with OAuth support** | Not currently available |
-| **Enabling Crostini on the Chromebook** | Requires IT policy change |
-| **Using a non-corporate Google account** (no GSSO/UberProxy) | Would bypass context binding, but may not have access to the shared notebook |
+| Solution | Status |
+|----------|--------|
+| **Cloudtop** (gLinux VM on corporate network) | **WORKING** — cookies created and used in the same context |
+
+### What Doesn't Work
+
+| Solution | Why |
+|----------|-----|
+| Cloud Run / Cloud Shell | Cookies are context-bound to corporate network |
+| Manually extracted cookies | Same context-binding issue |
+| noVNC + Playwright | Security key can't be forwarded through VNC |
+| OAuth tokens | NotebookLM only accepts browser cookies |
+| Browser bridge | Unnecessary complexity — Cloudtop is simpler |
+| Crostini on Chromebook | Blocked by corporate device policy |
 
 ---
 
-## Files Created
+## Current Files
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `viewer_app.py` | Streamlit chat app (direct notebooklm-py auth) | Works locally, fails on Cloud Shell/Cloud Run due to auth |
-| `Dockerfile.viewer` | Container for Cloud Run deployment | Built and deployed successfully |
-| `deploy_viewer.sh` | Cloud Run deploy script | Deployed to cloudsufi-ai successfully |
-| `startup_viewer.sh` | Container entrypoint | Works |
-| `setup_cloudshell.sh` | Cloud Shell one-command setup | Works (app loads, auth fails) |
-| `login_and_run.sh` | noVNC + Playwright login script | VNC works, security key blocks login |
+| `viewer_app.py` | Streamlit chat app | Working on Cloudtop with `NotebookLMClient.from_storage()` |
+| `setup_cloudtop.sh` | One-time Cloudtop setup (install + auth + launch) | Working |
+| `run_cloudtop.sh` | Quick-launch for daily use | Working |
+| `tools.py` | ADK tool functions wrapping notebooklm-py | Working |
+| `agents.py` | ADK agents (ResearchAgent, DataAnalysisAgent, etc.) | Working |
+| `demos/` | ADK demo scripts | Working |
+
+## Removed Files (Obsolete Approaches)
+
+| File | Was for | Removed because |
+|------|---------|-----------------|
+| `Dockerfile.viewer` | Cloud Run container | Cookies don't work from Cloud Run |
+| `deploy_viewer.sh` | Cloud Run deploy | Cookies don't work from Cloud Run |
+| `startup_viewer.sh` | Cloud Run entrypoint | Cookies don't work from Cloud Run |
+| `setup_cloudshell.sh` | Cloud Shell setup | Cookies don't work from Cloud Shell |
+| `login_and_run.sh` | noVNC + Playwright login | Security key can't be forwarded through VNC |
 | `test_oauth_auth.sh` | OAuth token test | Confirmed NotebookLM rejects OAuth |
-| `test_cookie_headers.sh` | Cookie + browser headers test | Confirmed cookies are context-bound |
-| `bridge_server.py` | Bridge relay server | Created, not yet tested |
-| `viewer_app_bridge.py` | Streamlit app (bridge mode) | Created, not yet tested |
-| `run_viewer_bridge.sh` | Bridge mode launcher | Created, not yet tested |
+| `test_cookie_headers.sh` | Cookie + headers test | Confirmed cookies are context-bound |
+| `bridge_server.py` | Bridge relay server | Unnecessary with Cloudtop |
+| `viewer_app_bridge.py` | Bridge mode Streamlit app | Unnecessary with Cloudtop |
+| `run_viewer_bridge.sh` | Bridge mode launcher | Unnecessary with Cloudtop |
+| `storage_state.json` | Live cookies in repo | Security risk — should never be committed |
