@@ -327,6 +327,8 @@ def run_dataset_pipeline(
     extra_plugins: Optional[list] = None,
     thinking_level: Optional[str] = None,
     prompt_version: str = "v2",
+    enable_notebooklm: bool = False,
+    notebooklm_notebook_id: Optional[str] = None,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -414,6 +416,13 @@ def run_dataset_pipeline(
         logger.info("SchemaSelectionAgent added to pipeline")
     else:
         logger.info("SchemaSelectionAgent skipped (--skip-schema-selection)")
+
+    # Optionally add NotebookLM Enrichment Agent (between schema selection and generation)
+    if enable_notebooklm:
+        from src.agents.notebooklm_enrichment_agent import NotebookLMEnrichmentAgent
+        nlm_agent = NotebookLMEnrichmentAgent(name="NotebookLMEnrichment")
+        sub_agents.append(nlm_agent)
+        logger.info("NotebookLMEnrichmentAgent added to pipeline")
 
     # Note: StatVarDiscoveryAgent is now INSIDE the retry loop (loop-aware).
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
@@ -540,6 +549,14 @@ def run_dataset_pipeline(
         initial_state["mcp_enabled"] = True
         initial_state["mcp_url"] = mcp_url
         logger.info(f"MCP enabled with URL: {mcp_url}")
+
+    # Add NotebookLM state if enabled
+    if enable_notebooklm:
+        initial_state["nlm_enabled"] = True
+        if notebooklm_notebook_id:
+            initial_state["nlm_notebook_id"] = notebooklm_notebook_id
+        logger.info("NotebookLM enrichment enabled%s",
+                     f" with notebook: {notebooklm_notebook_id}" if notebooklm_notebook_id else "")
 
     # Log sampling configuration
     if skip_sampling:
@@ -748,6 +765,11 @@ if __name__ == "__main__":
                         help="MCP server port (default: from MCP_PORT env or 3000)")
     parser.add_argument("--no-mcp", action="store_true",
                         help="Explicitly disable MCP (overrides --enable-mcp)")
+    # NotebookLM enrichment flags
+    parser.add_argument("--enable-notebooklm", action="store_true",
+                        help="Enable NotebookLM enrichment for Data Commons context")
+    parser.add_argument("--notebooklm-notebook-id", type=str, default=None,
+                        help="NotebookLM notebook ID (default: pre-loaded DC notebook)")
     # Sampling agent flags
     parser.add_argument("--skip-sampling", action="store_true",
                         help="Skip agentic sampling phase (use existing sampled files)")
@@ -930,6 +952,8 @@ if __name__ == "__main__":
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
             thinking_level=args.thinking_level,
             prompt_version=getattr(args, 'prompt_version', 'v2'),
+            enable_notebooklm=getattr(args, 'enable_notebooklm', False),
+            notebooklm_notebook_id=getattr(args, 'notebooklm_notebook_id', None),
         )
 
         print("\n" + "=" * 60)
@@ -980,3 +1004,19 @@ if __name__ == "__main__":
             print("\nStopping MCP server...")
             mcp_manager.stop()
             print("MCP server stopped.")
+
+        # Clean up auto-created NotebookLM notebooks
+        if (final_state  # type: ignore[possibly-undefined]
+                and final_state.get("nlm_notebook_created")):
+            try:
+                from notebooklm.tools import delete_notebook, shutdown_client
+                nb_id = final_state.get("nlm_notebook_id", "")
+                if nb_id:
+                    print(f"\nCleaning up auto-created NotebookLM notebook {nb_id}...")
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(delete_notebook(nb_id))
+                    loop.run_until_complete(shutdown_client())
+                    loop.close()
+                    print("NotebookLM notebook deleted.")
+            except Exception as e:
+                print(f"NotebookLM cleanup warning (non-fatal): {e}")

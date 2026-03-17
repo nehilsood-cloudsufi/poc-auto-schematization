@@ -142,6 +142,19 @@ def create_parser() -> argparse.ArgumentParser:
         help='Enable Schema.org MCP server for vocabulary lookup'
     )
 
+    # NotebookLM enrichment
+    parser.add_argument(
+        '--enable-notebooklm',
+        action='store_true',
+        help='Enable NotebookLM enrichment for Data Commons context'
+    )
+    parser.add_argument(
+        '--notebooklm-notebook-id',
+        type=str,
+        default=None,
+        help='NotebookLM notebook ID (default: pre-loaded DC notebook)'
+    )
+
     # Schema examples
     parser.add_argument(
         '--no-schema-examples',

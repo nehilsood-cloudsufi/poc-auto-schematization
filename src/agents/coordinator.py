@@ -41,7 +41,9 @@ def create_pipeline_coordinator(
     max_retries: int = 2,
     model: str = None,
     enable_mcp: bool = False,
-    mcp_url: Optional[str] = None
+    mcp_url: Optional[str] = None,
+    enable_notebooklm: bool = False,
+    notebooklm_notebook_id: Optional[str] = None,
 ) -> SequentialAgent:
     """
     Create pipeline coordinator using SequentialAgent.
@@ -121,6 +123,13 @@ def create_pipeline_coordinator(
             name="DCQueryAgent"
         )
         sub_agents.append(dc_query)
+
+    # Optionally add NotebookLM Enrichment Agent
+    if enable_notebooklm:
+        logger.info("NotebookLM enrichment enabled, adding NotebookLMEnrichmentAgent")
+        from src.agents.notebooklm_enrichment_agent import NotebookLMEnrichmentAgent
+        nlm_agent = NotebookLMEnrichmentAgent(name="NotebookLMEnrichment")
+        sub_agents.append(nlm_agent)
 
     # Add PVMAP generation and evaluation
     pvmap_generation = create_pvmap_retry_loop(

@@ -641,6 +641,8 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["skeleton_summary"] = ""
         if "statvar_summary" not in ctx.session.state:
             ctx.session.state["statvar_summary"] = ""
+        if "nlm_enrichment_context" not in ctx.session.state:
+            ctx.session.state["nlm_enrichment_context"] = ""
         if "structure_warnings" not in ctx.session.state:
             ctx.session.state["structure_warnings"] = ""
         if "quality_diff_summary" not in ctx.session.state:
@@ -805,6 +807,10 @@ class StatePreparationAgent(BaseAgent):
             error_fb = ctx.session.state.get("error_feedback", "")
             metadata = ctx.session.state.get("metadata", "")
             statvar_summary = ctx.session.state.get("statvar_summary", "")
+            # Merge NotebookLM enrichment into statvar_summary
+            nlm_context = ctx.session.state.get("nlm_enrichment_context", "")
+            if nlm_context:
+                statvar_summary = (statvar_summary or "") + "\n\n## NotebookLM Enrichment\n\n" + nlm_context
             mcp_instruction = ctx.session.state.get("mcp_tools_instruction", "")
 
             # Reserve space for template text + smaller/fixed sections + error_feedback
