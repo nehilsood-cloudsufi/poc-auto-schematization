@@ -40,6 +40,7 @@ from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
+from src.agents.llm_judge_agent import LLMJudgeAgent
 from typing import Optional, Dict, Any
 import uuid
 import logging
@@ -327,6 +328,7 @@ def run_dataset_pipeline(
     extra_plugins: Optional[list] = None,
     thinking_level: Optional[str] = None,
     skip_column_discovery: bool = False,
+    use_llm_judge: bool = False,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -400,8 +402,9 @@ def run_dataset_pipeline(
     if enable_mcp and mcp_url:
         logger.info("MCP integration: INSIDE retry loop (loop-aware discovery + error resolution)")
 
-    # Create evaluation agent
+    # Create evaluation agent and LLM judge
     evaluation_agent = EvaluationAgent(name="Evaluation")
+    llm_judge_agent = LLMJudgeAgent(name="LLMJudge")
 
     # Build sub_agents list - Sampling first, then StatVar discovery, then generation, then evaluation
     sub_agents = [sampling_agent]
@@ -419,8 +422,8 @@ def run_dataset_pipeline(
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
 
-    # Add generation and evaluation
-    sub_agents.extend([pvmap_agent, evaluation_agent])
+    # Add generation, evaluation, and LLM judge
+    sub_agents.extend([pvmap_agent, evaluation_agent, llm_judge_agent])
 
     # Create a sequential agent to run the pipeline
     # With MCP: StatVarDiscovery -> PVMAPGeneration -> Evaluation
@@ -511,6 +514,7 @@ def run_dataset_pipeline(
         "ground_truth_repo": ground_truth_repo or str(PROJECT_ROOT / "ground_truth"),
         # Evaluation flags
         "skip_evaluation": skip_evaluation,
+        "skip_llm_judge": not use_llm_judge,
         # Column discovery flag
         "skip_column_discovery": skip_column_discovery,
         # Default data_context (may be updated by SamplingAgent)
@@ -864,6 +868,7 @@ if __name__ == "__main__":
         print(f"  Skip sampling: {args.skip_sampling}")
         print(f"  Skip schema selection: {args.skip_schema_selection}")
         print(f"  Skip evaluation: {args.skip_evaluation}")
+        print(f"  Use LLM judge: {getattr(args, 'use_llm_judge', False)}")
         print(f"  Ground truth repo: {args.ground_truth_repo}")
         if args.ground_truth_pvmap:
             print(f"  Ground truth PVMAP: {args.ground_truth_pvmap}")
@@ -929,6 +934,7 @@ if __name__ == "__main__":
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
             thinking_level=args.thinking_level,
             skip_column_discovery=getattr(args, 'skip_column_discovery', False),
+            use_llm_judge=getattr(args, 'use_llm_judge', False),
         )
 
         print("\n" + "=" * 60)
@@ -961,6 +967,20 @@ if __name__ == "__main__":
             print(f"  Eval results: {output_dir}/{dataset_name}/eval_results/")
         else:
             print("\nEvaluation: No ground truth found or evaluation skipped")
+
+        # Display LLM Judge results if available
+        llm_judge = final_state.get('llm_judge_report', {})
+        if llm_judge and not llm_judge.get('error'):
+            struct = llm_judge.get('structural_quality', {}).get('score', '?')
+            sem = llm_judge.get('semantic_accuracy', {}).get('score', '?')
+            val = llm_judge.get('value_mapping_quality', {}).get('score', '?')
+            overall = llm_judge.get('overall_score', '?')
+            print(f"\nLLM Judge: Structural={struct}/5, Semantic={sem}/5, Values={val}/5 (Overall: {overall}/5)")
+            top_issues = llm_judge.get('top_issues', [])
+            if top_issues:
+                print("  Top issues:")
+                for issue in top_issues[:3]:
+                    print(f"    - {issue}")
 
         print(f"\nLogs location: {output_dir}/logs/")
         print(f"Artifacts location: {output_dir}/{dataset_name}/")

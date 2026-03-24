@@ -477,7 +477,8 @@ class TestHelperFunctions:
             "dataset", "resume_from", "dry_run",
             "skip_sampling", "force_resample",
             "skip_schema_selection", "force_schema_selection", "schema_base_dir",
-            "skip_evaluation", "ground_truth_repo", "ground_truth_pvmap", "ground_truth_dir",
+            "skip_evaluation", "use_llm_judge",
+            "ground_truth_repo", "ground_truth_pvmap", "ground_truth_dir",
             "input_dir", "output_dir",
             "model", "thinking_level",
             "enable_mcp", "enable_schemaorg_mcp",
@@ -485,6 +486,7 @@ class TestHelperFunctions:
             "input_file", "use_metadata", "metadata_file_path", "schema_file",
             "structured_output", "no_structured_output",
             "verbose",
+            "skip_column_discovery",
         }
         assert expected_keys == set(result.keys())
 

@@ -86,6 +86,11 @@ def create_parser() -> argparse.ArgumentParser:
         help='Skip evaluation phase (Phase 5)'
     )
     parser.add_argument(
+        '--use-llm-judge',
+        action='store_true',
+        help='Enable LLM-as-judge qualitative evaluation (runs after GT comparison)'
+    )
+    parser.add_argument(
         '--ground-truth-repo',
         type=str,
         default=os.environ.get(
