@@ -160,6 +160,14 @@ If the Key Match Report is provided above, use it to identify key issues:
   - Dimension columns → Should use COLUMN:VALUE enumeration
   - Metadata columns (source, notes) → Can be safely ignored
 
+### Column Completeness Report
+{column_completeness_report}
+
+If must-map columns are listed as MISSING above:
+- Place/time/value columns: This is CRITICAL — the PVMAP is broken without these. Add them immediately.
+- Dimension columns: These cause StatVar collapse — rows with different dimension values will be treated as the same observation. Add COLUMN:VALUE rows for each unique value.
+Refer to the PVMAP Skeleton in the original prompt for the suggested mapping pattern.
+
 ## 2. Interpret Processing Metrics
 
 If processing metrics are provided above, use them to pinpoint issues:

@@ -452,6 +452,7 @@ class StatePreparationAgent(BaseAgent):
                 ctx.session.state["error_feedback"] = ""
             ctx.session.state["exit_reason"] = None
             ctx.session.state["validation_counter_summary"] = ""
+            ctx.session.state["column_completeness_report"] = ""
             # Initialize best-attempt tracking
             ctx.session.state["best_data_rows"] = 0
             ctx.session.state["best_pvmap_csv"] = None
@@ -463,6 +464,27 @@ class StatePreparationAgent(BaseAgent):
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
+
+            # Generate PVMAP skeleton for column completeness
+            skip_discovery = ctx.session.state.get("skip_column_discovery", False)
+            data_context = ctx.session.state.get("data_context", {})
+            if not skip_discovery and data_context and data_context.get("column_roles"):
+                try:
+                    from src.pipeline.pvmap_skeleton.skeleton_generator import (
+                        build_column_manifest, generate_pvmap_skeleton,
+                    )
+                    manifest = build_column_manifest(data_context)
+                    pvmap_skeleton = generate_pvmap_skeleton(manifest, data_context)
+                    ctx.session.state["pvmap_skeleton"] = pvmap_skeleton
+                    ctx.session.state["column_manifest"] = manifest
+                    logger.info(
+                        "Generated PVMAP skeleton: %d chars, %d must-map columns",
+                        len(pvmap_skeleton), len(manifest.get("must_map", [])),
+                    )
+                except Exception as e:
+                    logger.warning("Failed to generate PVMAP skeleton: %s", e)
+                    ctx.session.state["pvmap_skeleton"] = ""
+                    ctx.session.state["column_manifest"] = {}
 
         # =====================================================================
         # Reset per-iteration flags
@@ -794,9 +816,11 @@ class StatePreparationAgent(BaseAgent):
             mcp_instruction = ctx.session.state.get("mcp_tools_instruction", "")
 
             # Reserve space for template text + smaller/fixed sections + error_feedback
+            pvmap_skel = ctx.session.state.get("pvmap_skeleton", "")
             reserved = (
                 len(template) + len(error_fb) + len(metadata)
-                + len(statvar_summary) + len(mcp_instruction) + 5000  # safety margin
+                + len(statvar_summary) + len(mcp_instruction)
+                + len(pvmap_skel) + 5000  # safety margin
             )
             remaining = max(MAX_PROMPT_CHARS - reserved, 30000)
 
@@ -834,6 +858,10 @@ class StatePreparationAgent(BaseAgent):
             populated = populated.replace("{{ERROR_FEEDBACK}}", error_fb)
             populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
             populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
+
+            # Inject PVMAP skeleton (small, not budget-constrained)
+            pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
+            populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
 
             # Escape ALL {word} patterns to prevent ADK template resolution.
             # This converts {Data}→[DATA], {Number}→[NUMBER], {Year}→[Year], etc.
@@ -1348,9 +1376,10 @@ class ConditionalFeedbackAgent(BaseAgent):
         for key in ["schema_vocab_content", "schema_category", "skeleton_summary"]:
             ctx.session.state.setdefault(key, "")
 
-        # Ensure statvar analysis and key match report are available
+        # Ensure statvar analysis, key match report, and completeness report are available
         ctx.session.state.setdefault("validation_statvar_analysis", "")
         ctx.session.state.setdefault("key_match_report", "")
+        ctx.session.state.setdefault("column_completeness_report", "")
 
         # Format pvmap_repair_changes from list to string for template rendering
         repair_changes = ctx.session.state.get("pvmap_repair_changes", [])
@@ -1373,9 +1402,10 @@ class ConditionalFeedbackAgent(BaseAgent):
                 elif isinstance(val, str):
                     ctx.session.state[key] = escape_pvmap_placeholders(val)
 
-        # Escape schema context, statvar analysis, and key match report
+        # Escape schema context, statvar analysis, key match report, and completeness report
         for key in ["schema_vocab_content", "skeleton_summary",
-                     "validation_statvar_analysis", "key_match_report"]:
+                     "validation_statvar_analysis", "key_match_report",
+                     "column_completeness_report"]:
             val = ctx.session.state.get(key, "")
             if val and isinstance(val, str):
                 ctx.session.state[key] = escape_pvmap_placeholders(val)

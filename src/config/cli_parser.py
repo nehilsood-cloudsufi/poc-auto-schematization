@@ -54,6 +54,13 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Force re-sampling even if sampled data exists'
     )
+    # Column discovery options
+    parser.add_argument(
+        '--skip-column-discovery',
+        action='store_true',
+        help='Skip PVMAP skeleton generation (disables column completeness checking)'
+    )
+
     # Schema selection phase options
     parser.add_argument(
         '--skip-schema-selection',

@@ -326,6 +326,7 @@ def run_dataset_pipeline(
     max_retries: int = 2,
     extra_plugins: Optional[list] = None,
     thinking_level: Optional[str] = None,
+    skip_column_discovery: bool = False,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -510,6 +511,8 @@ def run_dataset_pipeline(
         "ground_truth_repo": ground_truth_repo or str(PROJECT_ROOT / "ground_truth"),
         # Evaluation flags
         "skip_evaluation": skip_evaluation,
+        # Column discovery flag
+        "skip_column_discovery": skip_column_discovery,
         # Default data_context (may be updated by SamplingAgent)
         "data_context": {},
         # New discovery flags
@@ -782,6 +785,9 @@ if __name__ == "__main__":
                         help="Skip injecting schema examples into PVMAP generation prompt")
     parser.add_argument("--schema-base-dir", type=str, default=None,
                         help="Override schema examples base directory")
+    # Column discovery flags
+    parser.add_argument("--skip-column-discovery", action="store_true",
+                        help="Skip PVMAP skeleton generation (disables column completeness checking)")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
@@ -922,6 +928,7 @@ if __name__ == "__main__":
             use_schema_examples=not args.no_schema_examples,
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
             thinking_level=args.thinking_level,
+            skip_column_discovery=getattr(args, 'skip_column_discovery', False),
         )
 
         print("\n" + "=" * 60)

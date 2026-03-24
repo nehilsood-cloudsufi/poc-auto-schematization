@@ -30,7 +30,11 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
 
-from src.tools.heuristic_quality import calculate_heuristic_score, format_quality_report
+from src.tools.heuristic_quality import (
+    calculate_heuristic_score,
+    check_column_completeness,
+    format_quality_report,
+)
 from src.tools.evaluation_tools import compare_pvmaps
 
 import logging
@@ -424,6 +428,26 @@ class QualityEvaluationAgent(BaseAgent):
             heuristic_result["total"], self.QUALITY_THRESHOLD, quality_acceptable,
         )
         quality_diff_summary = heuristic_result.get("issues", "")
+
+        # Column completeness check (hard gate for critical columns)
+        column_manifest = ctx.session.state.get("column_manifest")
+        if column_manifest and pvmap_csv:
+            completeness = check_column_completeness(pvmap_csv, column_manifest)
+            quality_metrics["column_completeness"] = completeness
+            if completeness["severity"] == "critical":
+                quality_acceptable = False
+                logger.warning(
+                    "Column completeness CRITICAL: missing %s",
+                    [m["column"] for m in completeness["missing_must_map"]],
+                )
+            elif completeness["severity"] == "warning":
+                logger.info(
+                    "Column completeness WARNING: missing dimensions %s",
+                    [m["column"] for m in completeness["missing_must_map"]],
+                )
+            # Store report for feedback agent
+            from src.pipeline.pvmap_skeleton.skeleton_generator import format_completeness_report
+            ctx.session.state["column_completeness_report"] = format_completeness_report(completeness)
 
         # Add formatted report for feedback
         if not quality_acceptable:

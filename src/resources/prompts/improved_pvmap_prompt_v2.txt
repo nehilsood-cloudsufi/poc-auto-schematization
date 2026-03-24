@@ -325,6 +325,25 @@ NEVER remove observationAbout, observationDate, or value mappings.
 
 ---
 
+## PVMAP Skeleton (pre-filled baseline)
+
+The following skeleton covers ALL columns that MUST be mapped. Start from this baseline.
+
+**Rules for using the skeleton:**
+1. **DO NOT modify** the key, property, or value in rows for place (observationAbout), time (observationDate), and value columns — these are pre-verified
+2. **DO fill in** empty property cells in dimension COLUMN:VALUE rows with the correct Data Commons property name (e.g., gender, age, race, income)
+3. **DO NOT remove** any rows — every row represents a column that MUST appear in your output
+4. **DO add** any missing dimension value rows (COLUMN:VALUE) for values not already enumerated
+5. You may add file-level property rows (populationType, measuredProperty, etc.) at the top
+
+```csv
+{{PVMAP_SKELETON}}
+```
+
+Missing any column from this skeleton causes data corruption. Treat this as a mandatory checklist.
+
+---
+
 ## Schema Examples
 
 {{SCHEMA_EXAMPLES}}

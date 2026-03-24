@@ -343,12 +343,88 @@ def format_quality_report(result: Dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 
+def check_column_completeness(
+    pvmap_csv: str,
+    column_manifest: dict,
+) -> Dict[str, Any]:
+    """Check which must-map columns are present/missing in PVMAP.
+
+    Args:
+        pvmap_csv: Generated PVMAP CSV content
+        column_manifest: Output of build_column_manifest() with must_map/can_ignore lists
+
+    Returns:
+        {
+            "complete": bool,
+            "missing_must_map": [{"column": str, "role": str, "suggested_property": str}],
+            "mapped_must_map": [str],
+            "coverage_ratio": float,
+            "severity": "critical" | "warning" | "ok"
+        }
+    """
+    must_map = column_manifest.get("must_map", [])
+    if not must_map:
+        return {
+            "complete": True,
+            "missing_must_map": [],
+            "mapped_must_map": [],
+            "coverage_ratio": 1.0,
+            "severity": "ok",
+        }
+
+    # Get all PVMAP keys (case-insensitive)
+    pvmap_keys = _get_keys_from_pvmap(pvmap_csv)
+    pvmap_keys_lower = {k.lower().strip() for k in pvmap_keys}
+
+    # Also extract column parts from COLUMN:VALUE keys
+    for key in list(pvmap_keys):
+        if ':' in key:
+            col_part = key.split(':')[0].lower().strip()
+            pvmap_keys_lower.add(col_part)
+
+    mapped = []
+    missing = []
+    critical_roles = {"place", "time", "value"}
+
+    for entry in must_map:
+        col_name = entry["column_name"]
+        if col_name.lower().strip() in pvmap_keys_lower:
+            mapped.append(col_name)
+        else:
+            missing.append({
+                "column": col_name,
+                "role": entry.get("role", "unknown"),
+                "suggested_property": entry.get("suggested_property", ""),
+            })
+
+    # Determine severity
+    severity = "ok"
+    if missing:
+        missing_roles = {m["role"] for m in missing}
+        if missing_roles & critical_roles:
+            severity = "critical"
+        else:
+            severity = "warning"
+
+    total = len(must_map)
+    coverage = len(mapped) / total if total > 0 else 1.0
+
+    return {
+        "complete": len(missing) == 0,
+        "missing_must_map": missing,
+        "mapped_must_map": mapped,
+        "coverage_ratio": round(coverage, 3),
+        "severity": severity,
+    }
+
+
 # ============================================================================
 # Module exports
 # ============================================================================
 
 __all__ = [
     'calculate_heuristic_score',
+    'check_column_completeness',
     'is_quality_acceptable',
     'format_quality_report',
 ]
