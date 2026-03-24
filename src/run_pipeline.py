@@ -792,6 +792,9 @@ if __name__ == "__main__":
     # Column discovery flags
     parser.add_argument("--skip-column-discovery", action="store_true",
                         help="Skip PVMAP skeleton generation (disables column completeness checking)")
+    # LLM judge
+    parser.add_argument("--use-llm-judge", action="store_true",
+                        help="Enable LLM-as-judge qualitative evaluation")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")

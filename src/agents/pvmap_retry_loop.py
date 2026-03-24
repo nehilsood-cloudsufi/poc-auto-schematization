@@ -465,26 +465,65 @@ class StatePreparationAgent(BaseAgent):
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
 
-            # Generate PVMAP skeleton for column completeness
+            # Generate PVMAP skeleton + verify properties + write artifact
             skip_discovery = ctx.session.state.get("skip_column_discovery", False)
             data_context = ctx.session.state.get("data_context", {})
             if not skip_discovery and data_context and data_context.get("column_roles"):
                 try:
                     from src.pipeline.pvmap_skeleton.skeleton_generator import (
                         build_column_manifest, generate_pvmap_skeleton,
+                        write_discovery_artifact,
+                    )
+                    from src.pipeline.pvmap_skeleton.skeleton_verifier import (
+                        verify_skeleton_properties,
+                        correct_skeleton_from_verification,
                     )
                     manifest = build_column_manifest(data_context)
                     pvmap_skeleton = generate_pvmap_skeleton(manifest, data_context)
+
+                    # Verify properties against Schema.org + DC API + MCP
+                    mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+                    mcp_url = ctx.session.state.get("mcp_url")
+                    # Only use DC API if key is configured
+                    import os as _os
+                    dc_api_available = bool(_os.environ.get("DC_API_KEY") or _os.environ.get("GEMINI_API_KEY"))
+                    verification = verify_skeleton_properties(
+                        skeleton_csv=pvmap_skeleton,
+                        manifest=manifest,
+                        data_context=data_context,
+                        use_dc_api=dc_api_available,
+                        use_mcp=mcp_enabled,
+                        mcp_url=mcp_url,
+                    )
+
+                    # Correct invalid properties in skeleton using verification results
+                    pvmap_skeleton = correct_skeleton_from_verification(
+                        pvmap_skeleton, verification,
+                    )
+
                     ctx.session.state["pvmap_skeleton"] = pvmap_skeleton
                     ctx.session.state["column_manifest"] = manifest
+                    ctx.session.state["column_verification"] = verification
+
+                    # Write discovery artifact
+                    current_dataset = ctx.session.state.get("current_dataset")
+                    if current_dataset and hasattr(current_dataset, 'output_dir'):
+                        write_discovery_artifact(
+                            manifest, verification, data_context,
+                            str(current_dataset.output_dir),
+                        )
+
                     logger.info(
-                        "Generated PVMAP skeleton: %d chars, %d must-map columns",
-                        len(pvmap_skeleton), len(manifest.get("must_map", [])),
+                        "Column discovery: %d/%d properties verified, sources=%s",
+                        verification.get("properties_valid", 0),
+                        verification.get("properties_checked", 0),
+                        verification.get("verification_sources", []),
                     )
                 except Exception as e:
-                    logger.warning("Failed to generate PVMAP skeleton: %s", e)
+                    logger.warning("Failed to generate/verify PVMAP skeleton: %s", e)
                     ctx.session.state["pvmap_skeleton"] = ""
                     ctx.session.state["column_manifest"] = {}
+                    ctx.session.state["column_verification"] = {}
 
         # =====================================================================
         # Reset per-iteration flags
@@ -859,9 +898,20 @@ class StatePreparationAgent(BaseAgent):
             populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
             populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
 
-            # Inject PVMAP skeleton (small, not budget-constrained)
+            # Inject PVMAP skeleton — strip entire section if empty
             pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
-            populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
+            if pvmap_skeleton.strip():
+                populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
+            else:
+                # Remove entire skeleton section to avoid confusing the LLM
+                import re as _re
+                populated = _re.sub(
+                    r'## PVMAP Skeleton \(pre-filled baseline\).*?Missing any column from this skeleton causes data corruption\. Treat this as a mandatory checklist\.',
+                    '',
+                    populated,
+                    flags=_re.DOTALL,
+                )
+                populated = populated.replace("{{PVMAP_SKELETON}}", "")
 
             # Escape ALL {word} patterns to prevent ADK template resolution.
             # This converts {Data}→[DATA], {Number}→[NUMBER], {Year}→[Year], etc.

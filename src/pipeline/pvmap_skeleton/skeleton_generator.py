@@ -8,13 +8,20 @@ as must-map or can-ignore for completeness checking.
 
 import csv
 import io
+import json
 import logging
+import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
 # Maximum dimension values to enumerate per column
 MAX_DIMENSION_VALUES = 100
+
+# Maximum total rows in skeleton (prevent token explosion on wide datasets)
+MAX_SKELETON_ROWS = 300
 
 # Geo format to DCID template mapping (mirrors context_assembler.py GEO_FORMAT_MAP)
 GEO_DCID_TEMPLATES = {
@@ -51,6 +58,10 @@ def build_column_manifest(data_context: dict) -> dict:
     all_columns = data_context.get("all_columns", [])
     dimension_domains = data_context.get("dimension_domains", {})
 
+    # Extract dc_property mappings from skeleton_summary (set by RelationalSkeleton edges)
+    # Format in skeleton: "  - `agecat` qualifies `NIPR` (dc_property: age)"
+    dc_property_map = _extract_dc_properties(data_context.get("skeleton_summary", ""))
+
     must_map: List[Dict[str, Any]] = []
     can_ignore: List[Dict[str, Any]] = []
 
@@ -80,7 +91,10 @@ def build_column_manifest(data_context: dict) -> dict:
         elif role == "dimension":
             # Dimension columns need COLUMN:VALUE enumeration
             domain = dimension_domains.get(col, [])
-            entry["suggested_property"] = "dimension"
+            # Use dc_property from RelationalSkeleton if available
+            dc_prop = dc_property_map.get(col, "")
+            entry["suggested_property"] = dc_prop if dc_prop else "dimension"
+            entry["dc_property"] = dc_prop
             entry["domain_values"] = domain[:MAX_DIMENSION_VALUES]
             entry["domain_truncated"] = len(domain) > MAX_DIMENSION_VALUES
             must_map.append(entry)
@@ -154,16 +168,18 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
             rows.append(row)
 
         elif role == "dimension":
-            # Enumerate COLUMN:VALUE rows — leave property empty for LLM to fill.
-            # Using "TODO" confuses the LLM into copying it literally.
+            # Enumerate COLUMN:VALUE rows.
+            # Use dc_property from RelationalSkeleton if available (e.g., "gender", "age").
+            # Otherwise leave empty for LLM to fill.
+            dc_prop = entry.get("dc_property", "")
             domain = entry.get("domain_values", [])
             if domain:
                 for val in domain:
                     val_str = str(val)
-                    rows.append([f"{col}:{val_str}", "", val_str])
+                    rows.append([f"{col}:{val_str}", dc_prop, val_str])
             else:
                 # No domain values known — single placeholder row
-                rows.append([col, "", "{Data}"])
+                rows.append([col, dc_prop, "{Data}"])
 
         else:
             # Unknown role — placeholder row, empty property for LLM to fill
@@ -177,18 +193,23 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
     if not rows:
         return ""
 
+    # Cap total rows to prevent token explosion on wide/multi-dimension datasets
+    if len(rows) > MAX_SKELETON_ROWS:
+        logger.warning(
+            "Skeleton rows (%d) exceeds MAX_SKELETON_ROWS (%d), truncating",
+            len(rows), MAX_SKELETON_ROWS,
+        )
+        rows = rows[:MAX_SKELETON_ROWS]
+
     # Determine max columns needed (some rows have p1,v1 pairs)
     max_cols = max(len(r) for r in rows)
     # Ensure minimum 3 columns (key, prop, val)
     max_cols = max(max_cols, 3)
 
-    # Build header
-    header = ["key", "prop", "val"]
-    for i in range(1, (max_cols - 3) // 2 + 1):
-        header.extend([f"p{i}", f"v{i}"])
-    # Pad header if needed
-    while len(header) < max_cols:
-        header.append(f"p{len(header) // 2}")
+    # Build header: "key" followed by empty column names (positional format).
+    # The stat_var_processor reads columns positionally, not by name.
+    # Ground truth PVMAPs use this format: key,,,,,,
+    header = ["key"] + [""] * (max_cols - 1)
 
     # Write CSV
     output = io.StringIO()
@@ -237,6 +258,31 @@ def format_completeness_report(completeness: dict) -> str:
     return "\n".join(lines)
 
 
+def _extract_dc_properties(skeleton_summary: str) -> Dict[str, str]:
+    """Extract dc_property mappings from skeleton_summary text.
+
+    Parses lines like:
+        - `agecat` qualifies `NIPR` (dc_property: age)
+        - `sexcat` qualifies `NIPR` (dc_property: gender)
+
+    Returns:
+        {column_name: dc_property} e.g. {"agecat": "age", "sexcat": "gender"}
+    """
+    dc_map: Dict[str, str] = {}
+    if not skeleton_summary:
+        return dc_map
+
+    # Match column names with any characters (spaces, hyphens, dots, colons)
+    pattern = re.compile(r"`([^`]+)`\s+qualifies\s+`[^`]+`\s+\(dc_property:\s+(\w+)\)")
+    for match in pattern.finditer(skeleton_summary):
+        col_name = match.group(1)
+        dc_prop = match.group(2)
+        if col_name not in dc_map:  # first match wins
+            dc_map[col_name] = dc_prop
+
+    return dc_map
+
+
 def _get_place_template(geography: dict) -> str:
     """Get the DCID template for place columns based on geo format."""
     geo_format = geography.get("format", "NAME")
@@ -252,13 +298,80 @@ def _get_time_placeholder(time_info: dict) -> str:
 
 
 def _measurement_to_property(measurement_type: str) -> str:
-    """Convert measurement type to DC measuredProperty name."""
+    """Convert measurement type to DC measuredProperty name.
+
+    Only maps unambiguous types. Returns empty string for types where
+    the correct property depends on dataset context (e.g., Median could
+    be median age, income, or price).
+    """
     mapping = {
         "Count": "count",
-        "Percent": "count",
+        "Percent": "percent",
         "Rate": "count",
-        "Median": "income",
-        "Mean": "income",
         "Amount": "amount",
     }
-    return mapping.get(measurement_type, "count")
+    return mapping.get(measurement_type, "")
+
+
+def write_discovery_artifact(
+    manifest: dict,
+    verification: dict,
+    data_context: dict,
+    output_dir: str,
+) -> str:
+    """Write column_discovery.json artifact for transparency.
+
+    Args:
+        manifest: Column manifest from build_column_manifest()
+        verification: Results from verify_skeleton_properties()
+        data_context: Full data_context dict
+        output_dir: Dataset output directory
+
+    Returns:
+        Path to written file
+    """
+    artifact = {
+        "timestamp": datetime.now().isoformat(),
+        "dataset": data_context.get("dataset_name", "unknown"),
+        "total_columns": len(manifest.get("all_columns", [])),
+        "must_map": len(manifest.get("must_map", [])),
+        "can_ignore": len(manifest.get("can_ignore", [])),
+        "verification_summary": {
+            "properties_checked": verification.get("properties_checked", 0),
+            "properties_valid": verification.get("properties_valid", 0),
+            "place_verified": verification.get("place_verified", False),
+            "sources_used": verification.get("verification_sources", []),
+        },
+        "columns": {},
+    }
+
+    # Merge manifest + verification per column
+    for entry in manifest.get("must_map", []):
+        col = entry["column_name"]
+        col_data = {
+            "role": entry["role"],
+            "suggested_property": entry.get("suggested_property", ""),
+            "cardinality": entry.get("cardinality", 0),
+            "sample_values": entry.get("sample_values", []),
+        }
+        if col in verification.get("columns", {}):
+            v = verification["columns"][col]
+            col_data["verified"] = v.get("property_verified", False)
+            col_data["verification_source"] = v.get("verification_source", "")
+            col_data["confidence"] = v.get("confidence", "low")
+            col_data["alternatives"] = v.get("alternatives", [])
+        artifact["columns"][col] = col_data
+
+    for entry in manifest.get("can_ignore", []):
+        artifact["columns"][entry["column_name"]] = {
+            "role": "metadata",
+            "action": "ignore",
+        }
+
+    output_path = Path(output_dir) / "column_discovery.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(artifact, f, indent=2, default=str)
+
+    logger.info("Wrote column discovery artifact: %s", output_path)
+    return str(output_path)

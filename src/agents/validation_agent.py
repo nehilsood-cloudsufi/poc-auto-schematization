@@ -646,8 +646,8 @@ def _enrich_unmapped_with_roles(key_match_report: str, column_manifest: dict) ->
     lines = key_match_report.split("\n")
     enriched = []
     for line in lines:
-        # Look for unmapped column references like "- `ColumnName`"
-        if line.strip().startswith("- `") and ("unmapped" in key_match_report.lower() or "not referenced" in line.lower()):
+        # Look for unmapped column references like "- `ColumnName` — not referenced"
+        if line.strip().startswith("- `") and "not referenced" in line.lower():
             # Extract column name from backticks
             start = line.find("`") + 1
             end = line.find("`", start)

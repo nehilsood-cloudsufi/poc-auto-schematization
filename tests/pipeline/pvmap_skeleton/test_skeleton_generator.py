@@ -166,9 +166,9 @@ class TestGeneratePvmapSkeleton:
         reader = csv.reader(io.StringIO(skeleton))
         rows = list(reader)
         assert len(rows) > 1  # header + data rows
+        # Header: key followed by empty strings (positional format)
         assert rows[0][0] == "key"
-        assert rows[0][1] == "prop"
-        assert rows[0][2] == "val"
+        assert all(h == "" for h in rows[0][1:])
 
     def test_skeleton_place_fips(self, basic_data_context):
         manifest = build_column_manifest(basic_data_context)

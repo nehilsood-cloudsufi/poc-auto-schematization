@@ -343,6 +343,32 @@ def format_quality_report(result: Dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 
+def _extract_regex_patterns(pvmap_csv: str) -> List[str]:
+    """Extract regex patterns from PVMAP keys using #Regex."""
+    patterns = []
+    if not pvmap_csv:
+        return patterns
+    try:
+        reader = csv.reader(io.StringIO(pvmap_csv))
+        for row in reader:
+            if len(row) >= 2 and row[1].strip() == '#Regex' and len(row) >= 3:
+                patterns.append(row[2].strip())
+    except Exception:
+        pass
+    return patterns
+
+
+def _matches_any_regex(col_name: str, patterns: List[str]) -> bool:
+    """Check if a column name matches any of the extracted regex patterns."""
+    for pattern in patterns:
+        try:
+            if re.search(pattern, col_name, re.IGNORECASE):
+                return True
+        except re.error:
+            continue
+    return False
+
+
 def check_column_completeness(
     pvmap_csv: str,
     column_manifest: dict,
@@ -382,13 +408,20 @@ def check_column_completeness(
             col_part = key.split(':')[0].lower().strip()
             pvmap_keys_lower.add(col_part)
 
+    # Detect #Regex patterns that may cover multiple columns
+    regex_patterns = _extract_regex_patterns(pvmap_csv)
+
     mapped = []
     missing = []
     critical_roles = {"place", "time", "value"}
 
     for entry in must_map:
         col_name = entry["column_name"]
-        if col_name.lower().strip() in pvmap_keys_lower:
+        col_lower = col_name.lower().strip()
+        if col_lower in pvmap_keys_lower:
+            mapped.append(col_name)
+        elif _matches_any_regex(col_name, regex_patterns):
+            # Column covered by a #Regex pattern
             mapped.append(col_name)
         else:
             missing.append({
