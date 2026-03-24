@@ -240,6 +240,8 @@ src/resources/schema_org/schemaorg_full.jsonld
 
 # Claude Code local files (persist across branches, not tracked)
 .claude/rules/
+.claude/*.lock
 CLAUDE.md
 docs/superpowers/
 .worktrees/
+output_test_cleanup/
