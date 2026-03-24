@@ -1200,5 +1200,5 @@ def get_sampling_tools() -> List[callable]:
     ]
 
 
-# For backward compatibility
+# Pre-built tool list for convenience
 SAMPLING_TOOLS = get_sampling_tools()

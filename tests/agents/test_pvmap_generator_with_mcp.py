@@ -18,7 +18,7 @@ from src.agents.pvmap_generator_agent import (
 
 
 # Path to the prompt template (source of truth for generator instruction)
-TEMPLATE_PATH = Path(__file__).parent.parent.parent / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
+TEMPLATE_PATH = Path(__file__).parent.parent.parent / "src" / "resources" / "prompts" / "improved_pvmap_prompt_v2.txt"
 
 
 class TestPvmapGeneratorWithMCP:
@@ -95,10 +95,10 @@ class TestPvmapGeneratorWithMCP:
         assert "Reference Only" not in template
         assert "IGNORE them" not in template
 
-    def test_template_has_confidence_based_guidance(self):
-        """Template uses confidence-based guidance for StatVar matches."""
+    def test_template_has_statvar_decision_tree(self):
+        """Template has StatVar decision tree for building StatVars."""
         template = TEMPLATE_PATH.read_text(encoding="utf-8")
-        assert "HIGH confidence matches" in template
+        assert "statvar_decision_tree" in template
 
     def test_template_has_all_placeholders(self):
         """Template has all required placeholders."""
@@ -114,7 +114,7 @@ class TestPvmapGeneratorWithMCP:
     def test_template_has_no_dcid_rule(self):
         """Template bans dcid: prefix in Rule 1."""
         template = TEMPLATE_PATH.read_text(encoding="utf-8")
-        assert "NO `dcid:` PREFIX" in template
+        assert "NO dcid: PREFIX" in template
         assert "dcid:Person" in template  # WRONG example
         assert "populationType,Person" in template  # CORRECT example
 

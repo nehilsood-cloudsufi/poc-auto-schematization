@@ -36,7 +36,7 @@ from google.genai import types
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
@@ -326,7 +326,6 @@ def run_dataset_pipeline(
     max_retries: int = 2,
     extra_plugins: Optional[list] = None,
     thinking_level: Optional[str] = None,
-    prompt_version: str = "v2",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -372,9 +371,9 @@ def run_dataset_pipeline(
     logger.info(f"Starting PVMAP pipeline for dataset: {dataset_name}")
     logger.info(
         "Pipeline config: model=%s, enable_mcp=%s, skip_sampling=%s, "
-        "skip_schema=%s, skip_eval=%s, use_metadata=%s, max_retries=%d, prompt=%s",
+        "skip_schema=%s, skip_eval=%s, use_metadata=%s, max_retries=%d",
         model, enable_mcp, skip_sampling, skip_schema_selection,
-        skip_evaluation, use_metadata, max_retries, prompt_version,
+        skip_evaluation, use_metadata, max_retries,
     )
 
     # Create Sampling agent (programmatic, code-orchestrated)
@@ -520,8 +519,6 @@ def run_dataset_pipeline(
         "schema_file": schema_file,
         # Schema examples control
         "use_schema_examples": use_schema_examples,
-        # Prompt version (v1 or v2)
-        "prompt_version": prompt_version,
     }
 
     # Inject human feedback if provided (for UI re-runs)
@@ -785,10 +782,6 @@ if __name__ == "__main__":
                         help="Skip injecting schema examples into PVMAP generation prompt")
     parser.add_argument("--schema-base-dir", type=str, default=None,
                         help="Override schema examples base directory")
-    # Prompt version (A/B testing)
-    parser.add_argument("--prompt-version", type=str, choices=["v1", "v2"],
-                        default="v2",
-                        help="PVMAP prompt template version (default: v2)")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
@@ -929,7 +922,6 @@ if __name__ == "__main__":
             use_schema_examples=not args.no_schema_examples,
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
             thinking_level=args.thinking_level,
-            prompt_version=getattr(args, 'prompt_version', 'v2'),
         )
 
         print("\n" + "=" * 60)

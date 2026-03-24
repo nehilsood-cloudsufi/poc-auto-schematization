@@ -21,7 +21,6 @@ from src.ui.config import (
     CLOUD_RUN,
     DEFAULT_MAX_RETRIES,
     DEFAULT_MODEL,
-    DEFAULT_PROMPT_VERSION,
     GCS_BUCKET,
     MCP_DEFAULT_PORT,
     MIN_PIPELINE_ATTEMPTS,
@@ -124,7 +123,6 @@ _DEFAULTS = {
     "used_edited_pvmap": False,
     "use_metadata": False,
     "max_retries": DEFAULT_MAX_RETRIES,
-    "prompt_version": DEFAULT_PROMPT_VERSION,
     "use_schema_examples": True,
 }
 
@@ -169,7 +167,6 @@ def _launch_pipeline():
         model=st.session_state.get("model", DEFAULT_MODEL),
         enable_mcp=mcp_enabled,
         mcp_url=mcp_url,
-        prompt_version=st.session_state.get("prompt_version", DEFAULT_PROMPT_VERSION),
         use_schema_examples=st.session_state.get("use_schema_examples", True),
         skip_sampling=st.session_state.get("skip_sampling", False),
         skip_evaluation=True,  # No ground truth in UI mode
@@ -271,15 +268,6 @@ with st.sidebar:
         st.session_state["mcp_enabled"] = mcp_enabled
 
     with st.expander("Advanced"):
-        prompt_version = st.radio(
-            "Prompt Version",
-            ["v2", "v1"],
-            index=["v2", "v1"].index(st.session_state.get("prompt_version", DEFAULT_PROMPT_VERSION)),
-            help="v2 = restructured (recommended)",
-            horizontal=True,
-        )
-        st.session_state["prompt_version"] = prompt_version
-
         use_schema_examples = st.toggle(
             "Schema Examples",
             value=st.session_state.get("use_schema_examples", True),

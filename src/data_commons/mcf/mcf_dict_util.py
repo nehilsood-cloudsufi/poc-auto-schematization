@@ -65,11 +65,7 @@ from collections import OrderedDict
 _MODULE_DIR = os.path.dirname(os.path.realpath(__file__))
 path.insert(1, os.path.join(_MODULE_DIR, '../'))
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.data_commons.api.dc_api_wrapper import dc_api_is_defined_dcid
-except ImportError:
-    from dc_api_wrapper import dc_api_is_defined_dcid
+from src.data_commons.api.dc_api_wrapper import dc_api_is_defined_dcid
 
 PREFIX_LIST = ['dcs', 'dcid', 'l', 'schema']
 

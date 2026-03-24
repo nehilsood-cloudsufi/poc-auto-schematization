@@ -171,15 +171,6 @@ def create_parser() -> argparse.ArgumentParser:
         help='Explicit schema file override'
     )
 
-    # Prompt version
-    parser.add_argument(
-        '--prompt-version',
-        type=str,
-        choices=['v1', 'v2'],
-        default='v2',
-        help='PVMAP prompt template version (default: v2)'
-    )
-
     # Structured output
     parser.add_argument(
         '--structured-output',

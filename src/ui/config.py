@@ -10,9 +10,6 @@ DEFAULT_MODEL = "gemini-3.1-pro-preview"
 # MCP settings
 MCP_DEFAULT_PORT = 3000
 
-# Prompt settings
-DEFAULT_PROMPT_VERSION = "v2"
-
 # Pipeline settings
 MIN_PIPELINE_ATTEMPTS = 2  # Always run at least 2 attempts in UI mode
 DEFAULT_MAX_RETRIES = 1    # Default max retries (2 total attempts: initial + 1 retry)

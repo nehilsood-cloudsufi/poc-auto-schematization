@@ -501,29 +501,5 @@ class TestPromptV2Template:
 
 
 # =============================================================================
-# CLI parser prompt-version flag
+# CLI parser tests (prompt-version flag removed in cleanup)
 # =============================================================================
-
-
-class TestCliPromptVersion:
-    """Test --prompt-version CLI flag."""
-
-    def test_default_is_v2(self):
-        from src.config.cli_parser import parse_args
-        args = parse_args([])
-        assert args.prompt_version == "v2"
-
-    def test_v1_accepted(self):
-        from src.config.cli_parser import parse_args
-        args = parse_args(["--prompt-version", "v1"])
-        assert args.prompt_version == "v1"
-
-    def test_v2_accepted(self):
-        from src.config.cli_parser import parse_args
-        args = parse_args(["--prompt-version", "v2"])
-        assert args.prompt_version == "v2"
-
-    def test_invalid_rejected(self):
-        from src.config.cli_parser import parse_args
-        with pytest.raises(SystemExit):
-            parse_args(["--prompt-version", "v3"])

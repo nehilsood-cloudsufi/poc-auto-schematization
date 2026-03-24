@@ -250,7 +250,7 @@ def test_prompt_injection():
     print("Testing prompt injection with discovered StatVars")
     print("=" * 60)
 
-    template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
+    template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "improved_pvmap_prompt_v2.txt"
     if not template_path.exists():
         print(f"Template not found: {template_path}")
         return False
@@ -274,7 +274,6 @@ def test_prompt_injection():
 
     # Check that StatVars content was substituted into {{STATVAR_SUMMARY}} placeholder
     assert "Count_Person" in prompt, "Missing Count_Person DCID"
-    assert "HIGH confidence matches" in prompt, "Missing confidence-based guidance"
     # Template heading should always be present
     assert "Discovered StatVars (from Data Commons)" in prompt
 

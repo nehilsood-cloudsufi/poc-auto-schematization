@@ -345,8 +345,7 @@ def run_validation(
             - success: bool indicating validation passed
             - output_file: str path to processed output file (if exists)
             - data_rows: Number of data rows in output
-            - error_logs: Sampled error logs (if failed) - DEPRECATED, use structured_feedback
-            - structured_feedback: Counter-based structured feedback (preferred)
+            - structured_feedback: Counter-based structured feedback
             - counters: Parsed counter dictionary
             - error: Error message (if failed)
             - stdout: Process stdout
@@ -358,7 +357,6 @@ def run_validation(
         return {
             "success": False,
             "error": f"Input data file not found: {input_data}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
@@ -368,7 +366,6 @@ def run_validation(
         return {
             "success": False,
             "error": f"Metadata file not found: {metadata_file}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
@@ -378,7 +375,6 @@ def run_validation(
         return {
             "success": False,
             "error": f"PVMAP file not found: {pvmap_path}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
@@ -483,7 +479,7 @@ def run_validation(
                 return {
                     "success": False,
                     "error": full_error,
-                    "error_logs": sampled_logs,
+                    # error_logs removed — use structured_feedback
                     "structured_feedback": structured_feedback,
                     "counters": counters,
                     "output_file": str(output_file) if output_file.exists() else None,
@@ -506,8 +502,7 @@ def run_validation(
             return {
                 "success": True,
                 "error": None,
-                "error_logs": None,
-                "structured_feedback": None,
+                    "structured_feedback": None,
                 "counters": counters,
                 "output_file": str(output_file),
                 "data_rows": data_rows,
@@ -551,7 +546,7 @@ def run_validation(
             return {
                 "success": False,
                 "error": error_msg,
-                "error_logs": sampled_logs,
+                # error_logs removed — use structured_feedback
                 "structured_feedback": structured_feedback,
                 "counters": counters,
                 "output_file": str(output_file) if output_file.exists() else None,
@@ -567,7 +562,6 @@ def run_validation(
         return {
             "success": False,
             "error": f"Validation timed out after {timeout} seconds",
-            "error_logs": None,
             "structured_feedback": None,
             "counters": {},
             "output_file": None,
@@ -579,7 +573,6 @@ def run_validation(
         return {
             "success": False,
             "error": f"Validation error: {str(e)}",
-            "error_logs": None,
             "structured_feedback": None,
             "counters": {},
             "output_file": None,

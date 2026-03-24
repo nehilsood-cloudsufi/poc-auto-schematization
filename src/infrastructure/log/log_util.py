@@ -26,11 +26,7 @@ from functools import wraps
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(SCRIPT_DIR)
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.infrastructure.metrics.timer import Timer
-except ImportError:
-    from timer import Timer
+from src.infrastructure.metrics.timer import Timer
 
 flags.DEFINE_integer('funcion_call_log_level', logging.INFO,
                      'Log level for function call logs.')

@@ -757,10 +757,6 @@ class StatePreparationAgent(BaseAgent):
         """
         Load PVMAP prompt template, populate placeholders, escape, and store.
 
-        Selects template based on prompt_version state variable:
-        - v1: improved_pvmap_prompt.txt (777-line original)
-        - v2: improved_pvmap_prompt_v2.txt (restructured ~315 lines)
-
         This makes the template the single source of truth for the generator
         instruction. The populated and escaped result is stored in state as
         'populated_pvmap_prompt', which the generator's instruction
@@ -770,18 +766,8 @@ class StatePreparationAgent(BaseAgent):
         PVMAP placeholders ({Data}, {Number}, {Year}, etc.) are then escaped
         to [DATA], [NUMBER], [Year] to prevent ADK template resolution errors.
         """
-        prompt_version = ctx.session.state.get("prompt_version", "v2")
-        if prompt_version == "v1":
-            template_name = "improved_pvmap_prompt.txt"
-        else:
-            template_name = "improved_pvmap_prompt_v2.txt"
-
+        template_name = "improved_pvmap_prompt_v2.txt"
         template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
-
-        # Fallback to v1 if v2 doesn't exist yet
-        if not template_path.exists() and prompt_version == "v2":
-            template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
-            logger.warning("Prompt v2 not found, falling back to v1")
 
         if not template_path.exists():
             logger.error(f"Prompt template not found: {template_path}")

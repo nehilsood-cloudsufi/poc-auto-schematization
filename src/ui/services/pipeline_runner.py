@@ -33,7 +33,6 @@ class PipelineConfig:
     human_feedback: Optional[str] = None
     min_attempts: int = MIN_PIPELINE_ATTEMPTS
     max_retries: int = 1
-    prompt_version: str = "v2"
     use_schema_examples: bool = True
     thinking_level: Optional[str] = None
     extra_state: dict = field(default_factory=dict)
@@ -91,7 +90,6 @@ def _run_in_thread(config: PipelineConfig, progress_queue: queue.Queue):
             min_attempts=config.min_attempts,
             max_retries=config.max_retries,
             extra_plugins=[progress_plugin],
-            prompt_version=config.prompt_version,
             use_schema_examples=config.use_schema_examples,
             thinking_level=config.thinking_level,
         )

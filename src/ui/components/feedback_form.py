@@ -115,7 +115,6 @@ def _handle_rerun(
         "input_file": st.session_state.get("input_path", ""),
         "metadata_file": st.session_state.get("metadata_path", ""),
         "mcp_enabled": st.session_state.get("mcp_enabled", False),
-        "prompt_version": st.session_state.get("prompt_version", "v2"),
         "use_schema_examples": st.session_state.get("use_schema_examples", True),
     }
     save_run_manifest(output_dir, current_version, config, result)

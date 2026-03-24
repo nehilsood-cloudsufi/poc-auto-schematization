@@ -36,11 +36,7 @@ import numpy as np
 from absl import app
 from absl import logging
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.infrastructure.utils.aggregation_util import aggregate_dict, aggregate_value
-except ImportError:
-    from aggregation_util import aggregate_dict, aggregate_value
+from src.infrastructure.utils.aggregation_util import aggregate_dict, aggregate_value
 
 from google.cloud import storage
 from retry.api import retry_call

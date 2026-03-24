@@ -242,3 +242,4 @@ src/resources/schema_org/schemaorg_full.jsonld
 .claude/rules/
 CLAUDE.md
 docs/superpowers/
+.worktrees/

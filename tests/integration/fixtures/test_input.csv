@@ -1,0 +1,11 @@
+Year,Country,Value,Category
+2020,USA,100.5,TypeA
+2020,Canada,95.2,TypeB
+2021,USA,102.3,TypeA
+2021,Canada,97.1,TypeB
+2022,USA,105.8,TypeA
+2022,Canada,99.4,TypeB
+2020,Mexico,88.7,TypeA
+2021,Mexico,90.1,TypeA
+2022,Mexico,92.5,TypeB
+2022,Brazil,85.3,TypeA

@@ -30,7 +30,7 @@ __all__ = [
     # Agentic interface
     'SamplingResult',
     'sample_dataset',
-    # Module names for backward compatibility
+    # Submodules
     'column_analyzer',
     'data_context',
     'dimension_detector',

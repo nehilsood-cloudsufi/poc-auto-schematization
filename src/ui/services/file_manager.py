@@ -102,7 +102,6 @@ def save_run_manifest(
         "human_feedback_text": config.get("human_feedback", ""),
         "used_edited_pvmap": config.get("used_edited_pvmap", False),
         "skip_sampling": config.get("skip_sampling", False),
-        "prompt_version": config.get("prompt_version", "v2"),
         "use_schema_examples": config.get("use_schema_examples", True),
     }
 

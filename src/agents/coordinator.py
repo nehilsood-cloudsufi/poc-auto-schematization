@@ -28,7 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from google.adk.agents import SequentialAgent
 
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
@@ -145,6 +145,3 @@ def create_pipeline_coordinator(
 
     return coordinator
 
-
-# Alias for backward compatibility
-PipelineCoordinator = create_pipeline_coordinator

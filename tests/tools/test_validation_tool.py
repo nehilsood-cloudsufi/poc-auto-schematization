@@ -254,9 +254,7 @@ def test_run_validation_empty_output(mock_run, temp_dir):
 
     assert result['success'] is False
     assert "empty output" in result['error'].lower()
-    assert result['error_logs'] is not None
-    # For short logs, the original text is returned; for long logs, "LAST" prefix is added
-    assert "No rows matched" in result['error_logs'] or "LAST" in result['error_logs']
+    assert result['error'] is not None
 
 
 @patch('src.tools.validation_tool.subprocess.run')
@@ -291,8 +289,7 @@ def test_run_validation_nonzero_exit(mock_run, temp_dir):
 
     assert result['success'] is False
     assert "exit code 1" in result['error']
-    assert result['error_logs'] is not None
-    assert "Invalid PVMAP format" in result['error_logs']
+    assert "exit code 1" in result['error']
 
 
 @patch('src.tools.validation_tool.subprocess.run')
@@ -454,7 +451,6 @@ error-unresolved-place,100
         # Should fall back to random sampling
         assert result['success'] is False
         assert result['structured_feedback'] is None  # No counters = no structured feedback
-        assert result['error_logs'] is not None  # Fall back to log sampling
         assert result['counters'] == {}  # Empty counters
 
     @patch('src.tools.validation_tool.subprocess.run')

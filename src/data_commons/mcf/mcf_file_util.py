@@ -70,16 +70,8 @@ sys.path.append(os.path.dirname(os.path.dirname(_SCRIPT_DIR)))
 sys.path.append(
     os.path.join(os.path.dirname(os.path.dirname(_SCRIPT_DIR)), 'util'))
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.infrastructure.io import file_util
-except ImportError:
-    import file_util
-
-try:
-    from src.infrastructure.metrics.counters import Counters
-except ImportError:
-    from counters import Counters
+from src.infrastructure.io import file_util
+from src.infrastructure.metrics.counters import Counters
 
 _DEFAULT_NODE_PVS = OrderedDict({
     'Node': '',

@@ -1302,7 +1302,6 @@ class TestPromptBudgetIntegration:
             "error_feedback": error_feedback,
             "statvar_summary": "",
             "mcp_tools_instruction": "",
-            "prompt_version": "v2",
         }
 
         agent = StatePreparationAgent()

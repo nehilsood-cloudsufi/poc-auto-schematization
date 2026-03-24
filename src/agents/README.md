@@ -454,13 +454,7 @@ async for event in sub_agent.run_async(ctx):
     yield event  # Propagate events from sub-agent
 ```
 
-### 3. Using PipelineContext instead of ctx.session.state
-
-❌ **Wrong (deprecated):**
-```python
-from src.state.context import PipelineContext
-ctx = PipelineContext(dataset_info, config)
-```
+### 3. Always use ctx.session.state for state management
 
 ✅ **Correct:**
 ```python

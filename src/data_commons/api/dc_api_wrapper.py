@@ -40,11 +40,7 @@ import requests_cache
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(_SCRIPT_DIR)
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.infrastructure.io.download_util import request_url
-except ImportError:
-    from download_util import request_url
+from src.infrastructure.io.download_util import request_url
 
 # Path for reconciliation API in the dc.utils._API_ROOT
 # For more details, please refer to:

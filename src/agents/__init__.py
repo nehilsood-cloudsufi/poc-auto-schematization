@@ -22,7 +22,7 @@ Retry Loop Architecture:
 """
 
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
@@ -35,7 +35,7 @@ from src.agents.pvmap_retry_loop import (
     MaxRetriesCheckAgent,
 )
 from src.agents.evaluation_agent import EvaluationAgent
-from src.agents.coordinator import create_pipeline_coordinator, PipelineCoordinator
+from src.agents.coordinator import create_pipeline_coordinator
 
 # StatVar Discovery Agent (requires MCP)
 try:
@@ -47,16 +47,10 @@ except ImportError:
 
 # DC Query Agent (requires MCP)
 try:
-    from src.agents.dc_query_agent import (
-        create_dc_query_agent,
-        create_statvar_discovery_agent,
-        create_observation_fetch_agent
-    )
+    from src.agents.dc_query_agent import create_dc_query_agent
     DC_QUERY_AVAILABLE = True
 except ImportError:
     create_dc_query_agent = None
-    create_statvar_discovery_agent = None
-    create_observation_fetch_agent = None
     DC_QUERY_AVAILABLE = False
 
 __all__ = [
@@ -76,12 +70,9 @@ __all__ = [
     'MaxRetriesCheckAgent',
     # Coordinator
     'create_pipeline_coordinator',
-    'PipelineCoordinator',
     # Optional MCP-based agents
     'StatVarDiscoveryAgent',
     'STATVAR_DISCOVERY_AVAILABLE',
     'create_dc_query_agent',
-    'create_statvar_discovery_agent',
-    'create_observation_fetch_agent',
     'DC_QUERY_AVAILABLE'
 ]

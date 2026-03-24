@@ -8,7 +8,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.agents.coordinator import create_pipeline_coordinator, PipelineCoordinator
+from src.agents.coordinator import create_pipeline_coordinator
 
 
 def test_coordinator_creation():
@@ -98,13 +98,6 @@ def test_coordinator_custom_model():
         assert schema_agent.model == "gemini-2.0-flash-exp"
 
 
-def test_coordinator_backward_compatibility_alias():
-    """Test that PipelineCoordinator alias works."""
-    coordinator = PipelineCoordinator()
-    assert coordinator is not None
-    assert coordinator.name == "PipelineCoordinator"
-
-
 @pytest.mark.asyncio
 async def test_coordinator_sequential_execution_flow(mock_invocation_context, temp_dir):
     """Test that coordinator properly orchestrates sequential execution."""
@@ -138,7 +131,7 @@ def test_coordinator_agent_types():
 
     # Check specific types
     assert isinstance(coordinator.sub_agents[0], DiscoveryAgent)
-    from src.agents.sampling_agent_v2 import ProgrammaticSamplingAgent
+    from src.agents.sampling_agent import ProgrammaticSamplingAgent
     assert isinstance(coordinator.sub_agents[1], ProgrammaticSamplingAgent)  # SamplingAgent
     assert isinstance(coordinator.sub_agents[2], LlmAgent)  # SchemaSelectionAgent
     assert isinstance(coordinator.sub_agents[3], LoopAgent)  # PVMAPRetryLoop
