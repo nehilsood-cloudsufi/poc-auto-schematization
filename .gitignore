@@ -237,3 +237,8 @@ http_cache.sqlite
 ui_output/
 ui_runs/
 src/resources/schema_org/schemaorg_full.jsonld
+
+# Claude Code local files (persist across branches, not tracked)
+.claude/rules/
+CLAUDE.md
+docs/superpowers/
