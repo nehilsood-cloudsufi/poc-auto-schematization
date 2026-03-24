@@ -578,19 +578,6 @@ wheels = [
 ]
 
 [[package]]
-name = "datacommons"
-version = "1.4.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "six" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/25/36/12e64ec5931a48dd86dd930979bf323881652ddfdebf71e34810ec6ee798/datacommons-1.4.4.tar.gz", hash = "sha256:7f7f84181f6e8933cfd31f29078a06110c4ce9bcfc20340733edf59c5864dace", size = 17065, upload-time = "2026-01-12T22:39:32.428Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/17/6313fcd1a8d93ee6311f3a83dc396753e32548f06dfbe479376ba99d66d7/datacommons-1.4.4-py3-none-any.whl", hash = "sha256:efd5acad708e56ac1216794e5efcf49134c1a7fb0de2034445a9a27ca7ce7ba4", size = 43688, upload-time = "2026-01-12T22:39:30.305Z" },
-]
-
-[[package]]
 name = "datacommons-client"
 version = "2.1.5"
 source = { registry = "https://pypi.org/simple" }
@@ -2645,7 +2632,6 @@ dependencies = [
     { name = "chardet" },
     { name = "charset-normalizer" },
     { name = "croniter" },
-    { name = "datacommons" },
     { name = "datacommons-client" },
     { name = "datacommons-mcp" },
     { name = "decorator" },
@@ -2716,6 +2702,7 @@ dependencies = [
     { name = "rsa" },
     { name = "six" },
     { name = "streamlit" },
+    { name = "tenacity" },
     { name = "tqdm" },
     { name = "typing-extensions" },
     { name = "typing-inspection" },
@@ -2750,7 +2737,6 @@ requires-dist = [
     { name = "chardet", specifier = ">=5.2.0" },
     { name = "charset-normalizer", specifier = ">=3.4.4" },
     { name = "croniter", specifier = ">=6.0.0" },
-    { name = "datacommons", specifier = ">=1.4.3" },
     { name = "datacommons-client", specifier = ">=2.1.4" },
     { name = "datacommons-mcp", specifier = ">=1.1.0" },
     { name = "decorator", specifier = ">=5.2.1" },
@@ -2825,6 +2811,7 @@ requires-dist = [
     { name = "rsa", specifier = ">=4.9.1" },
     { name = "six", specifier = ">=1.17.0" },
     { name = "streamlit", specifier = ">=1.44.0" },
+    { name = "tenacity", specifier = ">=9.0.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
     { name = "typing-inspection", specifier = ">=0.4.2" },
