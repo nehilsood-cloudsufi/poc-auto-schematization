@@ -22,7 +22,7 @@ The current `improved_pvmap_prompt_v2.txt` (467 lines) was written when upstream
 
 - Changing the `_populate_prompt_template()` logic or compaction strategy
 - Modifying upstream agents (sampling, schema selection, skeleton generator)
-- Changing the retry loop or feedback agent
+- Changing the retry loop logic or feedback agent behavior (only adding prompt version selection)
 - Switching from JSON to CSV output format
 
 ## Decisions (from brainstorming)
@@ -110,7 +110,7 @@ Four rules, condensed from ~50 lines to ~30:
 | Rule | Key Change from v2 |
 |------|---------------------|
 | Rule 1: BARE IDENTIFIERS | Reduced from 6-row table to 1 inline example |
-| Rule 2: KEY FIDELITY | Honestly states "case-insensitive matching" (aligned with processor); still encourages exact names |
+| Rule 2: KEY FIDELITY | Reworded: "Matching is case-insensitive but ambiguous keys cause wrong mappings — copy names exactly from the COLUMN REFERENCE TABLE" (aligned with processor reality while encouraging precision) |
 | Rule 3: COMPLETENESS | References skeleton as completeness checklist |
 | Rule 4: UNIT & SCALING | Reduced from 5-row table to 2 inline examples |
 
@@ -137,6 +137,8 @@ Place prefixes table (4 entries: geoId, country, wikidataId, nuts).
 Advanced operators as one-liners (5 entries: #Regex, #Eval, #Filter, #Aggregate, #Multiply).
 
 **Removed:** Placeholder decision tree (IF/ELIF/ELSE), #Eval restrictions paragraph, "required properties" sub-section (covered in processor mental model).
+
+**Added:** Minimal schema.org tool hint (2-3 lines): "If schema.org vocabulary tools are available, call `lookup_schemaorg_type` for your chosen populationType and `validate_pvmap_property` for key dimension properties before generating output." This preserves proactive tool usage without the 24-line mandatory checklist.
 
 ### 15. Archetype Reference Table (BOTTOM — ~10 lines)
 
@@ -183,36 +185,53 @@ Simplified schema — only `pvmap_rows`:
 | Archetype guide | 70 | 10 | -60 |
 | StatVar decision tree | 20 | 0 | -20 (in skeleton_summary) |
 | Examples | 65 | 20 | -45 |
-| Schema.org tool instructions | 24 | 0 | -24 |
+| Schema.org tool instructions | 24 | 3 | -21 (minimal hint kept) |
 | Schema vocab compliance | 10 | 0 | -10 |
 | Guardrails | 8 | 8 | 0 |
 | Output format | 65 | 10 | -55 |
-| **Total static** | **~317** | **~141** | **~176 lines (-56%)** |
-| **Total with placeholders** | **467** | **~230** | **~237 lines (-51%)** |
+| **Total static** | **~317** | **~144** | **~173 lines (-55%)** |
+| **Total with placeholders** | **467** | **~233** | **~234 lines (-50%)** |
 
 **Net token savings:** ~50% reduction in static prompt content, freeing ~10-15KB for richer dynamic context (larger skeleton_summary, more sampled data rows, fuller schema examples).
 
 ## Downstream Code Changes
 
-### 1. `src/agents/pvmap_generation/schemas.py`
-Remove `format_detected`, `validation_notes`, `confidence` from `PVMAPOutput`. Keep only `pvmap_rows`.
+**Phased approach:** Schema simplification is deferred until AFTER A/B testing validates v3. During A/B, both prompts use the existing `PVMAPOutput` schema (v3 prompt simply won't mention the extra fields, but the Pydantic schema still requires them — the LLM will produce them anyway due to `output_schema` enforcement).
 
-### 2. `src/agents/validation_agent.py`
-- Remove lines 233-235 (dead state writes for `pvmap_format_detected`, `pvmap_confidence`, `pvmap_validation_notes`)
-- Update `_parse_pvmap_output()` to not expect removed fields
-- Add backward compatibility: gracefully ignore extra fields if LLM still returns them
+### Phase A: Prompt Rewrite + A/B Testing (this spec)
 
-### 3. `src/agents/metadata_generation_agent.py`
-Same cleanup in its `_parse_pvmap_output()`.
+#### A1. `src/resources/prompts/improved_pvmap_prompt_v3.txt`
+NEW — clean rewrite prompt. The v3 output format section still shows all `PVMAPOutput` fields to match the existing schema.
 
-### 4. `src/agents/pvmap_generation/helpers.py`
-Update `parse_pvmap_from_dict()` to handle the leaner schema.
-
-### 5. `src/agents/pvmap_retry_loop.py`
-Add ability to select prompt version for A/B testing. Options:
+#### A2. `src/agents/pvmap_retry_loop.py`
+Add prompt version selection:
 - Environment variable: `PVMAP_PROMPT_VERSION=v3`
 - Or CLI flag: `--prompt-version v3` (if we add to cli_parser.py)
 - Default: v2 (safe rollout)
+- **Important:** The v3 skeleton section heading MUST be `## PVMAP Skeleton (pre-filled baseline)` to match the regex in `_populate_prompt_template()` (lines 950-957) that handles empty skeleton removal.
+
+#### A3. `src/config/cli_parser.py`
+Add `--prompt-version` flag (choices: v2, v3; default: v2).
+
+### Phase B: Schema Cleanup (AFTER v3 is validated)
+
+Only proceed with Phase B after A/B testing confirms v3 is at least as good as v2.
+
+#### B1. `src/agents/pvmap_generation/schemas.py`
+Remove `format_detected`, `validation_notes`, `confidence` from both `PVMAPOutput` (Pydantic model) AND `PVMAP_OUTPUT_SCHEMA` (raw JSON schema dict). Keep only `pvmap_rows`.
+
+#### B2. `src/agents/validation_agent.py`
+- Remove lines 233-235 (dead state writes for `pvmap_format_detected`, `pvmap_confidence`, `pvmap_validation_notes`)
+- Update `_parse_pvmap_output()` to not expect removed fields
+
+#### B3. `src/agents/metadata_generation_agent.py`
+Same cleanup in its `_parse_pvmap_output()`.
+
+#### B4. `src/agents/pvmap_generation/helpers.py`
+Update `parse_pvmap_from_dict()` to handle the leaner schema.
+
+#### B5. Update tests
+Any tests that construct `PVMAPOutput` instances with `format_detected`/`confidence`/`validation_notes` will need updating. Run `grep -r "format_detected\|validation_notes\|confidence" tests/` to identify affected files.
 
 ## A/B Testing Plan
 
@@ -246,8 +265,9 @@ Add ability to select prompt version for A/B testing. Options:
 1. Run each dataset with v2 prompt (baseline): `python src/run_pipeline.py --dataset=X [flags]`
 2. Run each dataset with v3 prompt (new): same command with prompt version override
 3. Compare `validation_data_rows` and `validation_success` side by side
-4. v3 wins if: >=8/10 datasets match or exceed v2 on `validation_data_rows`
+4. v3 wins if: >=8/10 datasets match or exceed v2 on `validation_data_rows` AND no single dataset regresses by more than 20%
 5. Investigate any regressions before committing to v3
+6. **Rollback:** If A/B shows regressions, default remains v2. v3 is iterable — fix regressions and re-test
 
 ### Output Location
 
@@ -258,21 +278,31 @@ Add ability to select prompt version for A/B testing. Options:
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| v3 prompt regresses on some archetypes | Medium | A/B test on 10 diverse datasets before replacing v2 |
-| Simplified output schema breaks downstream | Low | Add backward compatibility (ignore extra fields) |
+| v3 prompt regresses on some archetypes | Medium | A/B test on 10 diverse datasets; no single dataset >20% regression allowed |
+| Simplified output schema breaks downstream | Low | Phased: schema changes deferred to Phase B after v3 validated |
 | Processor mental model confuses LLM | Low | Tested carry-forward explanation pattern; concrete example included |
 | Removed archetype guide hurts edge cases | Low | skeleton_summary provides dataset-specific guidance; minimal table kept as fallback |
 | Token savings enable context overflow in other direction | Very Low | Budget caps unchanged in `_populate_prompt_template()` |
+| Schema.org tools used less proactively without instructions | Low | Minimal 2-3 line tool hint retained in syntax reference section |
+| v3 skeleton heading doesn't match regex in _populate_prompt_template | Low | Heading MUST be `## PVMAP Skeleton (pre-filled baseline)` — documented in Phase A2 |
 
 ## File Changes Summary
+
+### Phase A (Prompt Rewrite + A/B Testing)
 
 | File | Change |
 |------|--------|
 | `src/resources/prompts/improved_pvmap_prompt_v3.txt` | NEW — clean rewrite prompt |
 | `src/resources/prompts/improved_pvmap_prompt_v2.txt` | KEEP — retained for A/B testing and rollback |
-| `src/agents/pvmap_generation/schemas.py` | MODIFY — simplify PVMAPOutput |
+| `src/agents/pvmap_retry_loop.py` | MODIFY — add prompt version selection |
+| `src/config/cli_parser.py` | MODIFY — add --prompt-version flag |
+
+### Phase B (Schema Cleanup — after v3 validated)
+
+| File | Change |
+|------|--------|
+| `src/agents/pvmap_generation/schemas.py` | MODIFY — simplify PVMAPOutput + PVMAP_OUTPUT_SCHEMA |
 | `src/agents/validation_agent.py` | MODIFY — remove dead state writes |
 | `src/agents/metadata_generation_agent.py` | MODIFY — cleanup _parse_pvmap_output |
 | `src/agents/pvmap_generation/helpers.py` | MODIFY — update parse_pvmap_from_dict |
-| `src/agents/pvmap_retry_loop.py` | MODIFY — add prompt version selection |
-| `src/config/cli_parser.py` | MODIFY — add --prompt-version flag (optional) |
+| `tests/` (multiple files) | MODIFY — update PVMAPOutput test fixtures |
