@@ -107,3 +107,41 @@ def extract_gemini3pro_metrics(comparison_md_path: str) -> dict[str, dict[str, f
             filtered[dataset] = metrics
 
     return filtered
+
+
+import pandas as pd
+
+
+def _is_numeric_column(series: pd.Series, threshold: float = 0.8) -> bool:
+    """Check if >threshold of non-null values in a column parse as numbers."""
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return False
+    numeric_count = pd.to_numeric(non_null, errors="coerce").notna().sum()
+    return (numeric_count / len(non_null)) >= threshold
+
+
+def extract_structural_features(csv_path: str) -> dict[str, float]:
+    """Extract structural features from a CSV file.
+
+    Returns dict with: column_count, row_count, numeric_column_count,
+    categorical_column_count, numeric_to_categorical_ratio,
+    max_column_cardinality, mean_column_cardinality.
+    """
+    df = pd.read_csv(csv_path, low_memory=False)
+
+    numeric_cols = [c for c in df.columns if _is_numeric_column(df[c])]
+    categorical_cols = [c for c in df.columns if c not in numeric_cols]
+
+    cardinalities = [df[c].nunique() for c in df.columns]
+
+    cat_count = len(categorical_cols)
+    return {
+        "column_count": len(df.columns),
+        "row_count": len(df),
+        "numeric_column_count": len(numeric_cols),
+        "categorical_column_count": cat_count,
+        "numeric_to_categorical_ratio": len(numeric_cols) / cat_count if cat_count > 0 else 0,
+        "max_column_cardinality": max(cardinalities) if cardinalities else 0,
+        "mean_column_cardinality": sum(cardinalities) / len(cardinalities) if cardinalities else 0,
+    }

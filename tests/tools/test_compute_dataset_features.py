@@ -109,3 +109,44 @@ def test_extract_metrics_filters_to_nonzero(tmp_path):
     metrics = extract_gemini3pro_metrics(str(md_file))
     assert "has_data" in metrics
     assert "all_zero" not in metrics
+
+
+import pandas as pd
+
+def test_extract_structural_features(tmp_path):
+    from tools.compute_dataset_features import extract_structural_features
+
+    # Create a test CSV: 3 numeric cols, 2 categorical cols, 20 rows
+    df = pd.DataFrame({
+        "year": [2020 + i % 5 for i in range(20)],
+        "value": [float(i * 10) for i in range(20)],
+        "rate": [0.1 * i for i in range(20)],
+        "country": ["US", "UK", "FR", "DE", "JP"] * 4,
+        "category": ["A", "B"] * 10,
+    })
+    csv_path = tmp_path / "test.csv"
+    df.to_csv(csv_path, index=False)
+
+    features = extract_structural_features(str(csv_path))
+
+    assert features["column_count"] == 5
+    assert features["row_count"] == 20
+    assert features["numeric_column_count"] == 3  # year, value, rate
+    assert features["categorical_column_count"] == 2  # country, category
+    assert features["max_column_cardinality"] == 20  # value or rate have 20 unique
+    assert features["mean_column_cardinality"] == pytest.approx(
+        (5 + 20 + 20 + 5 + 2) / 5, rel=0.01
+    )
+
+
+def test_extract_structural_features_all_numeric(tmp_path):
+    from tools.compute_dataset_features import extract_structural_features
+
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    csv_path = tmp_path / "numeric.csv"
+    df.to_csv(csv_path, index=False)
+
+    features = extract_structural_features(str(csv_path))
+    assert features["numeric_column_count"] == 2
+    assert features["categorical_column_count"] == 0
+    assert features["numeric_to_categorical_ratio"] == 0  # 0 when no categorical
