@@ -1,9 +1,9 @@
 """
 NotebookLM Enrichment Agent for the PVMAP pipeline.
 
-Queries a pre-loaded NotebookLM notebook (with Data Commons documentation)
-to enrich the context available to the PVMAP generator. Runs once between
-SchemaSelection and PVMAPRetryLoop.
+Queries a NotebookLM notebook (with Data Commons documentation) via the
+official Google NotebookLM MCP server to enrich context for PVMAP generation.
+Runs once between SchemaSelection and PVMAPRetryLoop.
 
 State Inputs:
     nlm_enabled (bool): Whether NotebookLM enrichment is enabled
@@ -126,37 +126,40 @@ def _format_enrichment(answers: list[tuple[str, str]]) -> str:
 
 
 async def _ask_with_fallback(notebook_id: str, question: str) -> tuple[str, str]:
-    """Ask a question, returning (question, answer) or (question, '') on failure."""
+    """Ask a question via generate_answer, returning (question, answer) or (question, '') on failure."""
     if not question:
         return (question, "")
     try:
-        from notebooklm.tools import ask_question
-        result = await ask_question(notebook_id, question)
+        from notebooklm.tools import generate_answer
+        result = await generate_answer(notebook_id, question)
         if result.get("success"):
-            return (question, result["data"].get("answer", ""))
+            data = result["data"]
+            answer = data.get("answer", data.get("text", str(data)))
+            return (question, answer)
         else:
-            logger.warning("NotebookLM question failed: %s", result.get("error", "unknown"))
+            logger.warning("NotebookLM generate_answer failed: %s", result.get("error", "unknown"))
             return (question, "")
     except Exception as e:
-        logger.warning("NotebookLM ask_question error: %s", e)
+        logger.warning("NotebookLM generate_answer error: %s", e)
         return (question, "")
 
 
 async def _create_notebook_with_sources() -> Optional[str]:
-    """Create a new notebook and add DC documentation sources. Returns notebook_id or None."""
+    """Create a new notebook and add DC documentation sources via MCP. Returns notebook_id or None."""
     try:
-        from notebooklm.tools import create_notebook, add_url_source
+        from notebooklm.tools import create_notebook, create_source
 
         result = await create_notebook("DC Auto-Schematization Context")
         if not result.get("success"):
             logger.warning("Failed to create notebook: %s", result.get("error"))
             return None
 
-        notebook_id = result["data"]["notebook_id"]
+        data = result["data"]
+        notebook_id = data.get("notebook_id", data.get("id", ""))
         logger.info("Created NotebookLM notebook: %s", notebook_id)
 
-        # Add DC documentation URLs concurrently
-        tasks = [add_url_source(notebook_id, url) for url in DC_DOC_URLS]
+        # Add DC documentation URLs concurrently via create_source
+        tasks = [create_source(notebook_id, "url", url) for url in DC_DOC_URLS]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         added = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
@@ -204,8 +207,8 @@ class NotebookLMEnrichmentAgent(BaseAgent):
 
         # Test the notebook with a simple ping
         try:
-            from notebooklm.tools import ask_question
-            test_result = await ask_question(notebook_id, "What is Data Commons?")
+            from notebooklm.tools import generate_answer
+            test_result = await generate_answer(notebook_id, "What is Data Commons?")
             if not test_result.get("success"):
                 logger.warning(
                     "Default notebook %s unreachable: %s. Attempting auto-create.",
