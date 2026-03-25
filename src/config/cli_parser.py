@@ -207,8 +207,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--prompt-version',
         choices=['v2', 'v3'],
-        default='v2',
-        help='PVMAP prompt version to use (default: v2)'
+        default='v3',
+        help='PVMAP prompt version to use (default: v3)'
     )
 
     return parser

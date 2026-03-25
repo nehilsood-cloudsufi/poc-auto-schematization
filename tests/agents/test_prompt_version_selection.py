@@ -57,4 +57,4 @@ def test_run_dataset_pipeline_accepts_prompt_version():
     from src.run_pipeline import run_dataset_pipeline
     sig = inspect.signature(run_dataset_pipeline)
     assert "prompt_version" in sig.parameters
-    assert sig.parameters["prompt_version"].default == "v2"
+    assert sig.parameters["prompt_version"].default == "v3"

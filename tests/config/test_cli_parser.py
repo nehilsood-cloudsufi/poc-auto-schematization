@@ -2,9 +2,9 @@ from src.config.cli_parser import parse_args
 
 
 def test_prompt_version_default():
-    """Default prompt version is v2."""
+    """Default prompt version is v3."""
     args = parse_args(["--dataset", "test"])
-    assert args.prompt_version == "v2"
+    assert args.prompt_version == "v3"
 
 
 def test_prompt_version_v3():

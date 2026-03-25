@@ -329,7 +329,7 @@ def run_dataset_pipeline(
     thinking_level: Optional[str] = None,
     skip_column_discovery: bool = False,
     use_llm_judge: bool = False,
-    prompt_version: str = "v2",
+    prompt_version: str = "v3",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -801,8 +801,8 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
     # Prompt version
-    parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v2",
-                        help="PVMAP prompt version to use (default: v2)")
+    parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v3",
+                        help="PVMAP prompt version to use (default: v3)")
     args = parser.parse_args()
 
     # Validation: --input-file and --dataset are mutually exclusive
@@ -943,7 +943,7 @@ if __name__ == "__main__":
             thinking_level=args.thinking_level,
             skip_column_discovery=getattr(args, 'skip_column_discovery', False),
             use_llm_judge=getattr(args, 'use_llm_judge', False),
-            prompt_version=getattr(args, 'prompt_version', 'v2'),
+            prompt_version=getattr(args, 'prompt_version', 'v3'),
         )
 
         print("\n" + "=" * 60)
