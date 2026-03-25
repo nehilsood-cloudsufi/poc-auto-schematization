@@ -519,11 +519,50 @@ class StatePreparationAgent(BaseAgent):
                         verification.get("properties_checked", 0),
                         verification.get("verification_sources", []),
                     )
+
+                    # Phase 3: MCP enrichment (if MCP available)
+                    mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+                    mcp_url_val = ctx.session.state.get("mcp_url")
+                    if mcp_enabled and mcp_url_val:
+                        try:
+                            import asyncio as _asyncio
+                            from src.pipeline.pvmap_skeleton.mcp_enrichment import (
+                                enrich_via_mcp_hybrid,
+                                enrich_skeleton_with_results,
+                                format_dimension_reference,
+                            )
+                            enrichment = _asyncio.run(enrich_via_mcp_hybrid(
+                                data_context=data_context,
+                                verification=verification,
+                                mcp_url=mcp_url_val,
+                            ))
+                            if enrichment.get("enrichment_success"):
+                                pvmap_skeleton = enrich_skeleton_with_results(
+                                    pvmap_skeleton, enrichment,
+                                    verification=verification,
+                                )
+                                ctx.session.state["pvmap_skeleton"] = pvmap_skeleton
+                                dim_ref = format_dimension_reference(enrichment)
+                                ctx.session.state["dimension_value_reference"] = dim_ref
+                                ctx.session.state["mcp_enrichment"] = enrichment
+                                logger.info(
+                                    "MCP enrichment: %d mappings, %d patterns, %d suggestions",
+                                    len(enrichment.get("column_mappings", {})),
+                                    len(enrichment.get("cross_column_patterns", [])),
+                                    len(enrichment.get("llm_suggestions", {})),
+                                )
+                        except Exception as e:
+                            logger.warning("MCP enrichment failed (non-fatal): %s", e)
+                            ctx.session.state["dimension_value_reference"] = ""
+                    else:
+                        ctx.session.state["dimension_value_reference"] = ""
+
                 except Exception as e:
                     logger.warning("Failed to generate/verify PVMAP skeleton: %s", e)
                     ctx.session.state["pvmap_skeleton"] = ""
                     ctx.session.state["column_manifest"] = {}
                     ctx.session.state["column_verification"] = {}
+                    ctx.session.state["dimension_value_reference"] = ""
 
         # =====================================================================
         # Reset per-iteration flags
@@ -827,7 +866,8 @@ class StatePreparationAgent(BaseAgent):
         PVMAP placeholders ({Data}, {Number}, {Year}, etc.) are then escaped
         to [DATA], [NUMBER], [Year] to prevent ADK template resolution errors.
         """
-        template_name = "improved_pvmap_prompt_v2.txt"
+        prompt_version = ctx.session.state.get("prompt_version", "v2")
+        template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
         template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
 
         if not template_path.exists():
@@ -897,6 +937,10 @@ class StatePreparationAgent(BaseAgent):
             populated = populated.replace("{{ERROR_FEEDBACK}}", error_fb)
             populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
             populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
+
+            # Inject dimension value reference (from MCP enrichment)
+            dim_ref = ctx.session.state.get("dimension_value_reference", "")
+            populated = populated.replace("{{DIMENSION_VALUE_REFERENCE}}", dim_ref)
 
             # Inject PVMAP skeleton — strip entire section if empty
             pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")

@@ -329,6 +329,7 @@ def run_dataset_pipeline(
     thinking_level: Optional[str] = None,
     skip_column_discovery: bool = False,
     use_llm_judge: bool = False,
+    prompt_version: str = "v2",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -526,6 +527,7 @@ def run_dataset_pipeline(
         "schema_file": schema_file,
         # Schema examples control
         "use_schema_examples": use_schema_examples,
+        "prompt_version": prompt_version,
     }
 
     # Inject human feedback if provided (for UI re-runs)
@@ -938,6 +940,7 @@ if __name__ == "__main__":
             thinking_level=args.thinking_level,
             skip_column_discovery=getattr(args, 'skip_column_discovery', False),
             use_llm_judge=getattr(args, 'use_llm_judge', False),
+            prompt_version=getattr(args, 'prompt_version', 'v2'),
         )
 
         print("\n" + "=" * 60)
