@@ -1,6 +1,7 @@
 """Extract dataset structural features and correlate with PV accuracy."""
 
 import re
+from pathlib import Path
 
 
 def parse_comparison_table(table_text: str, model_column: str) -> dict[str, float]:
@@ -52,3 +53,57 @@ def parse_comparison_table(table_text: str, model_column: str) -> dict[str, floa
             continue
 
     return result
+
+
+# Map section headers to metric keys
+TABLE_SECTIONS = {
+    "Node Accuracy": "node_accuracy",
+    "Node Coverage": "node_coverage",
+    "PV Accuracy": "pv_accuracy",
+}
+
+
+def extract_gemini3pro_metrics(comparison_md_path: str) -> dict[str, dict[str, float]]:
+    """Parse the comparison markdown and extract Gemini 3 Pro metrics for all 3 tables.
+
+    Returns {dataset_name: {pv_accuracy: float, node_accuracy: float, node_coverage: float}}
+    Only includes datasets with at least one non-zero Gemini 3 Pro metric.
+    """
+    text = Path(comparison_md_path).read_text()
+
+    # Split into sections by ## headers
+    sections = re.split(r"^## ", text, flags=re.MULTILINE)
+
+    # Collect per-dataset metrics
+    all_metrics: dict[str, dict[str, float]] = {}
+
+    for section in sections:
+        metric_key = None
+        for header_keyword, key in TABLE_SECTIONS.items():
+            if section.startswith(header_keyword):
+                metric_key = key
+                break
+
+        if metric_key is None:
+            continue
+
+        # Extract the table portion (lines starting with |)
+        table_lines = [l for l in section.split("\n") if l.strip().startswith("|")]
+        if not table_lines:
+            continue
+
+        table_text = "\n".join(table_lines)
+        parsed = parse_comparison_table(table_text, model_column="Gemini 3 Pro %")
+
+        for dataset, value in parsed.items():
+            if dataset not in all_metrics:
+                all_metrics[dataset] = {}
+            all_metrics[dataset][metric_key] = value
+
+    # Filter to datasets with at least one non-zero Gemini 3 Pro metric
+    filtered = {}
+    for dataset, metrics in all_metrics.items():
+        if any(v > 0.0 for v in metrics.values()):
+            filtered[dataset] = metrics
+
+    return filtered

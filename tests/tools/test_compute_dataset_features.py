@@ -23,3 +23,89 @@ def test_parse_comparison_table_strips_bold_markers():
 def test_parse_comparison_table_missing_column_raises():
     with pytest.raises(ValueError, match="Column .* not found"):
         parse_comparison_table(SAMPLE_TABLE, model_column="Nonexistent %")
+
+
+def test_extract_metrics_from_file(tmp_path):
+    from tools.compute_dataset_features import extract_gemini3pro_metrics
+
+    md_content = """# Comparison
+
+## Node Accuracy Comparison
+
+Node Accuracy = blah
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| ds_a | 0.0 | 10.0 | **15.0** |
+| ds_b | 5.0 | 5.0 | 0.0 |
+
+---
+
+## Node Coverage Comparison
+
+Node Coverage = blah
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| ds_a | 50.0 | 60.0 | **70.0** |
+| ds_b | 30.0 | 40.0 | 40.0 |
+
+---
+
+## PV Accuracy Comparison
+
+PV Accuracy = blah
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| ds_a | 5.0 | 20.0 | **25.0** |
+| ds_b | 0.0 | 3.0 | 3.0 |
+"""
+    md_file = tmp_path / "comparison.md"
+    md_file.write_text(md_content)
+
+    metrics = extract_gemini3pro_metrics(str(md_file))
+
+    assert metrics["ds_a"]["pv_accuracy"] == 25.0
+    assert metrics["ds_a"]["node_accuracy"] == 15.0
+    assert metrics["ds_a"]["node_coverage"] == 70.0
+    assert metrics["ds_b"]["pv_accuracy"] == 3.0
+
+
+def test_extract_metrics_filters_to_nonzero(tmp_path):
+    """49-dataset filter: keep datasets with at least one non-zero metric."""
+    from tools.compute_dataset_features import extract_gemini3pro_metrics
+
+    md_content = """# Comparison
+
+## Node Accuracy Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| has_data | 0.0 | 0.0 | **5.0** |
+| all_zero | 0.0 | 0.0 | 0.0 |
+
+---
+
+## Node Coverage Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| has_data | 0.0 | 0.0 | **50.0** |
+| all_zero | 0.0 | 0.0 | 0.0 |
+
+---
+
+## PV Accuracy Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| has_data | 0.0 | 0.0 | **10.0** |
+| all_zero | 0.0 | 0.0 | 0.0 |
+"""
+    md_file = tmp_path / "comparison.md"
+    md_file.write_text(md_content)
+
+    metrics = extract_gemini3pro_metrics(str(md_file))
+    assert "has_data" in metrics
+    assert "all_zero" not in metrics
