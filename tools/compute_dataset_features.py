@@ -145,3 +145,109 @@ def extract_structural_features(csv_path: str) -> dict[str, float]:
         "max_column_cardinality": max(cardinalities) if cardinalities else 0,
         "mean_column_cardinality": sum(cardinalities) / len(cardinalities) if cardinalities else 0,
     }
+
+
+import glob
+
+DOMAIN_TAXONOMY = {
+    # Economics/Finance
+    "bis_bis_central_bank_policy_rate": "Economics/Finance",
+    "fao_currency_and_exchange_rate": "Economics/Finance",
+    "world_bank_commodity_market": "Economics/Finance",
+    "us_bls_cpi_category": "Economics/Finance",
+    "us_bls_us_cpi": "Economics/Finance",
+    "us_federal_reserve_h15_interest_rates": "Economics/Finance",
+    "commerce_eda": "Economics/Finance",
+    "us_census_us_monthly_retail_sales": "Economics/Finance",
+    "india_rbistatedomesticproduct": "Economics/Finance",
+    "database_on_indian_economy_india_rbi_state_statistics": "Economics/Finance",
+    # Census/Demographics
+    "census_v2_sahie": "Census/Demographics",
+    "census_v2_saipe": "Census/Demographics",
+    "us_census": "Census/Demographics",
+    "opendataforafrica_ethiopia_statistics": "Census/Demographics",
+    "opendataforafrica_kenya_census": "Census/Demographics",
+    "opendataforafrica_rwanda_census": "Census/Demographics",
+    "finland_census": "Census/Demographics",
+    "ireland_census": "Census/Demographics",
+    "statistics_new_zealand_new_zealand_census": "Census/Demographics",
+    "mexico_subnational_population_statistics_mexico_census_aa2": "Census/Demographics",
+    "child_birth": "Census/Demographics",
+    "zurich_bev_3240_wiki": "Census/Demographics",
+    "zurich_bev_3903_age10_wiki": "Census/Demographics",
+    "zurich_bev_3903_hel_wiki": "Census/Demographics",
+    "zurich_bev_3903_sex_wiki": "Census/Demographics",
+    "zurich_bev_4031_hel_wiki": "Census/Demographics",
+    "zurich_bev_4031_sex_wiki": "Census/Demographics",
+    "zurich_bev_4031_wiki": "Census/Demographics",
+    # Health
+    "brfss_nchs_asthma_prevalence": "Health",
+    "cdc_social_vulnerability_index": "Health",
+    "india_ndap_india_nss_health_ailments": "Health",
+    "nyu_diabetes_texas": "Health",
+    "us_cdc_single_race": "Health",
+    "southkorea_statistics_health": "Health",
+    "india_nfhs": "Health",
+    # Education
+    "ccd_enrollment": "Education",
+    "school_retention": "Education",
+    "school_algebra1": "Education",
+    "school_finance": "Education",
+    "us_urban_school_teachers": "Education",
+    "ncses_median_annual_salary": "Education",
+    "ncses_ncses_demographics_seh_import": "Education",
+    "ncses_research_doctorate_recipients": "Education",
+    "ipeds": "Education",
+    "us_bachelors_degree_data": "Education",
+    "us_steam_degrees_data": "Education",
+    "doctoratedegreeemployment": "Education",
+    "southkorea_statistics_education": "Education",
+    # Employment/Labor
+    "usa_dol": "Employment/Labor",
+    "usa_dol_minimum_wage": "Employment/Labor",
+    "southkorea_statistics_employment": "Employment/Labor",
+    "us_bls_bls_ces": "Employment/Labor",
+    "us_bls_bls_ces_state": "Employment/Labor",
+    "ntia_internet_use_survey": "Employment/Labor",
+    # Environment
+    "inpe_fire": "Environment",
+    "oecd_wastewater_treatment": "Environment",
+    # Crime/Safety
+    "fbi_fbigovcrime": "Crime/Safety",
+    "crdc_import_crdc_harassment_or_bullying": "Crime/Safety",
+    "crdc_instructional_wifi_devices": "Crime/Safety",
+    "us_crash_fars_crashdata": "Crime/Safety",
+    # Brazil
+    "brazil_sidra_ibge": "Brazil/LatAm",
+    "brazil_visdata_FoodBasketDistribution": "Brazil/LatAm",
+    "brazil_visdata_brazil_rural_development_program": "Brazil/LatAm",
+    # India
+    "india_ndap": "India",
+    # Other
+    "undata": "Other/Misc",
+    "uae_bayanat": "Other/Misc",
+    "google_sustainability_financial_incentives": "Other/Misc",
+    "zurich_wir_2552_wiki": "Other/Misc",
+    "oecd_regional_education": "Education",
+}
+
+
+def get_domain(dataset_name: str) -> str:
+    """Return the domain category for a dataset. Falls back to Other/Misc."""
+    return DOMAIN_TAXONOMY.get(dataset_name, "Other/Misc")
+
+
+def find_input_csv(dataset_name: str, input_base_dir: str) -> str | None:
+    """Find the input CSV for a dataset. Returns path or None if not found.
+
+    Looks for input/{dataset}/test_data/*_input.csv, takes the first match.
+    """
+    pattern = f"{input_base_dir}/{dataset_name}/test_data/*_input.csv"
+    matches = sorted(glob.glob(pattern))
+    if matches:
+        return matches[0]
+
+    # Fallback: any CSV in test_data
+    pattern = f"{input_base_dir}/{dataset_name}/test_data/*.csv"
+    matches = sorted(glob.glob(pattern))
+    return matches[0] if matches else None

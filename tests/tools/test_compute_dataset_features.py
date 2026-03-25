@@ -150,3 +150,34 @@ def test_extract_structural_features_all_numeric(tmp_path):
     assert features["numeric_column_count"] == 2
     assert features["categorical_column_count"] == 0
     assert features["numeric_to_categorical_ratio"] == 0  # 0 when no categorical
+
+
+def test_get_domain():
+    from tools.compute_dataset_features import get_domain
+
+    assert get_domain("bis_bis_central_bank_policy_rate") == "Economics/Finance"
+    assert get_domain("brfss_nchs_asthma_prevalence") == "Health"
+    assert get_domain("census_v2_sahie") == "Census/Demographics"
+    assert get_domain("ccd_enrollment") == "Education"
+    assert get_domain("undata") == "Other/Misc"
+    assert get_domain("totally_unknown_dataset") == "Other/Misc"
+
+
+def test_find_input_csv(tmp_path):
+    from tools.compute_dataset_features import find_input_csv
+
+    # Create fake input structure
+    test_data = tmp_path / "my_dataset" / "test_data"
+    test_data.mkdir(parents=True)
+    (test_data / "my_dataset_input.csv").write_text("a,b\n1,2\n")
+
+    result = find_input_csv("my_dataset", str(tmp_path))
+    assert result is not None
+    assert result.endswith("my_dataset_input.csv")
+
+
+def test_find_input_csv_missing(tmp_path):
+    from tools.compute_dataset_features import find_input_csv
+
+    result = find_input_csv("nonexistent_dataset", str(tmp_path))
+    assert result is None
