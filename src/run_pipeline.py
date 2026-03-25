@@ -800,6 +800,9 @@ if __name__ == "__main__":
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
+    # Prompt version
+    parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v2",
+                        help="PVMAP prompt version to use (default: v2)")
     args = parser.parse_args()
 
     # Validation: --input-file and --dataset are mutually exclusive
