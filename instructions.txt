@@ -148,3 +148,146 @@ manager recommend solution:
 We can fit all scenarios to PV map. It just becomes non trivial to do that. 
 Ask DE team for sample PV  maps that has these scenarios.
 Extract the findings and modify claude cli prompt
+
+
+---------------------
+Create a full fledge plan with all the checklist items google_adk_python/plan.md with planning agent
+---------------
+# Structured Planning
+
+## Planning Phases
+
+### Phase 1: Exploration
+- Read relevant files and understand architecture
+- Ask clarifying questions
+- Identify dependencies and constraints
+
+### Phase 2: Design
+- Break down into atomic tasks
+- Order by dependencies (what must come first)
+- Estimate complexity for each
+
+### Phase 3: Checklist Generation
+Create a checklist with:
+- [ ] Task name | Files affected | Dependencies | Complexity
+
+## Output Format
+Save plan to `.claude/plans/[feature-name].md` with:
+1. Overview
+2. Architecture decisions
+3. Implementation checklist (ordered)
+4. Testing requirements
+5. Rollback strategy
+
+-----------
+I want to implement the run_pvmap_pipeline.py using google adk python and using .claude/skills/google-adk/skill.yaml skill
+bring the indepth understanding of run_pvmap_pipeline.py and prepare a full fledge plan for it
+
+refer /Users/nehilsood/.claude/plans/enchanted-discovering-ritchie.md for run_pvmap_pipeline.py understanding
+
+copy the input folders from input_benchmark folder to src/ properly
+just take 
+input/{dataset_name}/
+├── test_data/
+│   └── *_input.csv              # Your source data (REQUIRED)
+├── *_metadata.csv                # Configuration file (REQUIRED)
+
+skip combined files and other files
+
+properly arrange input and output for src/ folder so that I can run all these datasets
+create a proper output folder where all the logs and outputs will be saved
+
+if it ran successfully, run it for all the datasets in @src/input folder properly, prepare a plan first to run all properly  
+
+
+-----------
+currently all the code is centric around src/ folder but there are few more python scripts which are relevant and
+important and are in util and tools folder
+help me accomodate those scripts in src/ folder properly 
+help me prepare a proper plan for refactoring them
+
+I have to create a document to explain my project manager about this architecture and new approach I implemented using google    
+ADK and MCP server 
+refer the branch feature/nehil/google-adk-integration for google ADK Implementation
+and current branch for MCP integration (with google integration also)
+help me to create a whole workflow flowchart architecture and the summary of each component like a high level diagram emphasising 
+how this architecture is very helpful
+write it in a tone that this architecture need to be implemented and can show better results
+prepare a proper plan on how you will be creating this document (docx) using docs-js.md skill
+ask the clarifying questions
+
+
+=======================================================
+discover single agent
+input file -> mandatory ( it could be txt or csv or excel file, default consideration = csv)
+metadata file -> optional ( it could be txt or csv or excel file, default consideration = csv)
+currently let's keep it simple and think there will be only 1 input (and 1 metadata file (not mandatory))
+so we dont need combined files
+
+prepare me a plan to clean the input folder
+only keep input file which dont have keywords in the name ["metadata","combined","sampled","schema_example"]
+so the folder structure will be 
+input/{dataset_name} for each dataset /input file 
+prepare me a plan first
+
+=====================================================
+help me prepare a plan
+I want to update _discover_single_dataset() and DiscoveryAgent function
+I want to make it like
+input file -> mandatory ( it could be txt or csv or excel file, default consideration = csv)
+for input file, if dataset folder is given it should pick it from 
+ input/{dataset_name}/
+  └── test_data/
+      └── *_input.csv
+(if multiple files, combined them if they have same columns or header row is same)
+or a argpraser argument which will be like --input-file = file path 
+
+metadata file -> optional ( it could be txt or csv or excel file, default consideration = csv)
+for metadata it is optional
+metadata file -> optional (it could be txt or csv or excel file, default consideration = csv)
+set a --use-metadata parameter if it is on
+pick the metadata file from 
+ input/{dataset_name}/
+  ├── metadata/
+  │   └── *.csv
+
+or --metadata-file-path=file path which auto set it on and file path with it
+
+(if multiple files, combined them if they have same columns or header row is same)
+
+for schema_example (optional or auto picked if not present)
+if user have schema file: it will give with a argparser argument else autoselect
+
+ ground_truth/{dataset_name}/
+ ├── metadata/              (copied from input_metadata/, used by validation)
+ │   └── *.csv
+ ── pvmap/ 
+ └── pvmap.csv              (existing ground truth)
+
+----------------------------------------
+ Critical	skeleton_summary	PVMAPGenerationAgent, PVMAPRetryLoop	Injected directly into generation prompt
+ I want to improve this skeleton_summary because it is the most important one for pv_map generation
+
+ about data_context and dimensions_columns
+ are they LLM generated or hardcoded ones?
+ and I guess I can provide skeleton_summary to SchemaSelection thru which it can decide schema pretty easily
+ how are both data_context and dimensions_columns supporting evaluation
+ I guess both data_context and dimensions_columns and column_roles are not too usefull and redundant and can be done with improved skeleton_summary
+
+
+----------------------
+understand the Schema selection agent process and prepare a plan to help me implement the changes
+0. align the schema selection according to new upstream and downstream changes
+1. only use skeleton_summary to decide the schema needed to be used
+2. keep the schema selection optional, set an argparser argument which will decide whether to feed sample schema or not
+3. provide changes or improvements in schema selection, currently we are picking whole .txt file and feeding it, it consumes a lot of tokens
+ask gemini the relevant questions about it so we can make it token efficient /Users/nehilsood/work/poc-auto-schematization/claude_tools/gemini_query_tool.py
+
+I want to improve the Impact of MCP server getting used,
+  understand what kind of output we receive from MCP server
+  how can we use it as a subagent or a tool for PVMAP generation agent, where agent can retrieve relevant information whenever it needs it 
+
+
+pv accuracy on top ( if less than 30% you should retry) 
+and if after retry delta improvement is less than 5% then stop mentioning the reasoning
+ask the priority for others with your recommendation

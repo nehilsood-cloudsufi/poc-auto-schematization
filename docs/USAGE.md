@@ -21,13 +21,13 @@ Let's test the pipeline with a single dataset:
 cd poc-auto-schematization
 
 # Step 2: Set PYTHONPATH (required)
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Step 3: Activate virtual environment (if not already active)
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Step 4: Run pipeline on a single dataset (BIS Central Bank Policy Rate)
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 ```
 
 ### Check Results
@@ -39,16 +39,18 @@ ls -la output/bis_bis_central_bank_policy_rate/
 # Check the generated PVMAP
 head -20 output/bis_bis_central_bank_policy_rate/generated_pvmap.csv
 
-# View Claude's reasoning
+# View LLM reasoning
 cat output/bis_bis_central_bank_policy_rate/generation_notes.md
 ```
 
 **Expected Output Files:**
 - `generated_pvmap.csv` - The generated property-value mapping
+- `output_metadata.csv` - Auto-generated metadata config (PVMAP-derived + merged values)
 - `processed.csv` - Validated StatVarObservations
 - `processed.tmcf` - Template MCF file
 - `processed_stat_vars.mcf` - StatVar definitions
-- `generation_notes.md` - Claude's analysis and reasoning
+- `generation_notes.md` - LLM analysis and reasoning
+- `data_context.json` - Structural analysis cache from sampling
 
 ---
 
@@ -58,13 +60,13 @@ cat output/bis_bis_central_bank_policy_rate/generation_notes.md
 
 ```bash
 # Process all datasets
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Process specific dataset (partial name match)
-python3 run_pvmap_pipeline.py --dataset=bis
+python src/run_pipeline.py --dataset=bis
 
 # Preview what will be processed (dry run)
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dry-run
 ```
 
 ### Command-Line Options
@@ -83,95 +85,179 @@ python3 run_pvmap_pipeline.py --dry-run
 | `--force-resample` | Force regenerate sampled data | False | `--force-resample` |
 | `--skip-schema-selection` | Skip schema selection (use existing schema files) | False | `--skip-schema-selection` |
 | `--force-schema-selection` | Force re-select schema files even if they exist | False | `--force-schema-selection` |
-| `--schema-base-dir` | Path to schema files directory | `schema_example_files/` | `--schema-base-dir=/path/to/schemas` |
+| `--schema-base-dir` | Path to schema files directory | `src/resources/schema_examples/` | `--schema-base-dir=/path/to/schemas` |
 | `--skip-evaluation` | Skip evaluation phase | False | `--skip-evaluation` |
+| `--no-schema-examples` | Skip schema vocab injection into PVMAP prompt | False | `--no-schema-examples` |
+| **Input Modes** |
+| `--input-file` | Standalone input file (no dataset folder required) | None | `--input-file=data.csv` |
+| `--use-metadata` | Use metadata files for prompt building | False | `--use-metadata` |
+| `--metadata-file-path` | Explicit metadata file (auto-enables `--use-metadata`) | None | `--metadata-file-path=meta.csv` |
+| `--schema-file` | Explicit schema file override | None | `--schema-file=schema.txt` |
+| **Model Selection** |
+| `--model` or `-m` | Override default LLM model | `gemini-3-pro-preview` | `--model=gemini-2.5-pro` |
+| **MCP Integration** |
+| `--enable-mcp` | Enable Data Commons MCP for StatVar discovery | False | `--enable-mcp` |
+| `--enable-schemaorg-mcp` | Enable Schema.org MCP for vocabulary lookup | False | `--enable-schemaorg-mcp` |
+| **Model & Generation** |
+| `--thinking-level` | Gemini thinking level: low, medium, high, minimal, none | `high` | `--thinking-level=medium` |
+| `--prompt-version` | PVMAP prompt template version (v1 or v2) | `v2` | `--prompt-version=v1` |
+| `--structured-output` | Use structured output (deterministic CSV) | `True` | `--structured-output` |
+| `--no-structured-output` | Disable structured output | False | `--no-structured-output` |
+| `--verbose` | Enable verbose logging | False | `--verbose` |
 | **Evaluation Configuration** |
 | `--ground-truth-pvmap` | Path to single ground truth PVMAP file (Tier 1 precedence) | None | `--ground-truth-pvmap=/path/to/file.csv` |
 | `--ground-truth-dir` | Directory containing ground truth files (Tier 2 precedence) | None | `--ground-truth-dir=/path/to/ground_truth` |
-| `--ground-truth-repo` | Path to datacommonsorg-data repo (Tier 3 precedence) | `$GROUND_TRUTH_REPO` or `../datacommonsorg-data/ground_truth` | `--ground-truth-repo=/custom/path` |
+| `--ground-truth-repo` | Path to ground truth repo (Tier 3 precedence) | `$GROUND_TRUTH_REPO` or `ground_truth/` | `--ground-truth-repo=/custom/path` |
+
+---
+
+## Streamlit UI
+
+The pipeline includes a web-based UI for interactive runs with file upload, real-time progress, and feedback iteration.
+
+### Launch the UI
+
+```bash
+PYTHONPATH="$(pwd):$(pwd)/src" streamlit run src/ui/app.py
+```
+
+### Features
+
+- **CSV Upload** — Upload any CSV file directly for processing
+- **Real-Time Progress** — Live tracking of pipeline phases via progress plugin
+- **PVMAP Feedback** — Edit generated PVMAPs and re-run with human feedback
+- **Output Versioning** — Each run creates a `v{N}/` snapshot with `run_manifest.json`
+- **Cloud Run Support** — Deploys to Google Cloud Run with GCS FUSE for persistent output
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloud Run deployment instructions.
 
 ---
 
 ## Pipeline Workflow
 
-The pipeline runs five automated phases:
+The pipeline runs through the following automated phases using Google ADK agents:
 
 ### Phase 1: Auto-Sampling (Optional)
 
 **What it does:**
-- Checks for existing `*_sampled_data.csv` files
-- If not found: Automatically generates sampled data (max 100 rows)
-- Creates `combined_sampled_data.csv` for pipeline
+- Checks for existing sampled data files
+- If not found: Automatically generates sampled data (max 100 rows) using LLM-driven agentic sampling
+- Generates `skeleton_summary` (column classifications) and `data_context.json` for downstream agents
 
 **Skip this phase:**
 ```bash
-python3 run_pvmap_pipeline.py --skip-sampling
+python src/run_pipeline.py --skip-sampling
 ```
 
 **Force regenerate samples:**
 ```bash
-python3 run_pvmap_pipeline.py --force-resample
+python src/run_pipeline.py --force-resample
 ```
 
 ### Phase 1.5: Schema Selection (Optional)
 
 **What it does:**
-- Checks if schema files already exist in dataset directory
-- If not found: Analyzes metadata + sampled data using Claude CLI
-- Selects appropriate category from 7 schema categories (Demographics, Economy, Education, Employment, Energy, Health, School)
-- Copies `.txt` and `.mcf` schema files to dataset directory
-- Logs selected category and copied files
+- Checks if schema files already exist in dataset's `schema/` subdirectory
+- If not found: Analyzes skeleton_summary using Gemini to select best schema category
+- Selects from 7 categories (Demographics, Economy, Education, Employment, Energy, Health, School)
+- Copies schema files to `input/{dataset}/schema/` subdirectory
+- Loads compressed `schema_vocab.json` for downstream PVMAP prompt injection
 
 **Skip this phase:**
 ```bash
-python3 run_pvmap_pipeline.py --skip-schema-selection
+python src/run_pipeline.py --skip-schema-selection
 ```
 
 **Force re-selection:**
 ```bash
-python3 run_pvmap_pipeline.py --force-schema-selection
+python src/run_pipeline.py --force-schema-selection
 ```
 
 **Use custom schema directory:**
 ```bash
-python3 run_pvmap_pipeline.py --schema-base-dir=/path/to/schemas
+python src/run_pipeline.py --schema-base-dir=/path/to/schemas
 ```
 
 **Run schema selector standalone:**
 ```bash
 # Automatically select and copy schema files
-python3 tools/schema_selector.py --input_dir=input/your_dataset/
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/
 
 # Dry run (see what would be selected without copying)
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --dry_run
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --dry_run
 
 # Force re-selection
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --force
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --force
 ```
 
 ### Phase 2: PVMAP Generation
 
 **What it does:**
-- Populates prompt with schema examples, sampled data, and metadata
-- Calls Claude Code CLI to generate PVMAP
-- Saves Claude's response and reasoning
+- Populates prompt with schema vocab, sampled data, skeleton summary, and optional metadata
+- Calls Gemini API to generate PVMAP (default model: `gemini-3-pro-preview`)
+- Saves response, reasoning, and attempt metadata (model name, token counts)
 
 **Output:**
 - `generated_pvmap.csv`
 - `generation_notes.md`
 - `populated_prompt.txt`
 
+### Phase 2.5: Metadata Generation
+
+**What it does:**
+- Automatically generates `output_metadata.csv` from the PVMAP on every iteration
+- Extracts PVMAP-derived parameters: `output_columns`, `mapped_rows`, `mapped_columns`, `header_rows`, `drop_statvars_without_svobs`, `generate_statvar_name`
+- Merges with any existing GT/user metadata (existing values override auto-generated)
+- Sets `generated_config_path` in session state for the Validator
+
+**Output:**
+- `output_metadata.csv` — enriched metadata config used by stat_var_processor
+
+### Phase 2.75: PVMAP Repair (Automatic)
+
+**What it does:**
+- Programmatically fixes common PVMAP issues BEFORE running the expensive validation subprocess
+- Key repair: case-insensitive matching, whitespace normalization, fuzzy matching (>=0.80 cutoff)
+- Placeholder normalization: `[DATA]` -> `{Data}`, `[NUMBER]` -> `{Number}`
+- Pre-validation: skips subprocess for structurally broken PVMAPs (fast fail)
+- Generates key match report for feedback agent
+
 ### Phase 3: Validation
 
 **What it does:**
-- Runs `stat_var_processor.py` to validate generated PVMAP
-- Generates StatVarObservation CSV and MCF/TMCF files
-- If validation fails: Provides error feedback for retry (up to 2 retries)
+- Runs `stat_var_processor.py` to validate generated PVMAP on the **full dataset**
+- Passes `output_metadata.csv` as `--config_file` (preferred over GT/user metadata)
+- Extracts StatVar MCF analysis for semantic feedback
+- If validation fails: Provides error feedback for retry
+
+### Phase 3.5: Quality Evaluation
+
+**What it does:**
+- Heuristic scoring (structural quality) and ground truth comparison (if available)
+- Computes PV accuracy, node accuracy metrics
+- **Quality-based exit**: Pipeline stops early if quality exceeds threshold
+- **Stagnation detection**: Stops retrying if metrics aren't improving between attempts
+- **`min_attempts`**: In UI mode, enforces minimum 2 attempts before quality exit is allowed
+
+**Metadata Priority (for `--config_file`):**
+1. **Tier 1:** Auto-generated config (`output_metadata.csv`) — has PVMAP-derived params + merged values
+2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
+3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
 
 **Output:**
 - `processed.csv`
 - `processed.tmcf`
 - `processed_stat_vars.mcf`
+
+### Phase 3.75: Feedback Loop (Automatic)
+
+**What it does:**
+- Unified `ConditionalFeedbackAgent` determines feedback path:
+  - **Path A (Validation Failed):** Structural error feedback from subprocess output
+  - **Path B (Quality Low):** Context-aware feedback with schema vocab + StatVar analysis
+- Feedback includes anti-regression guidance (identifies correct rows to preserve)
+- Maximum 3 attempts total (configurable), tracked by `MaxRetriesCheckAgent`
+- Best attempt is tracked and restored if later attempts regress
 
 ### Phase 4: Evaluation (Optional)
 
@@ -194,19 +280,19 @@ python3 tools/schema_selector.py --input_dir=input/your_dataset/ --force
 
 ```bash
 # Skip evaluation entirely
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 
 # Use explicit ground truth file (single dataset)
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Search directory for ground truth files (multiple datasets)
-python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+python src/run_pipeline.py \
+    --ground-truth-dir=ground_truth/
 
-# Use custom repository structure (auto-discovery)
-python3 run_pvmap_pipeline.py \
-    --ground-truth-repo=/path/to/datacommonsorg-data
+# Use custom ground truth repository
+python src/run_pipeline.py \
+    --ground-truth-repo=/path/to/custom/ground_truth
 ```
 
 **Important Notes:**
@@ -228,7 +314,7 @@ Use `test_input/` and `test_output/` directories for testing without affecting p
 cp -r input/bis_bis_central_bank_policy_rate test_input/
 
 # Run pipeline with test directories
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --input-dir=test_input \
     --output-dir=test_output
 
@@ -240,13 +326,13 @@ ls test_output/bis_bis_central_bank_policy_rate/
 
 ```bash
 # Process all datasets
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Process datasets matching a pattern
-python3 run_pvmap_pipeline.py --dataset=census
+python src/run_pipeline.py --dataset=census
 
 # Process all Economy category datasets
-python3 run_pvmap_pipeline.py --dataset=bis  # Example: BIS datasets
+python src/run_pipeline.py --dataset=bis  # Example: BIS datasets
 ```
 
 ### Resume Interrupted Pipeline
@@ -255,7 +341,7 @@ If the pipeline was interrupted:
 
 ```bash
 # Resume from specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 
 # The pipeline will skip all datasets before this one
 ```
@@ -269,14 +355,14 @@ The pipeline skips datasets with existing output. To regenerate:
 rm -rf output/your_dataset_name
 
 # Run pipeline for that dataset
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 ### Combine Multiple Options
 
 ```bash
 # Example: Test with forced resampling and no evaluation
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --dataset=bis \
     --input-dir=test_input \
     --output-dir=test_output \
@@ -284,13 +370,13 @@ python3 run_pvmap_pipeline.py \
     --skip-evaluation
 
 # Example: Force schema re-selection and skip sampling
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --dataset=india_nfhs \
     --force-schema-selection \
     --skip-sampling
 
 # Example: Use custom schema directory
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --schema-base-dir=/custom/path/to/schemas \
     --force-schema-selection
 ```
@@ -304,11 +390,14 @@ python3 run_pvmap_pipeline.py \
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
-├── generation_notes.md           # Claude's analysis and reasoning
-├── populated_prompt.txt          # Full prompt sent to Claude
-├── generated_response/           # Claude response history
-│   ├── attempt_0.md              # First attempt
+├── output_metadata.csv               # Auto-generated metadata config (PVMAP-derived + merged)
+├── generation_notes.md           # LLM analysis and reasoning
+├── populated_prompt.txt          # Full prompt sent to LLM
+├── generated_response/           # LLM response history
+│   ├── attempt_0.md              # First attempt (with model info)
+│   ├── attempt_0.json            # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md              # Retry (if validation failed)
+│   ├── attempt_1.json
 │   └── attempt_2.md              # Final retry (if needed)
 ├── processed.csv                 # Validated StatVarObservations
 ├── processed.tmcf                # Template MCF file
@@ -380,8 +469,8 @@ Log file: logs/pipeline_20260115_134545.log
 
 | Setting | Value |
 |---------|-------|
-| Max retries | 2 |
-| Claude model | `sonnet` |
+| Max retries | 2 (3 total attempts) |
+| Default model | `gemini-3-pro-preview` |
 | Validation timeout | 5 minutes |
 | Generation timeout | 15 minutes |
 | Sampling max rows | 100 |
@@ -391,7 +480,7 @@ Log file: logs/pipeline_20260115_134545.log
 
 Configuration is defined in:
 - **Sampling:** `*_metadata.csv` (see [INPUT_GUIDE.md](INPUT_GUIDE.md#optional-parameters-sampling-configuration))
-- **Pipeline:** `run_pvmap_pipeline.py` (edit script directly)
+- **Pipeline:** `src/run_pipeline.py` (edit script directly)
 
 ---
 
@@ -428,7 +517,7 @@ ls output/ | wc -l
 Preview what will be processed:
 
 ```bash
-python3 run_pvmap_pipeline.py --dry-run
+python src/run_pipeline.py --dry-run
 ```
 
 Output:
@@ -444,12 +533,12 @@ Found 39 datasets:
 
 ```bash
 # Process datasets with "bis" in name (Economy category)
-python3 run_pvmap_pipeline.py --dataset=bis
+python src/run_pipeline.py --dataset=bis
 
 # Or process datasets one by one
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
-python3 run_pvmap_pipeline.py --dataset=commerce_eda
-python3 run_pvmap_pipeline.py --dataset=commodity_market
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+python src/run_pipeline.py --dataset=commerce_eda
+python src/run_pipeline.py --dataset=commodity_market
 ```
 
 ### Task: Regenerate Failed Datasets
@@ -462,7 +551,7 @@ grep "FAILED" logs/pipeline_*.log
 
 # Regenerate specific failed dataset
 rm -rf output/failed_dataset_name
-python3 run_pvmap_pipeline.py --dataset=failed_dataset_name
+python src/run_pipeline.py --dataset=failed_dataset_name
 ```
 
 ### Task: Compare Against Ground Truth
@@ -473,7 +562,7 @@ Best for testing one specific dataset with a known reference:
 
 ```bash
 # Run pipeline with explicit ground truth file
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_reference_pvmap.csv
 
 # View evaluation results
@@ -492,29 +581,24 @@ Best when you have organized ground truth files by dataset name:
 # └── finland_census_pvmap.csv
 
 # Run pipeline with ground truth directory
-python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+python src/run_pipeline.py \
+    --ground-truth-dir=ground_truth/
 
 # View evaluation results for each dataset
 cat output/bis_bis_central_bank_policy_rate/eval_results/diff.txt
 cat output/cdc_social_vulnerability_index/eval_results/diff.txt
 ```
 
-**Option 3: Use Ground Truth Repository (Auto-Discovery)**
+**Option 3: Use Bundled Ground Truth (Default)**
 
-Best for standard datacommonsorg-data repository structure:
+The repository includes 81 ground truth datasets in `ground_truth//`:
 
 ```bash
-# Clone datacommonsorg-data repo (if not already cloned)
-cd ..
-git clone https://github.com/datacommonsorg/data.git datacommonsorg-data
-cd poc-auto-schematization
+# Run pipeline with bundled ground truth (default)
+python src/run_pipeline.py
 
-# Run pipeline with auto-discovery (default path updated)
-python3 run_pvmap_pipeline.py
-
-# Or specify custom repository path
-python3 run_pvmap_pipeline.py --ground-truth-repo=../datacommonsorg-data/statvar_imports
+# Or specify custom ground truth repository path
+python src/run_pipeline.py --ground-truth-repo=/path/to/custom/ground_truth
 
 # View evaluation results
 cat output/your_dataset/eval_results/diff.txt
@@ -554,7 +638,7 @@ After running the pipeline:
 ```bash
 # Delete existing output to regenerate
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 ### Issue: Validation Failed After Max Retries
@@ -585,8 +669,8 @@ cat input/your_dataset/*_metadata.csv
 # Check which discovery method is being used (check logs)
 grep "ground truth" logs/pipeline_*.log
 
-# If using --ground-truth-repo (auto-discovery)
-ls ../datacommonsorg-data/ground_truth/statvar_imports/your_dataset/*_pvmap.csv
+# If using bundled ground truth (default)
+ls ground_truth//your_dataset/*_pvmap.csv
 
 # If using --ground-truth-dir
 ls /path/to/ground_truth/*your_dataset*pvmap*.csv
@@ -599,12 +683,12 @@ ls /path/to/explicit/file.csv
 
 1. **Skip evaluation** if you don't have ground truth:
    ```bash
-   python3 run_pvmap_pipeline.py --skip-evaluation
+   python src/run_pipeline.py --skip-evaluation
    ```
 
 2. **Provide explicit ground truth file** if you have it elsewhere:
    ```bash
-   python3 run_pvmap_pipeline.py --dataset=bis \
+   python src/run_pipeline.py --dataset=bis \
        --ground-truth-pvmap=/path/to/known/reference.csv
    ```
 

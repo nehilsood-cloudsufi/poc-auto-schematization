@@ -7,8 +7,12 @@ This guide walks you through setting up the PVMAP Pipeline environment from scra
 Before starting, ensure you have:
 - **Python 3.12 or higher** installed
 - **Git** installed
-- An **Anthropic API key** for Claude Code CLI
-- **Claude Code CLI** ([installation guide](https://github.com/anthropics/claude-code))
+- A **Gemini API key** (required for LLM calls via Google ADK)
+- **uv** package manager ([installation guide](https://github.com/astral-sh/uv))
+
+**Optional:**
+- **Data Commons API key** (for MCP integration)
+- **Claude Code CLI** (for development assistance only — the pipeline itself uses Google ADK + Gemini)
 
 ### Verify Prerequisites
 
@@ -18,6 +22,9 @@ python3 --version
 
 # Check Git
 git --version
+
+# Check uv
+uv --version
 ```
 
 ---
@@ -37,93 +44,94 @@ cd poc-auto-schematization
 
 ### 2. Install Python Dependencies
 
-Choose one of the following methods:
-
-#### Option A: Using uv (Recommended - Faster)
+Dependencies are managed via `pyproject.toml` and installed with `uv`:
 
 ```bash
-# Install uv package manager
+# Install uv package manager (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create virtual environment and install dependencies
-uv sync
+# Create virtual environment and install all dependencies (including dev extras)
+uv sync --all-extras
 
 # Activate the virtual environment
 source .venv/bin/activate  # On Unix/macOS
 .venv\Scripts\activate     # On Windows
 ```
 
-#### Option B: Using pip (Traditional)
+**Key dependencies installed:**
+- `google-adk` — Google Agent Development Kit (pipeline orchestration)
+- `google-genai` — Gemini API client (LLM calls)
+- `streamlit>=1.44.0` — Web UI for interactive pipeline runs
+- `pandas`, `datacommons` — Data processing and DC API
+- `gcsfs`, `google-cloud-logging` — Cloud Run support
+- `datacommons-mcp` — MCP server for StatVar discovery
+
+### 3. Set Up Environment Variables
+
+Create a `.env` file in the project root. The pipeline loads `.env` first, and these values take priority over shell environment variables.
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
+# Create .env file
+cat > .env << 'EOF'
+# Required
+GEMINI_API_KEY=your-gemini-api-key-here
 
-# Activate the virtual environment
-source venv/bin/activate   # On Unix/macOS
-venv\Scripts\activate      # On Windows
+# Optional - Data Commons MCP integration
+DC_API_KEY=your-dc-api-key-here
 
-# Install dependencies
-pip install -r requirements.txt
+# Optional - Google Maps API for place resolution
+MAPS_API_KEY=your-maps-api-key-here
+EOF
 ```
 
-### 3. Verify Installation
+Alternatively, export environment variables directly:
+
+```bash
+# Required
+export GEMINI_API_KEY="your-gemini-api-key-here"
+
+# Required for module imports
+export PYTHONPATH="$(pwd):$(pwd)/src"
+```
+
+### 4. Verify Installation
 
 ```bash
 # Test that key packages are installed
-python -c "import pandas, datacommons; print('✅ Setup successful!')"
+python -c "import pandas, google.adk, google.genai; print('Setup successful!')"
+
+# Verify ADK is available
+python -c "from google.adk.agents import LlmAgent; print('Google ADK ready')"
 
 # Run the test suite (optional)
-pytest tools/
-```
-
----
-
-## Configure Claude Code CLI
-
-### Install Claude Code CLI
-
-Visit the [Claude Code GitHub repository](https://github.com/anthropics/claude-code) for installation instructions.
-
-### Set Your API Key
-
-```bash
-# Set your Anthropic API key for the current session
-export ANTHROPIC_API_KEY="your-api-key-here"
-
-# Or add it to your shell profile for persistence
-echo 'export ANTHROPIC_API_KEY="your-api-key-here"' >> ~/.zshrc
-source ~/.zshrc
-
-# Test Claude Code CLI
-claude --version
+PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
 ```
 
 ---
 
 ## Set Up Python Path (CRITICAL)
 
-The pipeline requires access to tool and utility modules. You **must** set the Python path:
+The pipeline requires access to source modules. You **must** set the Python path:
 
 ```bash
 # Export PYTHONPATH (required for every session)
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Verify you're in the project directory first
 pwd  # Should show: /path/to/poc-auto-schematization
 
 # Or add this to your shell profile for persistence
-echo 'export PYTHONPATH="$PWD:$PWD/tools:$PWD/util"' >> ~/.zshrc
+echo 'export PYTHONPATH="$PWD:$PWD/src"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-**⚠️ Important:** This is the #1 cause of "ModuleNotFoundError: No module named 'file_util'" errors.
+**Warning:** This is the #1 cause of `ModuleNotFoundError` errors.
 
 ### Verify PYTHONPATH
 
 ```bash
 # Check that PYTHONPATH is set correctly
-echo $PYTHONPATH  # Should include project, tools, and util directories
+echo $PYTHONPATH  # Should include project root and src/ directory
 ```
 
 ---
@@ -134,30 +142,64 @@ Your repository should have this structure:
 
 ```
 poc-auto-schematization/
-├── input/                    # 39 datasets with input data & metadata
-├── output/                   # Generated PVMAPs (created automatically)
-├── schema_example_files/     # 7 schema categories for auto-selection
-├── test_input/               # Test datasets (optional)
-├── test_output/              # Test output (optional)
-├── tools/                    # Processing tools
-├── util/                     # Utility modules
-├── logs/                     # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py     # Main pipeline script
-├── requirements.txt          # Python dependencies
-└── README.md                 # Main documentation
+├── src/                          # Source code
+│   ├── agents/                   # Google ADK agents (pipeline orchestration)
+│   ├── config/                   # CLI configuration
+│   ├── state/                    # State management
+│   ├── infrastructure/           # Core utilities (io, config, metrics, logging)
+│   ├── data_commons/             # Data Commons modules (api, mcf, schema, place, codes)
+│   ├── pipeline/                 # Pipeline operations (sampling, validation, evaluation)
+│   ├── processing/               # Data processing (mapping, filtering, transformation)
+│   ├── tools/                    # ADK tool wrappers
+│   ├── ui/                       # Streamlit web UI
+│   ├── utils/                    # Shared utilities (artifact_plugin, template_utils)
+│   └── resources/                # Static resources (prompts, schema_examples, schema_org)
+├── tests/                        # Test suite (~982 tests)
+├── input/                        # Datasets with input data & metadata
+├── output/                       # Generated PVMAPs (created automatically)
+├── ground_truth/                 # Ground truth PVMAPs for evaluation
+├── deploy/                       # Cloud Run deployment scripts
+├── tools/                        # Legacy processing tools (compatibility layer)
+├── logs/                         # Pipeline logs (created automatically)
+├── Dockerfile                    # Container image for Cloud Run
+├── pyproject.toml                # Dependency definitions (source of truth)
+├── src/run_pipeline.py           # Main pipeline script (ADK-based)
+└── README.md                     # Main documentation
 ```
 
 ---
 
 ## Environment Variables Reference
 
+### Required
+
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY` | Claude API authentication | `sk-ant-api03-...` |
-| `PYTHONPATH` | Module import resolution | `$(pwd):$(pwd)/tools:$(pwd)/util` |
-| `GROUND_TRUTH_REPO` | Default ground truth directory (optional) | `/path/to/datacommonsorg-data/ground_truth` |
-| `DC_API_KEY` | Data Commons API (optional) | `your_dc_api_key` |
-| `MAPS_API_KEY` | Google Maps API (optional) | `your_maps_api_key` |
+| `GEMINI_API_KEY` | Gemini API authentication (loaded from `.env` first) | `AIza...` |
+| `PYTHONPATH` | Module import resolution | `$(pwd):$(pwd)/src` |
+
+### Optional — Pipeline Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `GROUND_TRUTH_REPO` | Ground truth directory | `ground_truth/` |
+| `DC_API_KEY` | Data Commons API for MCP integration | — |
+| `MAPS_API_KEY` | Google Maps API for place resolution | — |
+| `SAMPLING_AGENT_MODEL` | Override model for sampling agent | `gemini-3-pro-preview` |
+| `PVMAP_GENERATOR_MODEL` | Override model for PVMAP generator | `gemini-3-pro-preview` |
+| `METADATA_AGENT_MODEL` | Override model for metadata agent | `gemini-3-pro-preview` |
+| `PROMPT_VERSION` | PVMAP prompt template version | `v2` |
+| `PER_ATTEMPT_TIMEOUT` | Timeout per pipeline attempt (seconds) | `300` |
+
+### Optional — Cloud Run / UI
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `UI_OUTPUT_DIR` | Output directory for UI runs | `ui_output` |
+| `GCS_BUCKET` | GCS bucket for Cloud Run output | — |
+| `MCP_PORT` | Port for DC MCP server | `3000` |
+| `K_SERVICE` | Auto-set by Cloud Run (enables cloud logging) | — |
+| `GOOGLE_SHEET_ID` | Google Sheet ID for developer feedback | — |
 
 ---
 
@@ -166,12 +208,11 @@ poc-auto-schematization/
 Before running the pipeline, verify:
 
 - [ ] Python 3.12+ installed (`python3 --version`)
-- [ ] Virtual environment activated (`which python` shows venv path)
-- [ ] Dependencies installed (`python -c "import pandas, datacommons"`)
-- [ ] Claude Code CLI installed (`claude --version`)
-- [ ] ANTHROPIC_API_KEY set (`echo $ANTHROPIC_API_KEY | head -c 10`)
+- [ ] Virtual environment activated (`which python` shows `.venv` path)
+- [ ] Dependencies installed (`python -c "import pandas, google.adk, google.genai"`)
+- [ ] GEMINI_API_KEY set (`.env` file or `echo $GEMINI_API_KEY | head -c 10`)
 - [ ] PYTHONPATH configured (`echo $PYTHONPATH`)
-- [ ] Repository structure correct (`ls input/ output/ schema_example_files/ tools/ util/`)
+- [ ] Repository structure correct (`ls input/ output/ src/ tests/`)
 
 ---
 
@@ -181,7 +222,8 @@ Once setup is complete:
 
 1. **Review Input Structure** - See [INPUT_GUIDE.md](INPUT_GUIDE.md) to understand how to structure your datasets
 2. **Run Your First Pipeline** - See [USAGE.md](USAGE.md) for quick start and usage instructions
-3. **Troubleshooting** - If you encounter issues, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide)
+3. **Deploy to Cloud Run** - See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloud Run setup
+4. **Troubleshooting** - If you encounter issues, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide)
 
 ---
 
@@ -191,30 +233,30 @@ Once setup is complete:
 
 ```bash
 # Solution: Set PYTHONPATH
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
-### Issue: Claude Code CLI not found
+### Issue: Gemini API key not found
 
 ```bash
-# Solution: Verify installation
-claude --version
+# Solution: Check .env file exists and has the key
+cat .env | grep GEMINI_API_KEY
 
-# If not found, check PATH
-which claude
+# Or set via environment variable
+export GEMINI_API_KEY="your-api-key-here"
 ```
 
-### Issue: Import errors for pandas/datacommons
+### Issue: Import errors for pandas/google.adk
 
 ```bash
 # Solution: Verify virtual environment is activated
-which python  # Should show venv path
+which python  # Should show .venv path
 
 # Activate if needed
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Reinstall dependencies
-pip install -r requirements.txt
+uv sync --all-extras
 ```
 
 For more troubleshooting, see [APPENDIX.md](APPENDIX.md#a-detailed-troubleshooting-guide).

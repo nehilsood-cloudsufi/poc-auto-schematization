@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository implements an **end-to-end automated pipeline** for generating Property-Value Maps (PVMAPs) that transform source data into Data Commons schema using Claude Code CLI.
+This repository implements an **end-to-end automated pipeline** for generating Property-Value Maps (PVMAPs) that transform source data into Data Commons schema using Google ADK with Gemini.
 
 ### What This Pipeline Does
 
@@ -41,6 +41,8 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 | **[INPUT_GUIDE.md](docs/INPUT_GUIDE.md)** | Input file structure and requirements | Preparing datasets, understanding metadata configuration |
 | **[USAGE.md](docs/USAGE.md)** | Running the pipeline and common tasks | Running your first pipeline, daily usage |
 | **[APPENDIX.md](docs/APPENDIX.md)** | Detailed troubleshooting and architecture | Debugging issues, understanding internals |
+| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Cloud Run deployment guide | Deploying the Streamlit UI to Google Cloud Run |
+| **[mcp_integration.md](docs/mcp_integration.md)** | MCP integration details | Using Data Commons MCP for StatVar discovery |
 
 ---
 
@@ -49,11 +51,8 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 ### Prerequisites
 
 - Python 3.12+ installed
-- Claude Code CLI installed ([guide](https://github.com/anthropics/claude-code))
-- **Anthropic API key** (required only if you don't have an active Claude Code subscription)
-  - Currently, this pipeline only supports Claude CLI
-  - If using API key: `export ANTHROPIC_API_KEY="your-api-key-here"`
-  - If you have a Claude Code subscription, the CLI will use your subscription automatically
+- **Gemini API key** (required for LLM calls via Google ADK)
+- **uv** package manager ([installation guide](https://github.com/astral-sh/uv))
 
 ### Installation
 
@@ -62,33 +61,45 @@ Input CSV + Metadata → Auto-Sampling → Schema Selection → PVMAP Generation
 git clone <repository-url> poc-auto-schematization
 cd poc-auto-schematization
 
-# Install dependencies (choose one)
-uv sync                          # Using uv (recommended)
-# OR
-pip install -r requirements.txt  # Using pip
+# Install dependencies
+uv sync --all-extras
 
 # Activate virtual environment
-source .venv/bin/activate        # uv
-# OR
-source venv/bin/activate         # pip
+source .venv/bin/activate
 
 # Set environment variables
-# NOTE: ANTHROPIC_API_KEY is only required if you don't have an active Claude Code subscription
-export ANTHROPIC_API_KEY="your-api-key-here"  # Skip this if you have Claude Code subscription
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+echo 'GEMINI_API_KEY=your-gemini-api-key-here' > .env
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
-### Run Your First Pipeline
+### Option A: Run via Command Line
 
 ```bash
-# Test with a single dataset
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+# Process a dataset
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate
 
 # Check results
 ls output/bis_bis_central_bank_policy_rate/
 ```
 
-**See [USAGE.md](docs/USAGE.md) for complete usage instructions.**
+### Option B: Run via Web UI
+
+```bash
+# Launch the Streamlit UI at http://localhost:8501
+PYTHONPATH="$(pwd):$(pwd)/src" streamlit run src/ui/app.py
+```
+
+Upload your CSV, click "Generate PVMAP", and review results in the browser. See [Running the Web UI](#running-the-web-ui-streamlit) below for the full walkthrough.
+
+### Common CLI Options
+
+```bash
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-sampling    # Use existing samples
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --skip-evaluation  # Skip GT comparison
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate --dry-run          # Preview only
+```
+
+**See [USAGE.md](docs/USAGE.md) for all CLI options.**
 
 ---
 
@@ -98,7 +109,7 @@ ls output/bis_bis_central_bank_policy_rate/
 - **Primary Dataset:** BIS Central Bank Policy Rate (SDMX data)
 - **Repository Location:** Isolated repository (`~/poc-auto-schematization`)
 - **Evaluation Benchmark:** Metrics from Auto_Schematization_Evaluation_Benchmark.docx
-- **LLM:** Claude Sonnet 4.5 (via Claude Code CLI)
+- **LLM:** Gemini 3 Pro Preview (via Google ADK)
 - **Comparison Baseline:** Gemini-based approach (from benchmark)
 
 ---
@@ -139,68 +150,82 @@ The main validation tool that:
 
 ```
 poc-auto-schematization/
-├── input/                    # 39 datasets with input data & metadata
-├── output/                   # Generated PVMAPs (created automatically)
-├── test_input/               # Test datasets (optional)
-├── test_output/              # Test output (optional)
-├── tools/                    # Processing tools
-│   ├── statvar_importer/     # Main processing tools
-│   ├── agentic_import/       # LLM-based import tools
-│   └── data_sampler.py       # Auto-sampling tool
-├── util/                     # Utility modules
-├── logs/                     # Pipeline logs (created automatically)
-├── run_pvmap_pipeline.py     # Main pipeline script
-├── SETUP.md                  # Installation guide
-├── INPUT_GUIDE.md            # Input structure guide
-├── USAGE.md                  # Usage guide
-├── APPENDIX.md               # Troubleshooting & architecture
-└── README.md                 # This file
+├── src/                          # Source code
+│   ├── agents/                   # Google ADK agents (10+ agents)
+│   ├── config/                   # CLI configuration
+│   ├── state/                    # State management (DatasetInfo, context)
+│   ├── infrastructure/           # Core utilities (io, config, metrics, logging)
+│   ├── data_commons/             # Data Commons modules (api, mcf, schema, place, codes)
+│   ├── pipeline/                 # Pipeline operations (sampling, validation, evaluation)
+│   ├── processing/               # Data processing (mapping, filtering, transformation)
+│   ├── tools/                    # ADK tool wrappers
+│   ├── ui/                       # Streamlit web UI (app, components, services)
+│   ├── utils/                    # Shared utilities (artifact_plugin, template_utils)
+│   └── resources/                # Static resources (prompts, schema_examples, schema_org)
+├── tests/                        # Test suite (~982 tests)
+├── input/                        # Datasets with input data & metadata
+├── output/                       # Generated PVMAPs (created automatically)
+├── ground_truth/                 # Ground truth PVMAPs for evaluation
+├── deploy/                       # Cloud Run deployment scripts
+├── tools/                        # Legacy processing tools (compatibility layer)
+├── logs/                         # Pipeline logs (created automatically)
+├── Dockerfile                    # Container image for Cloud Run
+├── pyproject.toml                # Dependency definitions (source of truth)
+├── src/run_pipeline.py           # Main pipeline script (ADK-based)
+├── docs/                         # Documentation
+│   ├── SETUP.md                  # Installation guide
+│   ├── INPUT_GUIDE.md            # Input structure guide
+│   ├── USAGE.md                  # Usage guide
+│   ├── APPENDIX.md               # Troubleshooting & architecture
+│   ├── DEPLOYMENT.md             # Cloud Run deployment
+│   └── mcp_integration.md        # MCP integration details
+└── README.md                     # This file
 ```
 
----
-Initially Dataset should be like:
-input/dataset_name/
-├── test_data/
-│   ├── *_input.csv
-├── *_metadata.csv
 ---
 ## Pipeline Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Phase 1: Auto-Sampling (Optional)                           │
-│ • Checks for existing sampled files                         │
-│ • Generates samples if missing (max 100 rows)               │
-│ • Creates combined_sampled_data.csv                         │
+│ • LLM-driven agentic sampling (max 100 rows)               │
+│ • Generates skeleton_summary + data_context.json            │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Phase 1.5: Schema Selection (Optional)                      │
-│ • Analyzes metadata and sampled data                        │
-│ • Uses Claude CLI to select schema category                 │
-│ • Copies appropriate .txt and .mcf schema files             │
-│ • Skips if schema files already exist                       │
+│ • Analyzes skeleton_summary using Gemini API                │
+│ • Selects best schema category from 7 options               │
+│ • Copies schema files to dataset's schema/ subdirectory     │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Phase 2: PVMAP Generation                                   │
-│ • Populates prompt with schema examples + sampled data      │
-│ • Calls Claude Code CLI                                     │
+│ Phase 2: PVMAP Generation (via Google ADK LoopAgent)        │
+│ • Populates prompt with schema vocab + sampled data         │
+│ • Calls Gemini API via ADK LlmAgent                         │
 │ • Generates property-value mapping                          │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Phase 3: Validation                                         │
-│ • Runs stat_var_processor.py                                │
-│ • Validates PVMAP format and content                        │
-│ • Retries up to 2 times with error feedback if failed       │
+│ Phase 2.5: Metadata Generation + PVMAP Repair               │
+│ • Auto-generates output_metadata.csv from PVMAP             │
+│ • Programmatic key repair (case, whitespace, fuzzy match)   │
+│ • Pre-validation to skip obviously broken PVMAPs            │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Phase 3: Validation + Quality Evaluation                    │
+│ • Runs stat_var_processor.py on full dataset                │
+│ • Quality evaluation (heuristic + ground truth metrics)     │
+│ • Retries with context-aware feedback if quality is low     │
+│ • Stagnation detection stops retries when no improvement    │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Phase 4: Evaluation (Optional)                              │
-│ • Searches for ground truth PVMAP                           │
+│ • Searches for ground truth PVMAP (three-tier precedence)   │
 │ • Compares generated vs ground truth                        │
-│ • Generates diff-based metrics                              │
+│ • Generates diff-based metrics (node + PV accuracy)         │
 │ • Gracefully skips if ground truth not found                │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -215,9 +240,9 @@ The pipeline includes **automated schema selection** that intelligently analyzes
 
 ### How It Works
 
-1. **Analyze Dataset** - Examines metadata configuration and sampled data preview
-2. **Invoke Claude CLI** - Uses Claude to intelligently classify dataset into one of 7 categories
-3. **Copy Schema Files** - Copies the appropriate `.txt` and `.mcf` files to dataset directory
+1. **Analyze Dataset** - Examines skeleton_summary from sampling phase
+2. **Invoke Gemini API** - Uses Gemini to intelligently classify dataset into one of 7 categories
+3. **Copy Schema Files** - Copies the appropriate `.txt` and `.mcf` files to dataset's `schema/` subdirectory
 4. **Skip if Exists** - Automatically skips if schema files already present
 
 ### Available Schema Categories
@@ -236,16 +261,16 @@ The pipeline includes **automated schema selection** that intelligently analyzes
 
 ```bash
 # Automatic schema selection (default)
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 
 # Skip schema selection (use existing schema files)
-python3 run_pvmap_pipeline.py --skip-schema-selection
+python src/run_pipeline.py --skip-schema-selection
 
 # Force re-selection even if schema files exist
-python3 run_pvmap_pipeline.py --force-schema-selection
+python src/run_pipeline.py --force-schema-selection
 
 # Use custom schema directory
-python3 run_pvmap_pipeline.py --schema-base-dir=/path/to/schemas
+python src/run_pipeline.py --schema-base-dir=/path/to/schemas
 ```
 
 ### Standalone Usage
@@ -254,13 +279,13 @@ The schema selector can also be run independently:
 
 ```bash
 # Run schema selector independently
-python3 tools/schema_selector.py --input_dir=input/dataset_name/
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/
 
 # Dry run to see what would be selected
-python3 tools/schema_selector.py --input_dir=input/dataset_name/ --dry_run
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/ --dry_run
 
 # Force re-selection
-python3 tools/schema_selector.py --input_dir=input/dataset_name/ --force
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/dataset_name/ --force
 ```
 
 ### Output
@@ -270,10 +295,10 @@ After schema selection, your dataset directory will include:
 ```
 input/dataset_name/
 ├── test_data/
-│   ├── *_input.csv
-│   └── *_sampled_data.csv
-├── *_metadata.csv
-└── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt  # ← Added
+│   └── *_input.csv
+└── schema/                                                              # ← Added
+    ├── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
+    └── schema_vocab.json
 ```
 
 ---
@@ -296,7 +321,7 @@ The evaluation system uses a **three-tier precedence** for finding ground truth 
 |--------|-------------|----------|
 | `--ground-truth-pvmap` | Path to a single ground truth PVMAP file | Testing one specific dataset with a known reference file |
 | `--ground-truth-dir` | Path to directory containing multiple ground truth files | You have organized ground truth files by dataset name |
-| `--ground-truth-repo` | Path to datacommonsorg-data repository | Using standard Data Commons repository structure (default) |
+| `--ground-truth-repo` | Path to ground truth repository | Using bundled ground truth (default: ground_truth/) |
 | `--skip-evaluation` | Skip evaluation phase entirely | You don't have ground truth files or don't need metrics |
 
 ### Default Configuration
@@ -305,15 +330,15 @@ The default ground truth repository path can be configured in three ways (in ord
 
 1. **Command-line argument**: `--ground-truth-repo=/path/to/ground_truth`
 2. **Environment variable**: `export GROUND_TRUTH_REPO=/path/to/ground_truth`
-3. **Fallback default**: `../datacommonsorg-data/ground_truth`
+3. **Fallback default**: `ground_truth/` (bundled with repository)
 
 **Example: Set via environment variable**
 ```bash
-# Set for current session
-export GROUND_TRUTH_REPO=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+# Set for current session (optional - uses bundled ground truth by default)
+export GROUND_TRUTH_REPO=/path/to/custom/ground_truth
 
 # Or add to your shell profile for persistence
-echo 'export GROUND_TRUTH_REPO=/Users/nehilsood/work/datacommonsorg-data/ground_truth' >> ~/.zshrc
+echo 'export GROUND_TRUTH_REPO=/path/to/custom/ground_truth' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -321,23 +346,23 @@ source ~/.zshrc
 
 ```bash
 # Use explicit PVMAP file for single dataset
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_pvmap.csv
 
 # Search directory for ground truth files (matches by dataset name)
-python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+python src/run_pipeline.py \
+    --ground-truth-dir=ground_truth/
 
-# Use custom repository structure (auto-discovery)
-python3 run_pvmap_pipeline.py \
-    --ground-truth-repo=/path/to/datacommonsorg-data
+# Use custom ground truth repository
+python src/run_pipeline.py \
+    --ground-truth-repo=/path/to/custom/ground_truth
 
 # Skip evaluation entirely
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 
 # Multiple datasets with single ground truth file
 # (Warning: uses file for first dataset only, skips rest)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/to/reference.csv
 ```
 
@@ -347,7 +372,7 @@ When multiple ground truth arguments are provided, the system follows strict pre
 
 ```bash
 # This will use the explicit file (highest precedence)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/to/file.csv \
     --ground-truth-dir=/path/to/dir/ \
     --ground-truth-repo=/path/to/repo/
@@ -378,7 +403,7 @@ When using `--ground-truth-pvmap` without the `--dataset` flag:
 
 ```bash
 # Warning: This will only evaluate the FIRST dataset
-python3 run_pvmap_pipeline.py --ground-truth-pvmap=/path/file.csv
+python src/run_pipeline.py --ground-truth-pvmap=/path/file.csv
 ```
 
 **Behavior:**
@@ -420,44 +445,32 @@ Evaluation Metrics:
 ## Common Commands
 
 ```bash
-# Process all datasets
-python3 run_pvmap_pipeline.py
+# ── Web UI ──
+PYTHONPATH="$(pwd):$(pwd)/src" streamlit run src/ui/app.py   # Launch UI at localhost:8501
 
-# Process specific dataset
-python3 run_pvmap_pipeline.py --dataset=bis_bis_central_bank_policy_rate
+# ── CLI: Basic ──
+python src/run_pipeline.py --dataset=bis_bis_central_bank_policy_rate   # Single dataset
+python src/run_pipeline.py                                              # All datasets
+python src/run_pipeline.py --dry-run                                    # Preview only
 
-# Test with test directories
-python3 run_pvmap_pipeline.py --input-dir=test_input --output-dir=test_output
+# ── CLI: Skip phases ──
+python src/run_pipeline.py --dataset=bis --skip-sampling                # Re-use existing samples
+python src/run_pipeline.py --dataset=bis --skip-schema-selection        # Re-use existing schema
+python src/run_pipeline.py --dataset=bis --skip-evaluation              # No GT comparison
 
-# Force regenerate samples
-python3 run_pvmap_pipeline.py --force-resample
+# ── CLI: Tuning ──
+python src/run_pipeline.py --dataset=bis --enable-mcp                   # StatVar discovery via MCP
+python src/run_pipeline.py --dataset=bis --thinking-level=medium        # Adjust LLM thinking
+python src/run_pipeline.py --dataset=bis --prompt-version=v1            # Use v1 prompt template
+python src/run_pipeline.py --dataset=bis --structured-output            # Deterministic CSV (default)
+python src/run_pipeline.py --force-resample                             # Regenerate samples
 
-# Skip schema selection (use existing schema files)
-python3 run_pvmap_pipeline.py --skip-schema-selection
-
-# Force re-selection of schema files
-python3 run_pvmap_pipeline.py --force-schema-selection
-
-# Skip evaluation
-python3 run_pvmap_pipeline.py --skip-evaluation
-
-# Use explicit ground truth PVMAP file
-python3 run_pvmap_pipeline.py --dataset=bis --ground-truth-pvmap=/path/to/bis_pvmap.csv
-
-# Use ground truth directory (searches by dataset name)
-python3 run_pvmap_pipeline.py --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
-
-# Use custom ground truth repository
-python3 run_pvmap_pipeline.py --ground-truth-repo=/path/to/datacommonsorg-data
-
-# Resume from specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
-
-# Dry run (preview without execution)
-python3 run_pvmap_pipeline.py --dry-run
+# ── CLI: Ground truth ──
+python src/run_pipeline.py --dataset=bis --ground-truth-pvmap=/path/to/bis_pvmap.csv
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 ```
 
-**See [USAGE.md](USAGE.md#command-line-options) for complete options.**
+**See [USAGE.md](docs/USAGE.md#command-line-options) for complete options.**
 
 ---
 
@@ -466,10 +479,14 @@ python3 run_pvmap_pipeline.py --dry-run
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv           # Main output: Property-Value mapping
-├── generation_notes.md           # Claude's reasoning
-├── populated_prompt.txt          # Full prompt sent to Claude
-├── generated_response/           # Claude's attempts
-│   ├── attempt_0.md              # First attempt
+├── output_metadata.csv           # Auto-generated metadata config (PVMAP-derived + merged)
+├── generation_notes.md           # LLM reasoning with attempt history
+├── populated_prompt.txt          # Full prompt sent to Gemini
+├── agentic_sampled.csv           # Sampled data from agentic sampler
+├── data_context.json             # Structural analysis cache
+├── generated_response/           # LLM attempts
+│   ├── attempt_0.md              # First attempt (with model info + thinking content)
+│   ├── attempt_0.json            # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md              # Retry (if needed)
 │   └── attempt_2.md              # Final retry (if needed)
 ├── processed.csv                 # Validated StatVarObservations
@@ -516,15 +533,16 @@ output/{dataset_name}/
 
 ```bash
 # Solution: Set PYTHONPATH
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 ```
 
-### Issue: Claude Code CLI not found
+### Issue: Gemini API key not set
 
 ```bash
-# Solution: Install Claude Code CLI
-# Visit: https://github.com/anthropics/claude-code
-claude --version
+# Solution: Create .env file or export variable
+echo 'GEMINI_API_KEY=your-api-key-here' > .env
+# OR
+export GEMINI_API_KEY="your-api-key-here"
 ```
 
 ### Issue: Dataset output already exists
@@ -532,10 +550,77 @@ claude --version
 ```bash
 # Solution: Delete and regenerate
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 ```
 
 **See [APPENDIX.md](docs/APPENDIX.md#a-detailed-troubleshooting-guide) for complete troubleshooting.**
+
+---
+
+## Running the Web UI (Streamlit)
+
+The pipeline includes a web UI for interactive use — upload a CSV, watch the pipeline run, review results, and iterate with feedback.
+
+### Launch
+
+```bash
+# Make sure you've completed installation first (see Quick Start above)
+source .venv/bin/activate
+PYTHONPATH="$(pwd):$(pwd)/src" streamlit run src/ui/app.py
+```
+
+This opens the UI at **http://localhost:8501**.
+
+### Step-by-Step Workflow
+
+1. **Upload your CSV** — Drag or browse to upload your input CSV file. Optionally upload a metadata CSV (2-column `parameter,value` format). A data preview shows automatically.
+
+2. **Name your dataset** — Enter a dataset name (auto-filled from filename). This names the output directory.
+
+3. **Configure (sidebar)** — Adjust settings before running:
+   - **Max Retries** — Number of retry attempts after initial generation (default: 1, meaning 2 total attempts)
+   - **MCP** — Toggle Data Commons MCP for StatVar discovery
+   - **Advanced** — Prompt version (v1/v2) and schema examples toggle
+
+4. **Click "Generate PVMAP"** — The pipeline runs in the background. A real-time progress tracker shows each phase: Sampling → Schema Selection → Generation → Validation → Quality Evaluation → Feedback.
+
+5. **Review results** — When complete, results appear in tabs:
+   - **PVMAP** — The generated property-value mapping (editable in-browser)
+   - **Metadata** — The auto-generated `output_metadata.csv` (also editable)
+   - **Validation** — StatVar processor output and MCF files
+   - **Logs** — Generation notes and LLM reasoning
+
+6. **Provide feedback & re-run** — If the PVMAP needs improvement:
+   - Edit the PVMAP or metadata directly in the table editors
+   - Describe what should change in the feedback text box
+   - Select a category (column mapping, property names, etc.) and severity
+   - Click **"Re-run"** — the pipeline re-runs with your feedback injected as context
+   - Previous output is versioned (`v1/`, `v2/`, etc.) so nothing is lost
+
+7. **Download** — Download the final PVMAP and output files when satisfied.
+
+### Sidebar Features
+
+- **Status pill** — Shows pipeline state (Idle / Running / Complete / Error)
+- **Run ID** — Unique identifier for each run (with GCS link on Cloud Run)
+- **History** — Previous runs listed with pass/fail status; click to reload results
+- **New Run** — Reset the UI to start fresh
+
+### Cloud Run Deployment
+
+The UI can be deployed to Google Cloud Run with GCS-backed storage. See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for setup instructions.
+
+---
+
+## Key Features (Recent)
+
+- **Schema.org Integration** - Local vocabulary cache with type/property lookup and validation
+- **PVMAP Repair Pipeline** - Programmatic key repair before validation (case, whitespace, fuzzy match)
+- **Structured Output** - Deterministic CSV via Gemini structured output schema (default: on)
+- **Prompt Versioning** - v1/v2 prompt templates (`--prompt-version`)
+- **Quality-Based Exit** - Stops retrying when quality exceeds threshold or stagnates
+- **Cloud Run Deployment** - Docker + GCS FUSE for production deployment
+- **MCP Integration** - Live StatVar discovery via Data Commons MCP server
 
 ---
 
@@ -556,9 +641,9 @@ python3 run_pvmap_pipeline.py --dataset=your_dataset_name
 3. **Verify Setup:**
    ```bash
    python --version              # Should be 3.12+
-   claude --version              # Should show version
-   echo $PYTHONPATH              # Should include project, tools, util
-   echo $ANTHROPIC_API_KEY | head -c 10  # Should show key
+   python -c "from google.adk.agents import LlmAgent; print('ADK OK')"
+   echo $PYTHONPATH              # Should include project root and src/
+   echo $GEMINI_API_KEY | head -c 10  # Should show key
    ```
 
 4. **GitHub Issues:**
@@ -586,8 +671,9 @@ Contributions are welcome! Please:
 ## Acknowledgments
 
 - **Data Commons** - Schema and validation tools
-- **Anthropic Claude** - LLM for PVMAP generation
-- **Claude Code CLI** - Automation framework
+- **Google Gemini** - LLM for PVMAP generation
+- **Google ADK** - Agent Development Kit for pipeline orchestration
+- **Anthropic Claude Code** - Development tool for codebase assistance
 
 ---
 

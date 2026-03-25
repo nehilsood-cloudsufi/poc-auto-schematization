@@ -1,0 +1,236 @@
+{
+  "category": "Demographics",
+  "stat_var_skeletons": {
+    "Person": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "citizenship",
+      "dateOfEntry",
+      "gender",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "maritalStatus",
+      "measuredProperty",
+      "nativity",
+      "periodOfMilitaryService",
+      "placeOfBirth",
+      "race",
+      "residenceType",
+      "statType",
+      "veteranStatus"
+    ]
+  },
+  "property_vocabulary": {
+    "age": [
+      "Years0To4",
+      "Years15Onwards",
+      "Years18Onwards",
+      "Years18To24",
+      "Years18To34",
+      "Years1To4",
+      "Years25To34",
+      "Years35To44",
+      "Years35To54",
+      "Years45To54",
+      "Years55To64",
+      "Years5Onwards",
+      "Years65To74",
+      "Years75Onwards",
+      "Years85Onwards"
+    ],
+    "armedForcesStatus": [
+      "Civilian"
+    ],
+    "censusACSTableId": [
+      "B21001",
+      "B21002",
+      "B21004"
+    ],
+    "citizenship": [
+      "NotAUSCitizen",
+      "USCitizenBornInTheUnitedStates",
+      "USCitizenByNaturalization"
+    ],
+    "dateOfEntry": [
+      "Date1990To1999",
+      "Date2000To2009",
+      "Date2010Onwards",
+      "DateUpto1990"
+    ],
+    "gender": [
+      "Female",
+      "Male"
+    ],
+    "incomeStatus": [
+      "WithIncome"
+    ],
+    "languageSpokenAtHome": [
+      "AfricanLanguages",
+      "Arabic",
+      "Armenian",
+      "Bengali",
+      "Chinese",
+      "FrenchInclPatoisCajun",
+      "German",
+      "Greek",
+      "Gujarati",
+      "Haitian",
+      "Hebrew",
+      "Hindi",
+      "Urdu",
+      "Vietnamese",
+      "Yiddish"
+    ],
+    "maritalStatus": [
+      "Divorced",
+      "MarriedAndNotSeparated",
+      "NeverMarried",
+      "Widowed"
+    ],
+    "measuredProperty": [
+      "age",
+      "income"
+    ],
+    "nativity": [
+      "USC_ForeignBorn",
+      "USC_Native"
+    ],
+    "periodOfMilitaryService": [
+      "USC_BeforeWorldWar2",
+      "USC_BetweenGulfWarAndVietnamEra",
+      "USC_BetweenKoreanWarAndWorldWar2",
+      "USC_BetweenVietnamEraAndKoreanWar",
+      "USC_GulfWarAug1990ToAug2001",
+      "USC_GulfWarAug1990ToAug2001&USC_GulfWarSep2001OrLater",
+      "USC_GulfWarAug1990ToAug2001&USC_GulfWarSep2001OrLater&USC_VietnamEra",
+      "USC_GulfWarAug1990ToAug2001&USC_VietnamEra",
+      "USC_GulfWarSep2001OrLater",
+      "USC_KoreanWar",
+      "USC_KoreanWar&USC_VietnamEra",
+      "USC_KoreanWar&USC_VietnamEra&USC_WorldWar2",
+      "USC_KoreanWar&USC_WorldWar2",
+      "USC_VietnamEra",
+      "USC_WorldWar2"
+    ],
+    "placeOfBirth": [
+      "Caribbean",
+      "CentralAmericaExceptMexico",
+      "ForeignBorn",
+      "africa",
+      "asia",
+      "country/MEX",
+      "europe",
+      "northamerica",
+      "oceania",
+      "southamerica"
+    ],
+    "race": [
+      "AmericanIndianAndAlaskaNativeAlone",
+      "AmericanIndianAndAlaskaNativeAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "AsianAlone",
+      "AsianAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "AsianOrPacificIslander",
+      "BlackOrAfricanAmericanAlone",
+      "BlackOrAfricanAmericanAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "HispanicOrLatino",
+      "HispanicOrLatino__AmericanIndianAndAlaskaNativeAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "HispanicOrLatino__AmericanIndianOrAlaskaNativeAlone",
+      "HispanicOrLatino__AsianAlone",
+      "HispanicOrLatino__AsianAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "WhiteAlone",
+      "WhiteAloneNotHispanicOrLatino",
+      "WhiteAloneOrInCombinationWithOneOrMoreOtherRaces"
+    ],
+    "residenceType": [
+      "AdultCorrectionalFacilities",
+      "CollegeOrUniversityStudentHousing",
+      "GroupQuarters",
+      "InstitutionalizedGroupQuarters",
+      "JuvenileFacilities",
+      "MilitaryQuartersOrMilitaryShips",
+      "NoninstitutionalizedGroupQuarters",
+      "NursingFacilities"
+    ],
+    "statType": [
+      "medianValue"
+    ],
+    "veteranStatus": [
+      "Veteran"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Male Population",
+      "mapping": "gender:Male"
+    },
+    {
+      "label": "Population: Urdu",
+      "mapping": "age:Years5Onwards, languageSpokenAtHome:Urdu"
+    },
+    {
+      "label": "Widowed Population",
+      "mapping": "age:Years15Onwards, maritalStatus:Widowed"
+    },
+    {
+      "label": "Population: Native",
+      "mapping": "age:Years5Onwards, nativity:USC_Native"
+    },
+    {
+      "label": "Hispanic Population",
+      "mapping": "race:HispanicOrLatino"
+    },
+    {
+      "label": "Population: Korean War",
+      "mapping": "age:Years18Onwards, armedForcesStatus:Civilian, censusACSTableId:B21002, periodOfMilitaryService:USC_KoreanWar, veteranStatus:Veteran"
+    },
+    {
+      "label": "Population: 1 - 4 Years",
+      "mapping": "age:Years1To4"
+    },
+    {
+      "label": "Population: Foreign Born",
+      "mapping": "placeOfBirth:ForeignBorn"
+    },
+    {
+      "label": "Population: Male, Widowed",
+      "mapping": "age:Years15Onwards, gender:Male, maritalStatus:Widowed"
+    },
+    {
+      "label": "Population: 0 - 4 Years, Male",
+      "mapping": "age:Years0To4, gender:Male"
+    }
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "gender": {
+        "range": [
+          "Text",
+          "GenderType"
+        ],
+        "desc": "Gender of something, typically a [[Person]], but possibly also fictional characters, animals, etc. W"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "censusACSTableId",
+      "citizenship",
+      "dateOfEntry",
+      "incomeStatus",
+      "languageSpokenAtHome",
+      "maritalStatus",
+      "nativity",
+      "periodOfMilitaryService",
+      "placeOfBirth",
+      "race",
+      "residenceType",
+      "veteranStatus"
+    ]
+  }
+}

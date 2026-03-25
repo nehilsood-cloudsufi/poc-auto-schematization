@@ -1,0 +1,855 @@
+You are an expert Data Commons engineer. Your task: generate a Property-Value (PV) map that transforms the input CSV into Data Commons StatVarObservations.
+
+A PVMAP is a TRANSLATION LAYER between source data and Data Commons schema. Every key in your PVMAP must correspond to an actual string in the input — a column header or a cell value. You are not generating data; you are writing a lookup table that the processor uses to interpret existing data.
+
+---
+
+# 1. ABSOLUTE RULES
+
+These 5 rules address the most common failure modes. Violating ANY of them produces an invalid PVMAP.
+
+## Rule 1: NO `dcid:` PREFIX on property values
+
+Values in the PVMAP are bare identifiers. The processor adds `dcs:` or `dcid:` prefixes automatically.
+
+| WRONG | CORRECT |
+|-------|---------|
+| `populationType,dcid:Person` | `populationType,Person` |
+| `gender,dcid:Male` | `gender,Male` |
+| `measuredProperty,dcid:count` | `measuredProperty,count` |
+| `observationAbout,dcid:geoId/06` | `observationAbout,geoId/06` |
+| `observationAbout,dcid:country/USA` | `observationAbout,country/USA` |
+| `statType,dcid:measuredValue` | `statType,measuredValue` |
+
+The ONLY exception: pre-formatted passthrough data where the source column already contains `dcid:` values (see Section 4, Passthrough Detection).
+
+## Rule 2: KEY FIDELITY — Byte-for-byte exact match
+
+PVMAP keys are matched CASE-SENSITIVELY against column headers and cell values. A key that does not exactly match is SILENTLY IGNORED — producing 0 output rows for that mapping.
+
+- Copy column names EXACTLY from the COLUMN REFERENCE TABLE in DATA CONTEXT
+- Never append index suffixes (`: 1`, `: 2024`), duplicate descriptions, or paraphrase
+- Never normalize case or strip whitespace
+- If a column header contains commas, quote the entire key: `"GDP, current prices"`
+
+**WRONG:** `REF_AREA:Reference area:Reference area` (duplicated description)
+**CORRECT:** `REF_AREA:Reference area` (matches actual header)
+
+## Rule 3: `{Number}` vs `{Data}` — Convention table
+
+| Context | Use | Why |
+|---------|-----|-----|
+| observationDate for year columns (2020, 2021) | `{Number}` | Processor needs numeric interpretation |
+| observationDate for formatted dates ("2020-01") | `{Data}` | Already formatted, pass through |
+| Named year variable capture | `Year,{Number}` | For composition: `{Year}-{Month}` |
+| value (all measurements and counts) | `{Number}` | Processor validates numeric values |
+| String identifiers (place codes, names) | `{Data}` | Raw string passthrough |
+| observationAbout (geographic IDs) | `{Data}` | String passthrough for place DCIDs |
+| COLUMN:VALUE dimension mappings | (neither) | Static property-value pairs |
+
+**Key rule:** If the cell contains a number representing a date or measurement, use `{Number}`. If it contains a string identifier, use `{Data}`.
+
+## Rule 4: DYNAMIC PLACE PATTERNS — Never hardcode enumerable places
+
+If a column contains MULTIPLE distinct places, map it with a DYNAMIC pattern using `{Data}`, `#Format`, or `#Regex`. NEVER enumerate individual place values when the column is the place identifier.
+
+**WRONG** (hardcoded enumeration for a column with 50+ places):
+```csv
+State:California,observationAbout,geoId/06
+State:Texas,observationAbout,geoId/48
+State:New York,observationAbout,geoId/36
+```
+
+**CORRECT** (dynamic pattern):
+```csv
+State,observationAbout,{Data}
+```
+
+**When hardcoding IS correct:** Only when the place is CONSTANT for the entire dataset and no place column exists:
+```csv
+value_column,observationAbout,country/USA,value,{Number},...
+```
+
+**SAMPLE WARNING:** The input data is a SMALL SAMPLE. The full dataset may contain hundreds of places. Always use dynamic patterns.
+
+## Rule 5: DECOMPOSE StatVars — Never use variableMeasured shortcut
+
+NEVER map a column to `variableMeasured,dcid:SomeStatVarName`. Instead, decompose every StatVar into its component properties:
+- `populationType` — what is being counted/measured (Person, Household, EconomicActivity)
+- `measuredProperty` — what measurement (count, amount, percent, rate)
+- `statType` — statistical type (measuredValue, marginOfError, meanValue)
+- Constraint properties — dimensions like gender, age, race, etc.
+
+**WRONG:**
+```csv
+GDP,variableMeasured,Amount_EconomicActivity_GrossDomesticProduction
+```
+
+**CORRECT:**
+```csv
+GDP,populationType,EconomicActivity,measuredProperty,amount,activityType,GrossDomesticProduction,value,{Number},statType,measuredValue
+```
+
+**ONLY exception:** Pre-formatted Data Commons data with existing `variableMeasured` column (see Section 4, Passthrough Detection).
+
+---
+
+# 2. HOW THE PROCESSOR WORKS
+
+## PV Collection
+
+For each data cell, the processor collects property-value pairs from multiple sources:
+
+1. **Column header** → looks up the header string in the PVMAP, collects matching PVs
+2. **Cell value** → looks up the cell string in the PVMAP, collects matching PVs
+3. **Row header** → looks up row-level keys, collects matching PVs
+4. **Merge** → combines all collected PVs into one observation
+
+**Precedence** (most specific wins): cell > column > row > section > file
+
+## Carry-Forward Mechanism
+
+This is how dimension columns work. When a column header's PVs do NOT include `value` or `measurementResult`, those PVs "carry forward" as row-level context — they apply to ALL subsequent value columns in the same row.
+
+**Example:** Given data `State=CA, Year=2020, Gender=Male, Population=19500000`:
+
+```csv
+State,observationAbout,{Data}
+Year,observationDate,{Number}
+Gender:Male,gender,Male
+Population,populationType,Person,measuredProperty,count,value,{Number}
+```
+
+Processing cell `19500000`:
+- Column "Population" → `populationType=Person, measuredProperty=count, value=19500000`
+- Carried forward from State → `observationAbout=CA` (no `value`, so it carries)
+- Carried forward from Year → `observationDate=2020` (no `value`, so it carries)
+- Carried forward from Gender → `gender=Male` (no `value`, so it carries)
+- **Merged:** Complete observation with place, date, StatVar properties, and value
+
+## Property Separation
+
+After collecting all PVs, the processor separates them:
+- **Observation properties** (CSV row): `value`, `observationDate`, `observationAbout`, `observationPeriod`, `measurementMethod`, `unit`, `scalingFactor`
+- **StatVar properties** (variable definition): `populationType`, `measuredProperty`, `statType`, plus all constraint properties
+- **Intermediate variables** (excluded): Properties with **Capitalized** first letter are used for substitution only — they do NOT appear in the final StatVar definition
+
+**Note:** `variableMeasured` is auto-constructed by the processor from StatVar properties. NEVER map it directly.
+
+---
+
+# 3. PVMAP SYNTAX REFERENCE
+
+## Basic Format
+
+```
+key,property1,value1,property2,value2,...
+```
+
+- First column (`key`): string to match against column headers or cell values
+- Remaining columns: alternating property-name, property-value pairs
+- CSV must be parseable by Python `csv.reader`
+- Header row must start with `key`
+
+## Placeholders
+
+| Placeholder | Meaning | Use when |
+|-------------|---------|----------|
+| `{Data}` | Raw string value from cell | String identifiers, codes, names |
+| `{Number}` | Numeric value from cell | Dates, measurements, counts |
+| `{Key}` | The key string that was matched | Self-referencing patterns |
+
+### Placeholder Decision:
+IF the column contains numeric values that represent measurements/counts
+  → Use {Number} (enables arithmetic operations like #Multiply, #Aggregate)
+ELIF the column contains text identifiers, codes, dates, or place references
+  → Use {Data} (pass-through, preserves original string)
+ELIF the column contains mixed types
+  → Use {Data} (safer default — {Number} would fail on non-numeric values)
+
+## Named Variables (Capitalized = Intermediate)
+
+Capture values for later reference. **Capitalized** variable names are intermediate — used for substitution but excluded from the StatVar definition.
+
+```csv
+year_row,Year,{Number}
+month_col,Month,{Data}
+value_col,observationDate,{Year}-{Month},value,{Number}
+```
+
+`Year` and `Month` are intermediate — they build `observationDate` but don't become StatVar properties.
+
+## COLUMN:VALUE Namespace
+
+When mapping cell VALUES (not headers), prefix with the column name to avoid ambiguity:
+
+```csv
+GENDER:Male,gender,Male
+GENDER:Female,gender,Female
+GENDER:Total,gender,""
+```
+
+**CRITICAL:** Always use `COLUMN:VALUE` syntax when the same value could appear in different columns. Without it, `Male` would match ANY cell containing "Male" in any column.
+
+## #Format — Zero-pad and Build Composite IDs
+
+```csv
+FIPS,#Format,"observationAbout=geoId/{Data:0>5}"
+statefips,#Format,StateFips={Number:0>2}
+countyfips,#Format,"observationAbout=geoId/{StateFips}{Number:0>3}"
+```
+
+Uses Python format-string syntax. `{Data:0>5}` zero-pads string to 5 chars. `{Number:02d}` works for numeric padding.
+
+## #Regex — Extract with Named Groups
+
+```csv
+"State/UT",#Regex,"^State/UT:(?P<Place>.*)",observationAbout,{Place}
+REF_AREA,#Regex,"^(?P<Code>[A-Z]{2,3}):.*",observationAbout,country/{Code}
+```
+
+Must use named groups `(?P<Name>...)`. Extracted names become variables for substitution.
+
+## #Eval — Python Expressions
+
+```csv
+Weight_Lbs,#Eval,"value={Number} * 0.453592",unit,Kilogram
+fiscal_year,#Eval,"observationDate='{Data}'.split('-')[1]"
+version,#Eval,Fips=StateFips + CountyFips if GeoCat == '50' else StateFips
+```
+
+**CRITICAL QUOTING RULE:** Always enclose `{Data}` in single quotes (`'{Data}'`) inside #Eval expressions. Without quotes, the substituted string causes a Python syntax error.
+
+```csv
+# CORRECT:
+Status,#Eval,"active='Yes' if '{Data}' == 'Y' else 'No'"
+# WRONG:
+Status,#Eval,"active='Yes' if {Data} == 'Y' else 'No'"
+```
+
+Built-in functions: `format_date('{Data}')` (parse/format dates), `str_to_camel_case('{Data}')` (CamelCase conversion).
+
+**RESTRICTIONS (what #Eval CANNOT do):**
+- NO f-strings: `f"text {expr}"` — processor uses eval(), not exec()
+- NO nested double quotes — breaks CSV parsing. Use single quotes inside expressions
+- NO imports or arbitrary functions. Only: int(), str(), len(), split(), strip(), replace(),
+  format_date(), str_to_camel_case(), re.sub(), basic arithmetic
+- Keep expressions SIMPLE: `variable = simple_expression`
+
+## #Filter — Conditional Row Dropping
+
+```csv
+ValueColumn,value,{Number},#Filter,{Number} > 0
+Category,value,{Data},#Filter,"'{Data}' not in ['NA','N/A','null','']"
+```
+
+If expression evaluates to `False`, the observation is dropped. **Use `'{Data}'` (single-quoted) in filter expressions.**
+
+## #Aggregate — Combine Observations
+
+```csv
+Janeiro,observationDate,{Year}-01,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Total,observationDate,{Year},observationPeriod,P1Y,value,{Number},#Aggregate,sum
+```
+
+Aggregation functions: `sum`, `last`, `first`. Used when multiple rows should combine into one observation (e.g., monthly data from multiple regions summed to national totals).
+
+## #Multiply — Unit Conversion
+
+```csv
+NAICS Code,#Multiply,1000000,unit,USDollar
+```
+
+Multiplies the numeric value by the given factor. Use when values are "in thousands" or "in millions".
+
+## #ignore vs Empty Mapping
+
+`#ignore` drops the ENTIRE row:
+```csv
+Series ID,#ignore,skip
+```
+
+To skip a cell value WITHOUT dropping the row, use an empty intermediate variable:
+```csv
+OBS_STATUS:M,MissingValue,''
+```
+
+## Place Prefix Quick-Reference
+
+| Prefix | Use For | Example |
+|--------|---------|---------|
+| `geoId/{Data}` | US FIPS codes (2-digit state, 5-digit county) | `geoId/06`, `geoId/06037` |
+| `country/{Data}` | ISO 2/3-letter country codes | `country/USA`, `country/IND` |
+| `wikidataId/{Data}` | Wikidata Q-identifiers or place name resolution | `wikidataId/Q1180` |
+| `nuts/{Data}` | EU NUTS regional codes | `nuts/DE` |
+
+## Required Properties for Valid Output
+
+**Every observation MUST have:**
+- `observationAbout` — place/entity being measured
+- `observationDate` — when the measurement occurred
+- `value` — the measured quantity
+
+**Every StatVar MUST have:**
+- `populationType` — what is being counted (Person, Household, EconomicActivity, etc.)
+- `measuredProperty` — what is measured (count, amount, percent, rate, etc.)
+- `statType` — statistical method (measuredValue, marginOfError, meanValue, medianValue, etc.)
+
+---
+
+# 4. DATA ARCHETYPE GUIDE
+
+## Step 0: Classify Your Data Archetype
+
+BEFORE writing any PVMAP rows, classify your data:
+
+IF the data has columns named observationAbout, observationDate, variableMeasured, value
+  → PASSTHROUGH (pre-formatted Data Commons data)
+  → Use passthrough mapping directly
+
+ELIF most column headers are measurement labels (e.g., "Total Population", "Male", "Female")
+  → WIDE/FLAT or WIDE/MULTI-VALUE
+  → Each measurement column becomes a separate PVMAP node
+  → IF measurements share the same populationType → WIDE/FLAT
+  → IF measurements span different populationTypes → WIDE/MULTI-VALUE
+
+ELIF there is a single "indicator" or "variable" column whose values name what is measured
+  → TIDY/LONG
+  → Use COLUMN:VALUE rows to map each indicator value
+
+ELIF row values define dimensions (e.g., gender=Male, age=0-4) and a separate value column
+  → DIMENSION/ROW
+  → Map each dimension column, carry forward to value column
+
+ELIF column headers contain coded prefixes (e.g., "B01001_001E", "DP05_0001E", "E_AGE65")
+  → CENSUS/CODED
+  → Decode column codes into properties using metadata
+
+ELSE
+  → FIRST PRINCIPLES FALLBACK
+  → Ask: What is being counted/measured? Who/what is observed? When? Where?
+
+Classify your data FIRST, then apply the matching strategy.
+
+| Archetype | Signature | Key Pattern |
+|-----------|-----------|-------------|
+| **Wide/Flat** | 1 row = 1 entity, value in dedicated column | Map headers; `value,{Number}` on value columns |
+| **Wide/Multi-value** | Multiple value columns per row (years or metrics as headers) | Each column gets full StatVar properties + `value,{Number}` |
+| **Tidy/Long (SDMX)** | Indicator column + single value column | `COLUMN:VALUE` syntax for each indicator value |
+| **Dimension/Row** | Row values encode dimensions, columns encode measures | `COLUMN:VALUE` for dimensions; carry-forward for measure columns |
+| **Census/Coded** | E_/M_/EP_/MP_ prefixes | Separate PVMAP row per prefix with appropriate statType |
+| **Passthrough** | Has observationAbout, observationDate, variableMeasured, value | Direct passthrough (see below) |
+
+## Census/Coded Pattern (E_/M_/EP_/MP_ prefixes)
+
+| Prefix | Meaning | statType | Extra Properties |
+|--------|---------|----------|------------------|
+| `E_` | Estimate | `measuredValue` | — |
+| `M_` | Margin of Error | `marginOfError` | — |
+| `EP_` | Estimate % | `measuredValue` | `unit,Percent`, `measurementDenominator,-[constraint]`, `scalingFactor,100` |
+| `MP_` | MOE % | `marginOfError` | `unit,Percent`, `measurementDenominator,"-[constraint],-statType"`, `scalingFactor,100` |
+
+**DO NOT collapse** prefixed variants into a single row. Each prefix requires its own PVMAP row.
+
+## Passthrough Detection
+
+If data already has `observationAbout`, `observationDate`, `variableMeasured`, and `value` columns — it is pre-formatted Data Commons data. Use passthrough:
+
+```csv
+key,property,value
+observationAbout,observationAbout,{Data}
+observationDate,observationDate,{Data}
+variableMeasured,variableMeasured,{Data}
+value,value,{Number}
+```
+
+**DO NOT** construct new StatVar properties or decompose variableMeasured for passthrough data.
+
+## COMPLETENESS MANDATE
+
+**Every numeric measurement column MUST have a PVMAP row** with `value,{Number}` and full StatVar properties. Do not generate a "representative sample" — generate ALL rows needed to cover the full dataset.
+
+For coded datasets with many columns (e.g., E_AGE65, M_AGE65, EP_AGE65, MP_AGE65, E_AGE17, ...), generate a PVMAP row for EVERY column.
+
+For dimension columns with N unique values, generate N `COLUMN:VALUE` rows. If Gender has {Male, Female, Total}, generate 3 rows. If AGE_CATEGORY has 6 values, generate 6 rows.
+
+## First Principles Fallback
+
+If your data doesn't match any archetype:
+1. Identify the INVARIANT: which column identifies the entity? → `observationAbout`
+2. Identify the TIME: which column has dates/years? → `observationDate`
+3. Classify remaining columns: low-cardinality categorical = dimension (COLUMN:VALUE), numeric = measurement (`value,{Number}`)
+4. Map dimensions with COLUMN:VALUE, measurements with full StatVar properties
+
+---
+
+# 5. PLACE RESOLUTION WORKFLOW
+
+## Step 1: Identify the Place Column
+
+Look for columns named: FIPS, GeoID, StateCode, CountyCode, State, Country, REF_AREA, Place, Location, Region, etc.
+
+## Step 2: Determine Place Format
+
+| Data Format | Detection | Mapping |
+|-------------|-----------|---------|
+| **US FIPS (2-digit state)** | 2-digit numbers: 01, 06, 48 | `#Format,"observationAbout=geoId/{Number:0>2}"` |
+| **US FIPS (5-digit county)** | 5-digit numbers: 01001, 06037 | `#Format,"observationAbout=geoId/{Data:0>5}"` |
+| **US FIPS (composite)** | Separate state+county columns | `#Format,StateFips={Number:0>2}` + `#Format,"observationAbout=geoId/{StateFips}{Number:0>3}"` |
+| **ISO country codes** | 2-3 letter codes: USA, IND | `observationAbout,country/{Data}` |
+| **Place names** | String names: California, Delhi | `observationAbout,{Data}` (let processor resolve) |
+| **SDMX REF_AREA** | CODE:Label format | `observationAbout,{Data}` OR `#Regex` to extract code |
+| **Constant place** | No place column; all data for one place | Add `observationAbout,country/USA` to value columns |
+
+## Anti-Patterns
+
+- **NEVER** use US `geoId/` prefixes for non-US places
+- **NEVER** enumerate individual places when a dynamic pattern works (Rule 4)
+- **NEVER** hardcode place DCIDs if the column contains varying values
+- When unsure, default to `observationAbout,{Data}` — the processor's auto-resolution is safer than incorrect prefixes
+
+---
+
+# 6. DATE AND TIME HANDLING
+
+## Simple Year Column
+
+```csv
+Year,observationDate,{Number}
+year,observationDate,{Number}
+```
+
+Always use `{Number}` for pure year columns (2020, 2021, etc.).
+
+## Formatted Date Strings
+
+For dates already formatted as strings (e.g., "2020-01", "2020-01-15"):
+```csv
+TIME_PERIOD:Time period or range,observationDate,{Data}
+```
+
+## Named Variable + Date Composition
+
+When date components are split across rows/columns:
+
+```csv
+year_row,Year,{Number}
+M01,Month,01,observationDate,{Year}-{Month}
+M02,Month,02,observationDate,{Year}-{Month}
+M03,Month,03,observationDate,{Year}-{Month}
+```
+
+`Year` and `Month` are Capitalized intermediate variables — captured for composition, excluded from StatVar.
+
+## Year Columns as Headers (Wide Format)
+
+When years ARE the column headers:
+
+```csv
+2019,observationDate,2019,value,{Number}
+2020,observationDate,2020,value,{Number}
+2021,observationDate,2021,value,{Number}
+```
+
+Generate mappings for all years visible in the data.
+
+## Fiscal Year Handling
+
+```csv
+fiscal_year,#Eval,"observationDate='{Data}'.split('-')[1]",observationPeriod,P1Y
+```
+
+For fiscal years with quarterly periods (e.g., "2017-18" = Apr 2017 – Mar 2018),
+use per-row #Eval with named variables — NEVER a single complex expression:
+
+```csv
+year_value,Year,{Data}
+APR-JUN,Month1,5,observationPeriod,P3M,#Eval,"Year1=int('{Year}'.split('-')[0])",observationDate,{Year1}-{Month1}
+JUL-SEP,Month2,8,observationPeriod,P3M,#Eval,"Year1=int('{Year}'.split('-')[0])",observationDate,{Year1}-{Month2}
+OCT-DEC,Month3,11,observationPeriod,P3M,#Eval,"Year1=int('{Year}'.split('-')[0])",observationDate,{Year1}-{Month3}
+JAN-MAR,Month4,2,observationPeriod,P3M,#Eval,"Year1=int('{Year}'.split('-')[0])+1",observationDate,{Year1}-{Month4}
+```
+
+## Observation Period
+
+| Period | Value | Use |
+|--------|-------|-----|
+| Annual | `P1Y` | Yearly measurements |
+| Monthly | `P1M` | Monthly measurements |
+| Quarterly | `P3M` | Quarterly measurements |
+| Daily | `P1D` | Daily measurements |
+
+---
+
+# 7. DIMENSION AND TOTAL HANDLING
+
+## COLUMN:VALUE Syntax for Dimension Values
+
+Each unique value in a dimension column gets its own PVMAP row:
+
+```csv
+GENDER:Male,gender,Male
+GENDER:Female,gender,Female
+GENDER:Total,gender,""
+```
+
+**Total/aggregate values** map to empty string `""` — this omits the dimension from the StatVar, creating an "all genders" aggregate.
+
+## Multiple Dimension Columns
+
+When data has several dimension columns, create COLUMN:VALUE rows for each column independently. The carry-forward mechanism handles cross-product combinations automatically:
+
+```csv
+# Dimension: Gender
+GENDER:Male,gender,Male
+GENDER:Female,gender,Female
+# Dimension: Age Group
+AGE:0-17,age,[0 17 Years]
+AGE:18-64,age,[18 64 Years]
+AGE:65+,age,[65 - Years]
+# Value column
+POPULATION,populationType,Person,measuredProperty,count,value,{Number},statType,measuredValue
+```
+
+## Percentage and Relative Measures
+
+For columns measuring percentages relative to a dimension:
+
+```csv
+EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,value,{Number}
+```
+
+`measurementDenominator,-age` means "the denominator is the total without the age constraint."
+
+## Unit Extraction from Headers
+
+| Header Contains | Property | Value |
+|-----------------|----------|-------|
+| `(USD)` or `(US Dollars)` | `unit` | `USDollar` |
+| `(%)` or `(Percent)` | `unit` | `Percent` |
+| `(thousands)` | `scalingFactor` | `1000` |
+| `(millions)` | `scalingFactor` | `1000000` |
+| `per capita` | `measurementDenominator` | `Count_Person` |
+
+---
+
+# 8. WORKED EXAMPLES
+
+## Example 1: SDMX/Tidy Long (BIS Central Bank Policy Rate)
+
+**Input:**
+```csv
+FREQ:Frequency,REF_AREA:Reference area,TIME_PERIOD:Time period or range,OBS_VALUE:Observation Value
+M: Monthly,CH: Switzerland,2020-01,0.5
+D: Daily,GB: United Kingdom,2020-01-15,0.75
+```
+
+**PVMAP:**
+```csv
+key,,,,,,
+BIS:WS_CBPOL(1.0): Central bank policy rates,measuredProperty,interestRate,populationType,FinancialInstrument,instrumentType,CountryCentralBankPolicyRate
+M: Monthly,measurementQualifier,Monthly,observationPeriod,P1M,,
+D: Daily,measurementQualifier,Daily,observationPeriod,P1D,,
+REF_AREA:Reference area,observationAbout,{Data},,,,
+TIME_PERIOD:Time period or range,observationDate,{Data},,,,
+OBS_VALUE:Observation Value,value,{Number},,,,
+368: Per cent per year,unit,PercentPerAnnum,,,,
+```
+
+**Key patterns:** Bare identifiers (no `dcid:`), COLUMN:VALUE via colon-separated headers, `{Data}` for formatted date string, `{Number}` for value.
+
+## Example 2: Wide + Date Composition (World Bank Commodity Prices)
+
+**Input:**
+```csv
+World Bank Commodity Price Data (The Pink Sheet),,"Crude oil, average","Natural gas (US)"
+2020,M01,40.76,2.02
+2020,M02,51.41,1.99
+```
+
+**PVMAP:**
+```csv
+key,p1,v1,p2,v2,p3,v3,p4,v4,p5,v5,p6,v6,p7,v7
+World Bank Commodity Price Data (The Pink Sheet),observationAbout,Earth,measuredProperty,price,Year,{Number},populationType,Commodity,measurementQualifier,Nominal,observationPeriod,P1M,statType,meanValue
+M01,Month,01,observationDate,{Year}-{Month},,,,,,,,,,
+M02,Month,02,observationDate,{Year}-{Month},,,,,,,,,,
+M03,Month,03,observationDate,{Year}-{Month},,,,,,,,,,
+M04,Month,04,observationDate,{Year}-{Month},,,,,,,,,,
+M05,Month,05,observationDate,{Year}-{Month},,,,,,,,,,
+M06,Month,06,observationDate,{Year}-{Month},,,,,,,,,,
+M07,Month,07,observationDate,{Year}-{Month},,,,,,,,,,
+M08,Month,08,observationDate,{Year}-{Month},,,,,,,,,,
+M09,Month,09,observationDate,{Year}-{Month},,,,,,,,,,
+M10,Month,10,observationDate,{Year}-{Month},,,,,,,,,,
+M11,Month,11,observationDate,{Year}-{Month},,,,,,,,,,
+M12,Month,12,observationDate,{Year}-{Month},,,,,,,,,,
+"Crude oil, average",commodityType,CrudeOil,value,{Number},,,,,,,,,,
+"Natural gas (US)",commodityType,NaturalGas,geographicalIndicator,UnitedStates,value,{Number},,,,,,,,
+```
+
+**Key patterns:** Named variables `Year`/`Month` (Capitalized = intermediate), composed `observationDate,{Year}-{Month}`, commodity-specific properties per value column.
+
+## Example 3: Census/Coded with E_/M_/EP_/MP_ + #Format (CDC SVI)
+
+**Input:**
+```csv
+FIPS,year,E_AGE65,M_AGE65,EP_AGE65,MP_AGE65
+01001,2020,5000,150,12.5,0.3
+```
+
+**PVMAP:**
+```csv
+key,property,value
+FIPS,#Format,observationAbout=geoId/{Data:0>5}
+year,observationDate,{Number}
+E_AGE65,populationType,Person,age,[65 - Years],measuredProperty,count,statType,measuredValue,value,{Number}
+M_AGE65,populationType,Person,age,[65 - Years],measuredProperty,count,statType,marginOfError,value,{Number}
+EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,measuredProperty,count,value,{Number}
+MP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,"-age,-statType",unit,Percent,scalingFactor,100,statType,marginOfError,measuredProperty,count,value,{Number}
+```
+
+**Key patterns:** `#Format` for zero-padded FIPS, `{Number}` for year, every E_/M_/EP_/MP_ column has its own row with appropriate statType and properties.
+
+## Example 4: Dynamic FIPS + Dimensions + #Eval (Census SAHIE)
+
+**Input:**
+```csv
+year,statefips,countyfips,geocat,agecat,sexcat,NIPR,nipr_moe,PCTUI,pctui_moe
+2020,01,001,50,0,0,25000,500,8.5,0.3
+```
+
+**PVMAP:**
+```csv
+key,p1,v1,p2,v2,p3,v3,p4,v4,p5,v5,p6,v6
+year,observationDate,{Number},observationPeriod,P1Y,,,,,,,,
+statefips,#Format,StateFips={Number:0>2},,,,,,,,,,
+countyfips,#Format,CountyFips={Number:0>3},,,,,,,,,,
+version,#Eval,Fips=StateFips + CountyFips if GeoCat == '50' else StateFips,,,,,,,,,,
+geocat,GeoCat,{Data},,,,,,,,,,
+sexcat:0,gender,"",,,,,,,,,,
+sexcat:1,gender,Male,,,,,,,,,,
+sexcat:2,gender,Female,,,,,,,,,,
+agecat:0,age,[- 64 Years],,,,,,,,,,
+agecat:1,age,[18 64 Years],,,,,,,,,,
+agecat:2,age,[40 64 Years],,,,,,,,,,
+agecat:3,age,[50 64 Years],,,,,,,,,,
+agecat:4,age,[21 64 Years],,,,,,,,,,
+agecat:5,age,[- 18 Years],,,,,,,,,,
+NIPR,value,{Number},populationType,Person,observationAbout,geoId/{Fips},healthInsurance,NoHealthInsurance,measuredProperty,count,statType,measuredValue
+nipr_moe,value,{Number},populationType,Person,observationAbout,geoId/{Fips},healthInsurance,NoHealthInsurance,measuredProperty,count,statType,marginOfError
+PCTUI,value,{Number},populationType,Person,observationAbout,geoId/{Fips},healthInsurance,NoHealthInsurance,measuredProperty,percent,unit,Percent,statType,measuredValue
+pctui_moe,value,{Number},populationType,Person,observationAbout,geoId/{Fips},healthInsurance,NoHealthInsurance,measuredProperty,percent,unit,Percent,statType,marginOfError
+```
+
+**Key patterns:** `#Format` for zero-padded components, `#Eval` for composite FIPS construction, indexed dimension values (`sexcat:0`, `agecat:1`), `geoId/{Fips}` using computed variable, `""` for total/all-genders aggregate.
+
+## Example 5: Monthly Aggregation + #Aggregate (Fire Data)
+
+**Input:**
+```csv
+place,year,Janeiro,Fevereiro,Março,...,Dezembro,Total
+Acre,2020,125,89,210,...,150,2100
+Amazonas,2020,340,220,180,...,290,4500
+```
+
+**PVMAP:**
+```csv
+key,prop,value,p2,v2,p3,v3,p4,v4
+year,Year,{Number},,,,,,
+place,populationType,FireEvent,measuredProperty,count,statType,measuredValue,observationAbout,country/BRA
+Máximo*,#ignore,skip,,,,,,
+Média*,#ignore,skip,,,,,,
+Mínimo*,#ignore,skip,,,,,,
+Janeiro,observationDate,{Year}-01,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Fevereiro,observationDate,{Year}-02,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Março,observationDate,{Year}-03,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Abril,observationDate,{Year}-04,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Maio,observationDate,{Year}-05,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Junho,observationDate,{Year}-06,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Julho,observationDate,{Year}-07,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Agosto,observationDate,{Year}-08,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Setembro,observationDate,{Year}-09,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Outubro,observationDate,{Year}-10,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Novembro,observationDate,{Year}-11,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Dezembro,observationDate,{Year}-12,observationPeriod,P1M,value,{Number},#Aggregate,sum
+Total,observationDate,{Year},observationPeriod,P1Y,value,{Number},#Aggregate,sum
+```
+
+**Key patterns:** Named variable `Year` for date composition, `#Aggregate,sum` to combine rows from multiple regions into national totals, `#ignore` for statistical summary rows, StatVar properties on `place` row carry forward to all month columns.
+
+---
+
+# 9. DATA UNDERSTANDING & INPUTS
+
+## Data Context (from automated analysis)
+
+{{DATA_CONTEXT}}
+
+**IMPORTANT:** The COLUMN REFERENCE TABLE in DATA CONTEXT is the authoritative source for exact column names. Copy keys from this table byte-for-byte.
+
+---
+
+## Schema Examples
+
+{{SCHEMA_EXAMPLES}}
+
+Use the Data Commons vocabulary shown above for property names and value identifiers.
+
+---
+
+## Input Data (SAMPLE)
+
+{{SAMPLED_DATA}}
+
+**WARNING:** This is a SMALL SAMPLE of the full dataset. The full dataset may have thousands of rows and hundreds of unique values. Always use DYNAMIC patterns (`{Data}`, `#Format`, `#Regex`) for high-cardinality columns. Never hardcode values from this sample as the complete set.
+
+---
+
+## Processor Config
+
+{{METADATA_CONFIG}}
+
+If metadata has `input_rename`: use RENAMED column names (renames apply before PVMAP lookup).
+If metadata has `observation_date_format`: just map to `observationDate`, the processor handles formatting.
+If metadata sets global `unit`/`measurementMethod`/`scalingFactor`: don't duplicate in PVMAP rows.
+
+---
+
+## Error Feedback (from previous attempts)
+
+{{ERROR_FEEDBACK}}
+
+If error feedback is present above, follow the specific fixes provided:
+1. Read feedback carefully for specific fixes
+2. Focus on "High-Impact Fixes" section
+3. Ensure keys match EXACT column headers (case-sensitive)
+4. Verify required properties mapped (observationAbout, observationDate, value)
+5. Fix ALL affected rows, not just examples
+IMPORTANT: Apply the specific fixes. Do not repeat previous mistakes.
+
+---
+
+## Discovered StatVars (from Data Commons)
+
+{{STATVAR_SUMMARY}}
+
+If discovered StatVars are provided:
+- **HIGH confidence matches**: Use these directly as property values
+- **MEDIUM confidence**: Reference for naming conventions
+- **No matches**: Generate StatVar properties from schema examples
+
+---
+
+## MCP Tools (if available)
+
+{{MCP_TOOLS_INSTRUCTION}}
+
+---
+
+# 10. OUTPUT REQUIREMENTS
+
+Return a JSON object with the following structure. Use BARE identifiers (NO dcid: prefix). Use {Data} for string pass-through and {Number} for numeric values.
+
+```json
+{
+  "format_detected": "raw",
+  "pvmap_rows": [
+    {
+      "key": "Year",
+      "mappings": [
+        {"property": "observationDate", "value": "{Number}"}
+      ]
+    },
+    {
+      "key": "State FIPS",
+      "mappings": [
+        {"property": "#Format", "value": "observationAbout=geoId/{Data:0>5}"}
+      ]
+    },
+    {
+      "key": "Population",
+      "mappings": [
+        {"property": "value", "value": "{Number}"},
+        {"property": "populationType", "value": "Person"},
+        {"property": "measuredProperty", "value": "count"},
+        {"property": "statType", "value": "measuredValue"}
+      ]
+    },
+    {
+      "key": "GENDER:Male",
+      "mappings": [
+        {"property": "gender", "value": "Male"}
+      ]
+    },
+    {
+      "key": "GENDER:Female",
+      "mappings": [
+        {"property": "gender", "value": "Female"}
+      ]
+    }
+  ],
+  "validation_notes": "Brief notes about mapping decisions...",
+  "confidence": "high"
+}
+```
+
+**IMPORTANT:**
+- Each key MUST match input data EXACTLY (case-sensitive, no extra text)
+- Each mapping has exactly two fields: "property" and "value"
+- Use BARE identifiers — NO dcid: or dcs: prefix (Person, not dcid:Person)
+- Use {Data} for string pass-through, {Number} for numeric values
+- Use COLUMN:VALUE keys for dimension column values
+- Map ALL measurement columns, not just a few examples
+
+## Schema Vocabulary Compliance
+
+The VALID ENUM VALUES listed in Schema Examples above are the CANONICAL identifiers.
+
+When choosing dimension property values:
+1. FIRST check the VALID ENUM VALUES list for the property
+2. If listed, use ONLY identifiers from that list
+3. If the data value is "Male" and the list has "Male" — use "Male" exactly
+4. If the data value doesn't appear verbatim, find the closest semantic match from the list
+5. If no match exists in the list, use lookup_schemaorg_type or search_schemaorg_vocabulary to verify
+
+DC-only properties (age, race, naics, statType, measuredProperty) show as "DC extension" — this is expected.
+
+## Schema.org Tool Usage (MANDATORY)
+
+You have schema.org vocabulary tools. You MUST use them before generating output.
+
+### REQUIRED tool calls (do ALL of these before generating PVMAP):
+
+1. **Verify your populationType**: CALL lookup_schemaorg_type(your_chosen_type)
+   - Confirms the type exists and shows its valid properties
+   - If not found, CALL search_schemaorg_vocabulary(query) to find the correct type
+
+2. **Verify dimension properties**: For EACH dimension property you plan to use (e.g., gender, age, race),
+   CALL validate_pvmap_property(property_name, population_type) to confirm compatibility
+   - Do this for at least your 2 most important dimension properties
+   - If incompatible, CALL search_schemaorg_vocabulary(property_name, search_type="properties") to find the correct one
+
+3. **Look up uncertain properties**: For ANY property not in the VALID ENUM VALUES list,
+   CALL lookup_schemaorg_property(property_name) to verify it exists before using it
+
+### When tool calls are NOT needed:
+- observationAbout, observationDate, value — these are always valid
+- Properties confirmed in the VALID ENUM VALUES list with exact identifiers
+- DC-only extensions: age, race, naics, statType, measuredProperty (expected to show as "DC extension")
+
+IMPORTANT: Generate PVMAP output ONLY AFTER completing the required tool calls above.
+
+## MANDATORY CHECKLIST (verify every item before output)
+
+1. [ ] **observationAbout mapped** — place column identified with correct dynamic prefix
+2. [ ] **observationDate mapped with `{Number}` for years** — not `{Data}` for pure year columns
+3. [ ] **`value,{Number}` on ALL numeric measurement columns** — every measurement column has a PVMAP row
+4. [ ] **EVERY numeric column has a PVMAP row** — no measurement columns left unmapped
+5. [ ] **Keys EXACTLY match column headers** — case-sensitive, no paraphrase, no appended suffixes
+6. [ ] **NO `dcid:` prefix** — all values are bare identifiers (Person, not dcid:Person)
+7. [ ] **StatVar properties present** — populationType + measuredProperty + statType on value columns
+8. [ ] **Dimension columns use COLUMN:VALUE syntax** — with rows for each unique value
+9. [ ] **No variableMeasured mapping** — unless passthrough data
+10. [ ] **JSON parseable** by Python json.loads
+
+Generate the PVMAP now.

@@ -26,66 +26,48 @@ ModuleNotFoundError: No module named 'file_util'
 **Solution:**
 ```bash
 # Set PYTHONPATH before running the pipeline
-export PYTHONPATH="$(pwd):$(pwd)/tools:$(pwd)/util"
+export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # Verify you're in the project directory
 pwd  # Should show: /path/to/poc-auto-schematization
 
 # Run pipeline again
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 ```
 
 **Permanent fix:** Add to your shell profile:
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
 cd /path/to/poc-auto-schematization
-echo 'export PYTHONPATH="$PWD:$PWD/tools:$PWD/util"' >> ~/.zshrc
+echo 'export PYTHONPATH="$PWD:$PWD/src"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 ---
 
-### 2. Claude Code CLI Not Found
+### 2. Gemini API Key Not Set
 
 **Error:**
 ```
-FileNotFoundError: [Errno 2] No such file or directory: 'claude'
+Error: GEMINI_API_KEY environment variable not set
 ```
 
-**Cause:** Claude Code CLI is not installed or not in PATH.
+**Cause:** The pipeline requires a Gemini API key for LLM calls via Google ADK.
 
 **Solution:**
 ```bash
-# Install Claude Code CLI
-# Visit: https://github.com/anthropics/claude-code
+# Option 1: Create .env file (recommended — loaded first, takes priority)
+echo 'GEMINI_API_KEY=your-api-key-here' > .env
 
-# Verify installation
-claude --version
-
-# If installed but not found, check PATH
-which claude
-```
-
----
-
-### 3. ANTHROPIC_API_KEY Not Set
-
-**Error:**
-```
-Error: ANTHROPIC_API_KEY environment variable not set
-```
-
-**Solution:**
-```bash
-# Set API key for current session
-export ANTHROPIC_API_KEY="your-api-key-here"
+# Option 2: Set for current session
+export GEMINI_API_KEY="your-api-key-here"
 
 # Or add to your shell profile for persistence
-echo 'export ANTHROPIC_API_KEY="your-api-key-here"' >> ~/.zshrc
+echo 'export GEMINI_API_KEY="your-api-key-here"' >> ~/.zshrc
 source ~/.zshrc
 
 # Verify it's set
-echo $ANTHROPIC_API_KEY | head -c 10
+echo $GEMINI_API_KEY | head -c 10
 ```
 
 ---
@@ -103,11 +85,11 @@ Output already exists for dataset_name, skipping...
 ```bash
 # To regenerate output for a specific dataset
 rm -rf output/your_dataset_name
-python3 run_pvmap_pipeline.py --dataset=your_dataset_name
+python src/run_pipeline.py --dataset=your_dataset_name
 
 # To regenerate all outputs (CAUTION: deletes all results)
 rm -rf output/*
-python3 run_pvmap_pipeline.py
+python src/run_pipeline.py
 ```
 
 ---
@@ -137,25 +119,27 @@ cat output/your_dataset/generated_pvmap.csv
 **Solutions:**
 1. **Check metadata CSV** - Verify column mappings are correct:
    ```bash
-   cat input/your_dataset/*_metadata.csv
+   cat input/your_dataset/input_metadata/*_metadata.csv
    ```
 
 2. **Verify sampled data** - Ensure it's representative:
    ```bash
-   head -20 input/your_dataset/test_data/combined_sampled_data.csv
+   head -20 output/your_dataset/agentic_sampled.csv
    ```
 
 3. **Force regenerate samples**:
    ```bash
-   python3 run_pvmap_pipeline.py --force-resample --dataset=your_dataset
+   python src/run_pipeline.py --force-resample --dataset=your_dataset
    ```
 
 4. **Manually edit PVMAP** and re-run validation:
    ```bash
-   python3 -m tools.statvar_importer.stat_var_processor \
-       --input_csv=input/your_dataset/test_data/combined_sampled_data.csv \
-       --pvmap_csv=output/your_dataset/generated_pvmap.csv \
-       --metadata_csv=input/your_dataset/*_metadata.csv
+   PYTHONPATH="$(pwd):$(pwd)/src" python3 tools/stat_var_processor.py \
+       --input_data=input/your_dataset/test_data/*_input.csv \
+       --pv_map=output/your_dataset/generated_pvmap.csv \
+       --config_file=output/your_dataset/output_metadata.csv \
+       --generate_statvar_name=True \
+       --output_path=output/your_dataset/processed
    ```
 
 ---
@@ -176,7 +160,7 @@ chmod -R u+w output/
 
 # Or remove and recreate
 rm -rf output/problematic_dataset
-python3 run_pvmap_pipeline.py --dataset=problematic_dataset
+python src/run_pipeline.py --dataset=problematic_dataset
 ```
 
 ---
@@ -207,8 +191,8 @@ Ground truth PVMAP not found, skipping evaluation
 # Check logs to see which method is being used
 grep "ground truth" logs/pipeline_*.log
 
-# Tier 3: Auto-discovery (default)
-ls /Users/nehilsood/work/datacommonsorg-data/ground_truth/statvar_imports/your_dataset/*_pvmap.csv
+# Tier 3: Bundled ground truth (default)
+ls ground_truth//your_dataset/*_pvmap.csv
 
 # Tier 2: Directory search
 ls /path/to/ground_truth/*your_dataset*pvmap*.csv
@@ -221,27 +205,26 @@ ls /path/to/explicit/file.csv
 
 **Option 1: Skip evaluation entirely**
 ```bash
-python3 run_pvmap_pipeline.py --skip-evaluation
+python src/run_pipeline.py --skip-evaluation
 ```
 
 **Option 2: Provide explicit ground truth file (single dataset)**
 ```bash
-python3 run_pvmap_pipeline.py --dataset=bis \
+python src/run_pipeline.py --dataset=bis \
     --ground-truth-pvmap=/path/to/bis_reference.csv
 ```
 
-**Option 3: Use ground truth directory (multiple datasets)**
+**Option 3: Use bundled ground truth (default)**
 ```bash
-# Best for organized ground truth files
-python3 run_pvmap_pipeline.py \
-    --ground-truth-dir=/Users/nehilsood/work/datacommonsorg-data/ground_truth
+# Uses bundled ground truth in ground_truth//
+python src/run_pipeline.py
 ```
 
-**Option 4: Custom repository location (auto-discovery)**
+**Option 4: Custom ground truth location**
 ```bash
-# For standard datacommonsorg-data structure
-python3 run_pvmap_pipeline.py \
-    --ground-truth-repo=/path/to/datacommonsorg-data/statvar_imports
+# For custom ground truth structure
+python src/run_pipeline.py \
+    --ground-truth-repo=/path/to/custom/ground_truth
 ```
 
 **Troubleshooting Precedence Issues:**
@@ -250,7 +233,7 @@ If multiple arguments are provided, check which one takes precedence:
 
 ```bash
 # This will use explicit file (Tier 1, highest)
-python3 run_pvmap_pipeline.py \
+python src/run_pipeline.py \
     --ground-truth-pvmap=/path/file.csv \
     --ground-truth-dir=/path/dir/ \
     --ground-truth-repo=/path/repo/
@@ -282,10 +265,10 @@ python3 run_pvmap_pipeline.py \
 **Solution:**
 ```bash
 # Resume from the last incomplete dataset
-python3 run_pvmap_pipeline.py --resume-from=last_dataset_name
+python src/run_pipeline.py --resume-from=last_dataset_name
 
 # Or resume from a specific dataset
-python3 run_pvmap_pipeline.py --resume-from=cdc_social_vulnerability_index
+python src/run_pipeline.py --resume-from=cdc_social_vulnerability_index
 ```
 
 **Find last processed dataset:**
@@ -308,13 +291,13 @@ ModuleNotFoundError: No module named 'pandas'
 **Solution:**
 ```bash
 # Verify virtual environment is activated
-which python  # Should show venv path
+which python  # Should show .venv path
 
 # If not activated
-source .venv/bin/activate  # or: source venv/bin/activate
+source .venv/bin/activate
 
 # Reinstall dependencies
-pip install -r requirements.txt
+uv sync
 
 # Verify installation
 python -c "import pandas, datacommons; print('Success!')"
@@ -335,7 +318,7 @@ KeyError: 'column_name' not found in sampled data
 
 1. **Force regenerate sampled data:**
    ```bash
-   python3 run_pvmap_pipeline.py --force-resample --dataset=your_dataset
+   python src/run_pipeline.py --force-resample --dataset=your_dataset
    ```
 
 2. **Check sampler output:**
@@ -359,18 +342,18 @@ KeyError: 'column_name' not found in sampled data
 Error: Generated PVMAP is empty or malformed
 ```
 
-**Cause:** Claude generated invalid PVMAP format.
+**Cause:** LLM generated invalid PVMAP format.
 
 **Investigation:**
 ```bash
-# Check Claude's response
+# Check LLM response
 cat output/your_dataset/generated_response/attempt_0.md
 
 # Check the populated prompt
 cat output/your_dataset/populated_prompt.txt
 
 # Check schema examples
-cat input/your_dataset/scripts_*_schema_examples_*.txt
+cat input/your_dataset/schema/scripts_*_schema_examples_*.txt
 ```
 
 **Solutions:**
@@ -396,7 +379,7 @@ TimeoutError: Command timed out after 900 seconds
    sampler_output_rows,50
    ```
 
-2. **Increase timeout** (edit `run_pvmap_pipeline.py`):
+2. **Increase timeout** (edit `src/run_pipeline.py`):
    ```python
    GENERATION_TIMEOUT = 1800  # 30 minutes instead of 15
    ```
@@ -413,7 +396,7 @@ ERROR: Schema base directory not found: schema_example_files/
 
 **Causes:**
 - Schema base directory missing or invalid
-- Claude CLI invocation failed
+- Gemini API call failed (check GEMINI_API_KEY)
 - Missing or invalid metadata files
 - No sampled data available for analysis
 
@@ -421,7 +404,7 @@ ERROR: Schema base directory not found: schema_example_files/
 
 1. **Check schema directory exists:**
    ```bash
-   ls schema_example_files/
+   ls src/resources/schema_examples/
    # Should show: Demographics, Economy, Education, Employment, Energy, Health, School
    ```
 
@@ -438,22 +421,23 @@ ERROR: Schema base directory not found: schema_example_files/
 
 4. **Run schema selector standalone with verbose output:**
    ```bash
-   python3 tools/schema_selector.py --input_dir=input/your_dataset/ --dry_run
+   python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --dry_run
    ```
 
 5. **Skip schema selection and manually copy files:**
    ```bash
    # Copy schema files for your category (e.g., Health)
-   cp schema_example_files/Health/*.txt input/your_dataset/
-   cp schema_example_files/Health/*.mcf input/your_dataset/
+   mkdir -p input/your_dataset/schema/
+   cp src/resources/schema_examples/Health/*.txt input/your_dataset/schema/
+   cp src/resources/schema_examples/Health/*.mcf input/your_dataset/schema/
 
    # Run pipeline with schema selection skipped
-   python3 run_pvmap_pipeline.py --dataset=your_dataset --skip-schema-selection
+   python src/run_pipeline.py --dataset=your_dataset --skip-schema-selection
    ```
 
 6. **Force schema re-selection:**
    ```bash
-   python3 run_pvmap_pipeline.py --dataset=your_dataset --force-schema-selection
+   python src/run_pipeline.py --dataset=your_dataset --force-schema-selection
    ```
 
 ---
@@ -476,14 +460,14 @@ If you encounter issues not covered here:
    # Check Python version (should be 3.12+)
    python --version
 
-   # Check Claude CLI version
-   claude --version
+   # Verify ADK is installed
+   python -c "from google.adk.agents import LlmAgent; print('OK')"
 
    # Verify PYTHONPATH
    echo $PYTHONPATH
 
-   # Verify API key is set
-   echo $ANTHROPIC_API_KEY | head -c 10
+   # Verify Gemini API key is set
+   echo $GEMINI_API_KEY | head -c 10
    ```
 
 3. **Check GitHub repository issues:**
@@ -496,7 +480,7 @@ If you encounter issues not covered here:
 
 ## Pipeline Architecture
 
-The PVMAP Pipeline is a fully automated system that generates Property-Value maps from source data using Claude Code CLI.
+The PVMAP Pipeline is a fully automated system that generates Property-Value maps from source data using Google ADK with Gemini.
 
 ### Design Principles
 
@@ -515,8 +499,10 @@ Phase 1.5: Schema Selection (Optional)
     ↓
 Phase 2: PVMAP Generation
     ↓
-Phase 3: Validation
-    ↓ (retry up to 2 times if validation fails)
+Phase 2.5: Metadata Generation (output_metadata.csv)
+    ↓
+Phase 3: Validation (uses output_metadata.csv)
+    ↓ (retry up to 2 times if validation fails — regenerates PVMAP + output_metadata each iteration)
 Phase 4: Evaluation (Optional)
 ```
 
@@ -533,9 +519,9 @@ Phase 4: Evaluation (Optional)
    - WITHOUT `--force-resample`: Reuse existing file
    - WITH `--force-resample`: Regenerate sample
 3. **If sampled file does NOT exist:**
-   - Automatically calls `tools/data_sampler.py`
-   - Generates `{input_filename_without_extension}_sampled_data.csv`
-   - Creates `combined_sampled_data.csv` for pipeline
+   - Runs LLM-driven agentic sampling via `src/pipeline/sampling/sampling_interface.py`
+   - Generates `agentic_sampled.csv` in the output directory
+   - Creates `data_context.json` (structural analysis) and `skeleton_summary` (column classifications)
 
 ### Sampling Algorithm
 
@@ -579,7 +565,7 @@ Controlled via metadata CSV:
 
 **Goal:** Automatically select the most appropriate schema category for each dataset
 
-**Script:** `tools/schema_selector.py` (integrated into pipeline via `run_pvmap_pipeline.py`)
+**Script:** `src/pipeline/schema_selection/schema_selector.py` (integrated into pipeline via `src/run_pipeline.py`)
 
 ### How It Works
 
@@ -593,9 +579,9 @@ Controlled via metadata CSV:
    - Validate input directory structure
    - Merge multiple metadata files if present
    - Generate data preview from sampled data
-   - Build Claude prompt with context
-   - Invoke Claude CLI to select category
-   - Copy selected schema files to dataset directory
+   - Build prompt with context
+   - Invoke Gemini API to select category
+   - Copy selected schema files to dataset's `schema/` subdirectory
 
 ### Selection Algorithm
 
@@ -604,9 +590,9 @@ Controlled via metadata CSV:
 - Generates data preview (first 20 rows of sampled data)
 - Provides category descriptions and examples
 
-**Claude Classification:**
-- Reviews metadata fields (place_property, date_property, value_property, etc.)
-- Analyzes sample data columns and values
+**Gemini Classification:**
+- Reviews skeleton_summary (column classifications from sampling)
+- Analyzes dataset structure and values
 - Compares against 7 category descriptions
 - Selects best-matching category
 
@@ -627,16 +613,17 @@ Controlled via metadata CSV:
 **Files Copied:**
 ```
 input/{dataset_name}/
-└── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
+└── schema/
+    ├── scripts_statvar_llm_config_schema_examples_dc_topic_{Category}.txt
+    └── schema_vocab.json   # Compressed schema vocabulary
 ```
 
 **Logging:**
 ```
 INFO: Phase 1.5: Selecting schema for india_nfhs...
-INFO: Invoking Claude CLI to select schema category...
+INFO: Invoking Gemini API to select schema category...
 INFO: Selected schema category: Health
-INFO: Successfully copied schema file:
-INFO:   - scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt
+INFO: Successfully copied schema files to schema/ subdirectory
 ```
 
 ### Configuration
@@ -645,7 +632,7 @@ INFO:   - scripts_statvar_llm_config_schema_examples_dc_topic_Health.txt
 |-----------|---------|-------------|
 | `--skip-schema-selection` | False | Skip Phase 1.5 (use existing schema files) |
 | `--force-schema-selection` | False | Force re-selection even if files exist |
-| `--schema-base-dir` | `schema_example_files/` | Directory containing schema categories |
+| `--schema-base-dir` | `src/resources/schema_examples/` | Directory containing schema categories |
 
 ### Standalone Usage
 
@@ -653,16 +640,16 @@ The schema selector can be run independently:
 
 ```bash
 # Automatic selection and copy
-python3 tools/schema_selector.py --input_dir=input/your_dataset/
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/
 
 # Dry run (preview without copying)
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --dry_run
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --dry_run
 
 # Force re-selection
-python3 tools/schema_selector.py --input_dir=input/your_dataset/ --force
+python3 src/pipeline/schema_selection/schema_selector.py --input_dir=input/your_dataset/ --force
 
 # Custom schema directory
-python3 tools/schema_selector.py \
+python3 src/pipeline/schema_selection/schema_selector.py \
     --input_dir=input/your_dataset/ \
     --schema_base_dir=/path/to/schemas
 ```
@@ -671,7 +658,7 @@ python3 tools/schema_selector.py \
 
 ## Phase 2: PVMAP Generation
 
-**Goal:** Generate Property-Value mapping using Claude Code CLI
+**Goal:** Generate Property-Value mapping using Gemini LLM
 
 ### Input Preparation
 
@@ -679,85 +666,214 @@ The pipeline combines data from multiple sources:
 
 | Placeholder | Source | Purpose |
 |-------------|--------|---------|
-| `{{SCHEMA_EXAMPLES}}` | `scripts_*_schema_examples_*.txt` | Example PVMAPs from similar data |
-| `{{SAMPLED_DATA}}` | `combined_sampled_data.csv` | Representative sample of input data |
-| `{{METADATA_CONFIG}}` | `*_metadata.csv` | Configuration for processor |
+| `{{SCHEMA_EXAMPLES}}` | `schema_vocab.json` (compressed) | Valid properties, DCIDs, enum values from schema category |
+| `{{SAMPLED_DATA}}` | `agentic_sampled.csv` | Representative sample of input data (LLM-driven) |
+| `{{SKELETON_SUMMARY}}` | Sampling agent output | Column classifications (place, time, dimension, value) |
+| `{{METADATA_CONFIG}}` | `*_metadata.csv` (optional) | Configuration for processor (when `--use-metadata` enabled) |
 
 ### Prompt Template
 
-The pipeline uses a structured prompt template:
+The pipeline uses a structured prompt template (`src/resources/prompts/improved_pvmap_prompt.txt`):
 
 1. **Task Description** - Explain PVMAP format and requirements
-2. **Schema Examples** - Provide existing PVMAPs from similar data
-3. **Sampled Data** - Show representative sample
-4. **Metadata Configuration** - Explain column mappings
-5. **Output Format** - Specify expected CSV format
+2. **Schema Vocabulary** - Compressed vocab with valid properties/DCIDs for the domain
+3. **Sampled Data** - Representative sample with column analysis
+4. **Skeleton Summary** - Column role classifications from sampling agent
+5. **Metadata Configuration** - Column mappings (if `--use-metadata` enabled)
+6. **Output Format** - Specify expected CSV format
 
-### Claude Invocation
+### LLM Invocation
 
-```bash
-claude code \
-    --model=sonnet \
-    --timeout=900 \
-    --prompt="Generate PVMAP from sampled data..."
+Uses Gemini API via Google ADK `LlmAgent` with structured output schema:
+
+```python
+# Default model: gemini-3-pro-preview (configurable via --model flag)
+LlmAgent(
+    model=model,
+    output_schema=PVMAPOutput,
+    output_key="pvmap_output",
+)
 ```
 
 ### Output Files
 
 - `generated_pvmap.csv` - The generated property-value mapping
-- `generation_notes.md` - Claude's analysis and reasoning
-- `populated_prompt.txt` - Full prompt sent to Claude
-- `generated_response/attempt_0.md` - Claude's response
+- `generation_notes.md` - LLM analysis and reasoning (with attempt history)
+- `populated_prompt.txt` - Full prompt sent to LLM
+- `generated_response/attempt_0.md` - LLM response (with model info)
+- `generated_response/attempt_0.json` - Attempt metadata (model, tokens, duration)
+
+---
+
+## Phase 2.5: Metadata Generation
+
+**Goal:** Auto-generate enriched metadata config from the PVMAP for stat_var_processor
+
+### How It Works
+
+The `MetadataGenerationAgent` runs after PVMAP generation and before validation on **every iteration** of the retry loop:
+
+1. **Extract PVMAP-derived parameters:**
+   - `output_columns` — columns the PVMAP maps to (e.g., `observationAbout,observationDate,variableMeasured,value,unit,scalingFactor`)
+   - `mapped_rows` — number of data rows the PVMAP maps
+   - `mapped_columns` — number of columns the PVMAP maps
+   - `header_rows` — number of header rows detected
+   - `drop_statvars_without_svobs` — whether to drop orphan StatVars
+   - `generate_statvar_name` — whether to auto-generate StatVar names
+
+2. **Merge with existing metadata:**
+   - Loads GT metadata or user metadata (if available)
+   - Existing values override auto-generated ones (via `merge_with_existing()`)
+   - Result is a strict superset: everything GT/user has, PLUS PVMAP-derived params
+
+3. **Write `output_metadata.csv`** to the output directory
+
+4. **Set `generated_config_path`** in session state for the Validator
+
+### Output
+
+- `output_metadata.csv` — enriched 2-column CSV (parameter, value)
+
+---
+
+## Phase 2.75: PVMAP Repair (Automatic)
+
+**Goal:** Programmatically fix common PVMAP issues BEFORE running the expensive validation subprocess
+
+**Module:** `src/pipeline/validation/pvmap_repair.py`
+
+### Why It Exists
+
+LLMs frequently produce PVMAPs with minor key mismatches (wrong case, extra whitespace, truncated names) that cause validation to fail. Rather than waste a 5-minute subprocess call + a retry iteration on fixable issues, the repair module catches and fixes them in milliseconds.
+
+### How It Works
+
+The repair module runs automatically inside `ValidationAgent` after PVMAP generation and before the subprocess call:
+
+```
+PVMAP Generated → repair_pvmap() → pre_validate_pvmap() → [subprocess or early return]
+```
+
+#### Step 1: Key Repair (`repair_pvmap`)
+
+For each PVMAP key, attempts to match it to an actual input CSV column header using a 5-tier cascade:
+
+| Tier | Method | Example |
+|------|--------|---------|
+| 1 | Exact match | `REF_AREA` → `REF_AREA` |
+| 2 | Case-insensitive | `ref_area` → `REF_AREA` |
+| 3 | Whitespace-normalized | `REF  AREA` → `REF_AREA` |
+| 4 | Alphanumeric-only | `ref-area` → `REF_AREA` |
+| 5 | Fuzzy match (≥0.85 cutoff) | `REF_AERA` → `REF_AREA` |
+
+Also normalizes placeholder syntax: `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}`.
+
+#### Step 2: Pre-Validation (`pre_validate_pvmap`)
+
+Fast structural checks that skip the 5-minute subprocess for obviously broken PVMAPs:
+
+1. **Column match rate** — at least 50% of PVMAP keys must match input columns
+2. **Required properties** — `observationAbout`, `observationDate`, and `value` must be present
+3. **No unresolved placeholders** — no `[DATA]` or `[NUMBER]` remaining after normalization
+4. **Non-empty** — PVMAP must have at least one data row
+
+#### Step 3: Key Match Report (`generate_key_match_report`)
+
+Generates a markdown report for the feedback agent:
+
+```
+## Key Match Report
+- ✓ Matched: REF_AREA, TIME_PERIOD, OBS_VALUE (3/5)
+- ✎ Auto-Fixed: ref_area → REF_AREA (case), obs value → OBS_VALUE (whitespace)
+- ✗ UNMATCHED: InvalidColumn (no match found)
+- ○ Unmapped input columns: FREQ, STATUS (suggestion: check if these should be mapped)
+```
+
+### State Keys
+
+| Key | Set By | Used By |
+|-----|--------|---------|
+| `pvmap_repair_changes` | ValidationAgent | Feedback agent (repair log) |
+| `key_match_report` | ValidationAgent | Feedback agent (targeted guidance) |
+
+### Public API
+
+```python
+from src.pipeline.validation.pvmap_repair import repair_pvmap, pre_validate_pvmap, generate_key_match_report
+
+pvmap_csv, changes = repair_pvmap(pvmap_csv_str, Path("input_data.csv"))
+ok, errors = pre_validate_pvmap(pvmap_csv_str, Path("input_data.csv"))
+report = generate_key_match_report(pvmap_csv_str, Path("input_data.csv"))
+```
 
 ---
 
 ## Phase 3: Validation
 
-**Goal:** Validate generated PVMAP using stat_var_processor
+**Goal:** Validate generated PVMAP using stat_var_processor and extract semantic analysis
 
 ### How It Works
 
-1. **Run stat_var_processor:**
-   ```python
-   stat_var_processor.py \
-       --input_csv=combined_sampled_data.csv \
-       --pvmap_csv=generated_pvmap.csv \
-       --metadata_csv=metadata.csv
+1. **Run stat_var_processor** (via subprocess):
+   ```bash
+   python3 tools/stat_var_processor.py \
+       --input_data=input/{dataset}/test_data/*_input.csv \
+       --pv_map=output/{dataset}/generated_pvmap.csv \
+       --config_file=output/{dataset}/output_metadata.csv \
+       --generate_statvar_name=True \
+       --output_path=output/{dataset}/processed
    ```
 
+   **Metadata priority for `--config_file`:**
+   1. **Tier 1:** `output_metadata.csv` (auto-generated, has PVMAP-derived params + merged GT/user values)
+   2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
+   3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
+
 2. **Check validation result:**
-   - **Success**: Move to Phase 4 (Evaluation)
+   - **Success**: Extract StatVar MCF analysis, move to quality evaluation
    - **Failure**: Extract error feedback and retry
 
-3. **Retry Logic (up to 2 times):**
-   - Extract meaningful error samples
-   - Send error feedback to Claude
-   - Request corrected PVMAP
-   - Re-validate
+3. **StatVar MCF Analysis** (on success):
+   After validation passes, `_extract_statvar_summary()` parses the generated `processed_stat_vars.mcf` to produce a semantic analysis:
+   - Property→value distributions across all generated StatVars
+   - Flags raw strings without `dcid:` prefix on dimension properties
+   - Flags values with special characters ($, /, –) suggesting CSV parsing corruption
+   - Flags single-value dimensions that may be missing category breakdowns
+   - Summary capped at 40 lines to avoid prompt bloat
 
-### Retry Feedback
+4. **Quality Evaluation:**
+   - Heuristic scoring (structural quality)
+   - Ground truth comparison (if available) — node accuracy, PV accuracy
+   - Sets `quality_reject_reason`: `"pv_accuracy_low"` or `"quality_below_threshold"`
 
-When validation fails, the pipeline provides:
-- **Error message** from stat_var_processor
-- **Sample rows** that caused errors
-- **Specific guidance** on what to fix
+5. **Feedback Loop** (unified `ConditionalFeedbackAgent`):
+   - **Path A (Validation Failed):** Structural error feedback from subprocess output
+   - **Path B (Quality Low):** Context-aware feedback with schema vocab + StatVar analysis:
+     - `"PV ACCURACY LOW"` mode: Semantic focus — cross-references StatVar analysis with schema vocabulary to identify property/value mismatches
+     - `"QUALITY LOW"` mode: Structural focus — row coverage, column mappings, format
 
-Example feedback:
-```
-Validation failed with error:
-KeyError: 'StatVar' column not found in PVMAP
+### Feedback Context
 
-Sample rows from generated PVMAP:
-[First 5 rows of the PVMAP]
+The feedback agent receives the same domain context as the generator:
 
-Please regenerate the PVMAP with correct column names.
-```
+| Context | Source | Purpose |
+|---------|--------|---------|
+| Schema vocabulary | `schema_vocab_content` state | Valid properties, DCIDs, enum values for the domain |
+| Schema category | `schema_category` state | Domain classification (Health, Economy, etc.) |
+| Skeleton summary | `skeleton_summary` state | Column roles (place, time, dimension, value) |
+| StatVar analysis | `validation_statvar_analysis` state | MCF-parsed property distributions + issue flags |
+| Counter summary | `validation_counter_summary` state | High-level validation metrics |
+| Quality metrics | `quality_metrics` state | Heuristic scores + GT accuracy + reject reason |
+
+### Anti-Regression Guidance
+
+Feedback includes a "Rows to PRESERVE" section identifying correct PVMAP rows that should not be changed during retry, preventing regressions where fixing one issue breaks previously working mappings.
 
 ### Output Files
 
 - `processed.csv` - Validated StatVarObservations
 - `processed.tmcf` - Template MCF file
-- `processed_stat_vars.mcf` - StatVar definitions
+- `processed_stat_vars.mcf` - StatVar definitions (also parsed for feedback analysis)
 
 ---
 
@@ -767,9 +883,9 @@ Please regenerate the PVMAP with correct column names.
 
 ### Ground Truth Search
 
-1. **Search in ground-truth repo:**
+1. **Search in bundled ground-truth:**
    ```
-   ../datacommonsorg-data/statvar_imports/{dataset}/*_pvmap.csv
+   ground_truth//{dataset}/*_pvmap.csv
    ```
 
 2. **If found:** Load both PVMAPs and compare
@@ -805,34 +921,80 @@ Uses `mcf_diff.diff_mcf_nodes()` for node-by-node comparison:
 
 ### Why Retry?
 
-PVMAP generation may fail validation due to:
-- Incorrect column naming
-- Missing required properties
-- Invalid value formats
-- Schema misunderstandings
+PVMAP generation may fail for two distinct reasons:
+1. **Validation failure** — stat_var_processor rejects the PVMAP (wrong column names, invalid formats, empty output)
+2. **Quality below threshold** — Validation passes but quality evaluation detects issues:
+   - Low PV accuracy (property-value pairs don't match expected patterns)
+   - Low heuristic quality score (structural issues)
 
 ### Retry Strategy
 
 **Attempt 0 (Initial):**
-- Full prompt with schema examples and sampled data
+- Full prompt with schema examples, sampled data, and skeleton summary
+- Schema vocabulary injected if available
 - No prior feedback
 
-**Attempt 1 (First Retry):**
-- Include validation error feedback
-- Show sample rows that caused errors
-- Request specific corrections
+**Attempt 1+ (Retries):**
+- Includes accumulated error feedback from previous attempts
+- Feedback is context-aware based on failure type:
 
-**Attempt 2 (Final Retry):**
-- Include cumulative error history
-- More explicit guidance on corrections
-- Last chance before marking as failed
+| Failure Type | Feedback Mode | Context Provided |
+|-------------|---------------|------------------|
+| Validation failed | `VALIDATION FAILED` | Subprocess error output (sampled to ~300 lines) |
+| PV accuracy low | `PV ACCURACY LOW` | Schema vocab + StatVar MCF analysis + GT metrics |
+| General quality low | `QUALITY LOW` | Heuristic scores + counter summary + GT metrics |
+
+**Max 3 attempts total** (configurable via `max_iterations` on LoopAgent).
+
+### Retry Loop Architecture (ADK)
+
+The retry loop uses Google ADK's `LoopAgent` with 7 sub-agents (10 with MCP enabled):
+
+**Without MCP (7 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── PVMAPGenerationAgent         — Generates PVMAP with accumulated feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor, extracts StatVar analysis
+├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+```
+
+**With MCP (10 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── StatVarDiscoveryAgent        — Loop-aware MCP StatVar discovery
+├── PVMAPGenerationAgent         — Generates PVMAP with MCP toolset + accumulated feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP
+├── MCPSpotCheckAgent            — Post-generation MCP spot-check of mappings
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor
+├── MCPErrorResolverAgent        — Post-validation MCP error resolution
+├── QualityEvaluationAgent       — Heuristic + GT scoring, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+```
+
+**Key design:** The `MetadataGenerationAgent` runs on every iteration, so when the PVMAP changes during retry, `output_metadata.csv` is regenerated with updated parameters. The `ConditionalFeedbackAgent` is a `BaseAgent` wrapper around an inner `LlmAgent` that determines the feedback path (A or B) and injects appropriate context before delegating to the LLM for analysis.
+
+### Feedback Improvements (2026-02-10)
+
+The feedback agent now receives full domain context:
+- **Schema vocabulary** — valid properties, DCIDs, and enum values for the domain
+- **Skeleton summary** — column classifications (place, time, dimension, value)
+- **StatVar MCF analysis** — parsed property→value distributions from validation output
+- **Anti-regression guidance** — identifies correct rows to preserve during retry
+
+This enables semantic feedback (e.g., "income values need DCID mapping, not raw strings") instead of generic structural advice.
 
 ### Success Rate
 
-Testing on 4 diverse datasets:
-- **Initial success rate:** 75% (3/4 succeed on attempt 0)
-- **After 1 retry:** 100% (4/4 succeed)
-- **Max retries needed:** 1
+Testing on 10 diverse datasets (2026-02-10):
+- **Validation pass rate:** 80% (8/10 pass validation within 3 attempts)
+- **New PV accuracy bests:** 2/10 datasets achieved new best PV accuracy scores
+- **Key wins:** FBI Crime (+6.6% PV), US Urban School Teachers (+0.7% PV)
 
 ---
 
@@ -842,12 +1004,14 @@ Testing on 4 diverse datasets:
 
 ```
 input/{dataset_name}/
-├── test_data/
-│   ├── *_input.csv                    # Original data
-│   ├── *_input_sampled_data.csv       # Auto-generated (Phase 1)
-│   └── combined_sampled_data.csv      # Auto-generated (Phase 1)
-├── *_metadata.csv                      # Required
-└── scripts_*_schema_examples_*.txt    # Required or Auto-generated (Phase 1.5)
+├── input_metadata/                         # Optional metadata (use with --use-metadata)
+│   └── *_metadata.csv                      # Config (param,value rows)
+├── schema/                                 # Auto-populated by SchemaSelectionAgent
+│   ├── scripts_*_schema_examples_*.txt     # Schema examples
+│   └── schema_vocab.json                   # Compressed schema vocabulary
+└── test_data/
+    ├── *_input.csv                         # Original full dataset (REQUIRED)
+    └── *_agentic_sampled.csv               # Auto-generated by LLM-driven sampler
 ```
 
 ### Output Directory
@@ -855,11 +1019,14 @@ input/{dataset_name}/
 ```
 output/{dataset_name}/
 ├── generated_pvmap.csv                # Main output
-├── generation_notes.md                # Claude's reasoning
+├── output_metadata.csv                    # Auto-generated metadata config (PVMAP-derived + merged)
+├── generation_notes.md                # LLM reasoning with attempt history
 ├── populated_prompt.txt               # Full prompt
 ├── generated_response/
-│   ├── attempt_0.md
+│   ├── attempt_0.md                   # LLM response (with model info)
+│   ├── attempt_0.json                 # Attempt metadata (model, tokens, duration)
 │   ├── attempt_1.md                   # If retry
+│   ├── attempt_1.json
 │   └── attempt_2.md                   # If retry
 ├── processed.csv                      # Validation output
 ├── processed.tmcf
@@ -905,7 +1072,7 @@ logs/
 **Decision:** Provide detailed error feedback for retries instead of blind retries
 
 **Rationale:**
-- Claude can learn from specific errors
+- LLM can learn from specific errors
 - Higher success rate on retry
 - Faster convergence to valid PVMAP
 
@@ -924,16 +1091,64 @@ logs/
 
 **Rationale:**
 - Reduces manual effort and human error
-- Leverages Claude's understanding of dataset content
+- Leverages LLM understanding of dataset content
 - Scales to large numbers of datasets
 - Allows dynamic re-selection based on data changes
 - Provides flexibility with skip/force options
 
 **Implementation:**
 - Phase 1.5 analyzes metadata + sampled data
-- Claude CLI classifies into 7 predefined categories
+- Gemini API classifies into 7 predefined categories
 - Schema files automatically copied to dataset directory
 - Falls back gracefully if selection fails
+
+### 6. Template Placeholder Escaping
+
+**Decision:** Convert PVMAP `{Data}`/`{Number}` placeholders to `[DATA]`/`[NUMBER]` when passing through ADK instruction templates
+
+**Rationale:**
+ADK's `LlmAgent` interprets ALL `{word}` patterns in instruction strings as state variable references. PVMAP content uses `{Data}` and `{Number}` as value placeholders, causing `KeyError` when ADK tries to resolve them.
+
+**Module:** `src/agents/template_utils.py`
+
+**Functions:**
+
+| Function | Purpose | Use When |
+|----------|---------|----------|
+| `escape_pvmap_placeholders(text)` | `{Data}` → `[DATA]`, `{Number}` → `[NUMBER]`, `{word}` → `[word]` | Before storing PVMAP content in state that will be injected into LlmAgent instructions |
+| `sanitize_for_adk(instruction)` | Escape ALL `{word}` patterns (including `{{word}}`) | On fully-resolved instruction strings where all Python `.replace()` substitutions are done |
+| `unescape_pvmap_placeholders(text)` | `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}` | Before writing final PVMAP output to disk |
+| `prepare_state_for_templating(ctx, keys)` | Batch escape multiple state variables | Convenience wrapper for escaping multiple state keys at once |
+
+**Critical lesson:** `{{word}}` is NOT an escape in ADK — ADK's regex strips ALL braces, so `{{Data}}` resolves identically to `{Data}`. The only safe approach is bracket escaping: `[DATA]`.
+
+### 7. LLM Metadata Capture (Artifact Plugin)
+
+**Decision:** Capture model metadata (name, tokens, timing, thinking content) during LLM calls via an ADK plugin
+
+**Rationale:**
+- Attempt artifacts (`attempt_*.md`, `attempt_*.json`) need model info and token counts
+- Thinking content (chain-of-thought reasoning) is valuable for debugging
+- Plugin hooks are the only ADK mechanism to intercept model calls
+
+**Module:** `src/utils/artifact_plugin.py`
+
+**How it works:**
+
+```
+ArtifactLoggingPlugin (BasePlugin)
+├── before_model_callback  → Start timer, extract request config, enable ThinkingConfig
+└── after_model_callback   → Extract usage stats, thinking content, store as pvmap_llm_result
+```
+
+**State output:** `pvmap_llm_result` dict with keys:
+- `model` — Model name (e.g., `gemini-3-pro-preview`)
+- `temperature`, `max_output_tokens` — Request config
+- `prompt_token_count`, `candidates_token_count`, `total_token_count` — Usage stats
+- `thinking_content` — Chain-of-thought reasoning (if model supports it)
+- `duration_seconds` — Wall-clock time for the model call
+
+**Only captures calls from agents named** `"Generator"` or `"PVMAPGenerator"` — other agent calls are ignored.
 
 ---
 

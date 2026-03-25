@@ -1,0 +1,40 @@
+{
+  "category": "Employment",
+  "stat_var_skeletons": {
+    "BLSWorker": [
+      "naics"
+    ]
+  },
+  "property_vocabulary": {
+    "naics": [
+      "NAICS/44-45",
+      "NAICS/52",
+      "NAICS/62",
+      "NAICS/72",
+      "NAICS/81",
+      "NAICS/92"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Public Administration Workers",
+      "mapping": "naics:NAICS/92, populationType:BLSWorker"
+    }
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "naics": {
+        "range": [
+          "Text"
+        ],
+        "desc": "The North American Industry Classification System (NAICS) code for a particular organization or busi"
+      }
+    },
+    "dc_only_properties": []
+  }
+}

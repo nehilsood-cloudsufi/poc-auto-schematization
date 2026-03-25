@@ -1,0 +1,259 @@
+{
+  "category": "Health",
+  "stat_var_skeletons": {
+    "MortalityEvent": [
+      "age",
+      "causeOfDeath",
+      "gender",
+      "institutionalization",
+      "measurementDenominator",
+      "measurementQualifier"
+    ],
+    "Person": [
+      "age",
+      "armedForcesStatus",
+      "causeOfDeathAndDisability",
+      "disabilityStatus",
+      "gender",
+      "healthBehavior",
+      "healthInsurance",
+      "healthOutcome",
+      "healthPrevention",
+      "income",
+      "incomeStatus",
+      "institutionalization",
+      "measuredProperty",
+      "medicalCondition",
+      "race"
+    ],
+    "SDG_SH_DYN_IMRT": [
+      "age",
+      "footnote",
+      "measuredProperty",
+      "sdg_sex"
+    ],
+    "Thing": [
+      "gender",
+      "measuredProperty",
+      "placeOfResidenceClassification"
+    ]
+  },
+  "property_vocabulary": {
+    "age": [
+      "SDG_AgeEnum_Y0",
+      "Years15To24",
+      "Years16Onwards",
+      "Years18Onwards",
+      "Years1To4",
+      "Years21To65",
+      "Years25To34",
+      "Years35To44",
+      "Years45To54",
+      "Years50To74",
+      "Years50To75",
+      "Years55To64",
+      "Years75To84",
+      "Years85",
+      "YearsUpto1"
+    ],
+    "armedForcesStatus": [
+      "Civilian"
+    ],
+    "causeOfDeath": [
+      "AIDS",
+      "Accidents(UnintentionalInjuries)",
+      "Assault(Homicide)",
+      "DeathDueToAnotherPerson",
+      "Diabetes",
+      "HeartDiseaseExcludingHypertension",
+      "ICD10/A00-B99",
+      "ICD10/C00-D48",
+      "ICD10/D50-D89",
+      "ICD10/E00-E88",
+      "ICD10/F01-F99",
+      "ICD10/G00-G98",
+      "JudicialExecution",
+      "NPSOtherCauseOfDeath",
+      "Suicide"
+    ],
+    "causeOfDeathAndDisability": [
+      "ChronicRespiratoryDiseases",
+      "DiabetesMellitus",
+      "MajorCardiovascularDiseases",
+      "MalignantNeoplasms"
+    ],
+    "disabilityStatus": [
+      "WithDisability"
+    ],
+    "footnote": [
+      "Includes data from the following sources: United Nations Inter-agency Group for Child Mortality Estimation (UN IGME)"
+    ],
+    "gender": [
+      "Female",
+      "Male"
+    ],
+    "healthBehavior": [
+      "BingeDrinking",
+      "Obesity",
+      "PhysicalInactivity",
+      "SleepLessThan7Hours",
+      "Smoking"
+    ],
+    "healthInsurance": [
+      "NoHealthInsurance",
+      "WithHealthInsurance",
+      "WithPrivateHealthInsurance",
+      "WithPrivateHealthInsuranceOnly",
+      "WithPublicHealthInsurance",
+      "WithPublicHealthInsuranceOnly"
+    ],
+    "healthOutcome": [
+      "Arthritis",
+      "Asthma",
+      "CancerExcludingSkinCancer",
+      "ChronicKidneyDisease",
+      "ChronicObstructivePulmonaryDisease",
+      "CoronaryHeartDisease",
+      "Diabetes",
+      "HighBloodPressure",
+      "HighCholesterol",
+      "MentalHealthNotGood",
+      "PhysicalHealthNotGood",
+      "Stroke"
+    ],
+    "healthPrevention": [
+      "CervicalCancerScreening",
+      "CholesterolScreening",
+      "ColorectalCancerScreening",
+      "DentalVisit",
+      "Mammography"
+    ],
+    "income": [
+      "USDollar15000To24999",
+      "USDollar25000To34999",
+      "USDollar35000To49999",
+      "USDollar50000To74999",
+      "USDollar5000To14999",
+      "USDollar75000Onwards",
+      "USDollarUpto4999"
+    ],
+    "incomeStatus": [
+      "WithEarnings"
+    ],
+    "institutionalization": [
+      "Incarcerated",
+      "USC_NonInstitutionalized"
+    ],
+    "measuredProperty": [
+      "lifeExpectancy",
+      "percent",
+      "value",
+      "who/Adult_daily_tob_use",
+      "who/GDO_q35",
+      "who/M_Est_smk_daily",
+      "who/bcgv",
+      "who/dptv",
+      "who/fullv",
+      "who/mslv",
+      "who/poliov"
+    ],
+    "measurementDenominator": [
+      "Count_Person"
+    ],
+    "measurementQualifier": [
+      "MeasuredBasedOnJurisdiction"
+    ],
+    "medicalCondition": [
+      "Arthritis",
+      "DiseasesOfHeart"
+    ],
+    "placeOfResidenceClassification": [
+      "Rural",
+      "Urban"
+    ],
+    "race": [
+      "AmericanIndianOrAlaskaNativeAlone",
+      "AsianAlone",
+      "BlackOrAfricanAmericanAlone",
+      "HispanicOrLatino",
+      "NativeHawaiianOrOtherPacificIslanderAlone",
+      "OneRace",
+      "SomeOtherRaceAlone",
+      "TwoOrMoreRaces",
+      "WhiteAlone",
+      "WhiteAloneNotHispanicOrLatino"
+    ],
+    "sdg_sex": [
+      "SDG_SexEnum_F",
+      "SDG_SexEnum_M"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Male Life Expectancy",
+      "mapping": "gender:Male, measuredProperty:lifeExpectancy"
+    },
+    {
+      "label": "Prevalence: Dental Visit",
+      "mapping": "age:Years18Onwards, healthPrevention:DentalVisit, measuredProperty:percent"
+    },
+    {
+      "label": "White Disbabled Population",
+      "mapping": "disabilityStatus:WithDisability, race:WhiteAlone"
+    },
+    {
+      "label": "Population: Male, Arthritis",
+      "mapping": "gender:Male, medicalCondition:Arthritis"
+    },
+    {
+      "label": "Male Population With Disabilities",
+      "mapping": "disabilityStatus:WithDisability, gender:Male"
+    },
+    {
+      "label": "Suicide Mortality Rate",
+      "mapping": "causeOfDeath:ICD10/X60-X84, measurementDenominator:Count_Person, populationType:MortalityEvent"
+    },
+    {
+      "label": "Deaths From External Causes",
+      "mapping": "causeOfDeath:ICD10/V01-Y89, populationType:MortalityEvent"
+    },
+    {
+      "label": "Count of Mortality Event: Diabetes, Female",
+      "mapping": "causeOfDeath:Diabetes, gender:Female, populationType:MortalityEvent"
+    },
+    {
+      "label": "Estimate Of Daily Tobacco Smoking Prevalence (%)",
+      "mapping": "measuredProperty:who/M_Est_smk_daily, populationType:Thing"
+    },
+    {
+      "label": "Dtp3 Immunization Coverage Among One-Year-Olds (%), Urban",
+      "mapping": "measuredProperty:who/dptv, placeOfResidenceClassification:Urban, populationType:Thing"
+    }
+  ],
+  "schema_org": {
+    "primary_type": "Person",
+    "type_hierarchy": [
+      "Person",
+      "Thing"
+    ],
+    "schemaorg_properties": {
+      "gender": {
+        "range": [
+          "Text",
+          "GenderType"
+        ],
+        "desc": "Gender of something, typically a [[Person]], but possibly also fictional characters, animals, etc. W"
+      }
+    },
+    "dc_only_properties": [
+      "age",
+      "armedForcesStatus",
+      "causeOfDeath",
+      "healthInsurance",
+      "incomeStatus",
+      "medicalCondition",
+      "placeOfResidenceClassification",
+      "race"
+    ]
+  }
+}

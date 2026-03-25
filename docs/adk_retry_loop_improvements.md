@@ -1,0 +1,319 @@
+# ADK Retry Loop - Improvements
+
+This document tracks the improvements made to the ADK retry loop for PVMAP generation.
+
+## Completed Improvements
+
+### 1. Unified Feedback Agent (2026-02-09)
+
+**Problem:** Two separate feedback paths (error feedback + quality feedback) ran independently, leading to inconsistent guidance and redundant agents in the loop.
+
+**Solution:** Merged into single `ConditionalFeedbackAgent` in `src/agents/pvmap_retry_loop.py`:
+- **Path A (Validation Failed):** Provides structural error feedback from validation subprocess output
+- **Path B (Quality Low):** Provides quality-focused feedback using heuristic scores + ground truth metrics
+- Single output key: `error_feedback` (removed `quality_feedback` from active paths)
+- Loop sequence: 7 agents without MCP, 10 with MCP
+
+**Files changed:** `pvmap_retry_loop.py`, `feedback_agent.py`, `__init__.py`
+
+---
+
+### 2. StatVar Analysis & Schema Context in Feedback (2026-02-10)
+
+**Problem:** The feedback agent was "flying blind" — it lacked the schema vocabulary, skeleton summary, and schema category that the generator had, and it never analyzed the rich StatVar MCF output from validation.
+
+| What Generator Gets | What Feedback Agent Got (Before) |
+|---|---|
+| Schema vocab (valid properties, DCIDs, enum values) | Nothing |
+| Skeleton summary (column roles, dimension domains) | Nothing |
+| Schema category (Health, Economy, etc.) | Nothing |
+| — | Heuristic score breakdown (structural, not semantic) |
+| — | Raw counter summary (high-level only) |
+
+**Solution:** Four-file change to give the feedback agent domain context and semantic analysis:
+
+#### 2a. StatVar MCF Analysis (`src/tools/validation_tool.py`)
+
+Added `_extract_statvar_summary(output_path, max_lines=40)` function that:
+- Parses `{output_path}_stat_vars.mcf` after successful validation
+- Extracts per-StatVar property→value distributions
+- Flags potential issues: raw strings without `dcid:` prefix, special characters ($, /, –), single-value dimensions
+- Returns compact markdown summary capped at 40 lines
+
+**Output format:**
+```
+## Generated StatVar Analysis (N unique StatVars)
+
+Properties used:
+- populationType: Person (count)
+- measuredProperty: count (count)
+- income: [12 unique values] ⚠ RAW STRING values (may need DCID mapping)
+
+Potential Issues:
+- income: 12 values contain raw strings — likely need DCID enum mappings
+- income: Values contain special characters ($, –, <) — possible CSV parsing corruption
+```
+
+#### 2b. State Propagation (`src/agents/validation_agent.py`)
+
+Added `validation_statvar_analysis` to session state after validation completes:
+```python
+ctx.session.state["validation_statvar_analysis"] = result.get("statvar_analysis", "")
+```
+
+#### 2c. PV-Aware Feedback Modes (`src/agents/pvmap_retry_loop.py`)
+
+Three changes:
+1. **Feedback mode detection:** Checks `quality_reject_reason` to set appropriate mode:
+   - `"PV ACCURACY LOW"` — semantic focus using schema vocab + StatVar analysis
+   - `"QUALITY LOW"` — structural focus on coverage, mappings, format
+2. **Schema context injection:** Passes `schema_vocab_content`, `schema_category`, `skeleton_summary`, and `validation_statvar_analysis` to feedback state with placeholder escaping
+3. **PV-aware ground truth section:** Different guidance based on whether PV accuracy or general quality triggered the retry
+
+#### 2d. Feedback Agent Instruction (`src/agents/feedback_agent.py`)
+
+Added four new sections to `FEEDBACK_AGENT_INSTRUCTION`:
+- **Schema Domain Context** — category + valid properties/values vocabulary
+- **Data Structure Context** — skeleton summary with column classifications
+- **Generated StatVar Analysis** — MCF-parsed property distributions + issue flags
+- **PV Accuracy Analysis Guidance** — cross-reference steps for schema vocab vs generated StatVars
+- **Anti-regression output format** — "Rows to PRESERVE" section in feedback output
+
+**State inputs added:** `schema_category`, `schema_vocab_content`, `skeleton_summary`, `validation_statvar_analysis`
+
+---
+
+### 3. MetadataGenerationAgent & Validation Priority (2026-02-10)
+
+**Problem:** The `stat_var_processor` requires a metadata config file (`--config_file`) for proper column mapping, but:
+1. Ground truth metadata was always preferred, meaning PVMAP-derived parameters (like `output_columns`, `mapped_rows`) were never used
+2. The `--use-metadata` flag was non-functional due to a broken `combined_metadata` pattern
+3. No agent generated metadata dynamically from the PVMAP
+
+**Solution:** Two-part fix:
+
+#### 3a. MetadataGenerationAgent (new agent in retry loop)
+
+Added `MetadataGenerationAgent` (`src/agents/metadata_generation_agent.py`) that runs after PVMAP generation and before validation on every iteration:
+- Extracts PVMAP-derived parameters: `output_columns`, `mapped_rows`, `mapped_columns`, `header_rows`, `drop_statvars_without_svobs`, `generate_statvar_name`
+- Merges with existing GT/user metadata via `merge_with_existing()` (existing values override auto-generated)
+- Writes `output_metadata.csv` to the output directory
+- Sets `generated_config_path` in session state
+
+#### 3b. Validation Metadata Priority Reorder (`src/agents/validation_agent.py`)
+
+Changed metadata resolution from GT → user → auto-generated to:
+1. **Tier 1:** Auto-generated config (`output_metadata.csv`) — superset with PVMAP-derived params + merged GT/user values
+2. **Tier 2:** User-provided metadata (fallback, when `--use-metadata` enabled)
+3. **Tier 3:** Ground truth metadata (last resort, for benchmarking only)
+
+This ensures `stat_var_processor` always gets the enriched config. Since output_metadata already merges GT/user values, the priority change is safe — no information is lost.
+
+#### 3c. Model Tracking Fix (`src/run_pipeline.py`)
+
+Added `"model": model` to `initial_state` dict so attempt artifacts (`attempt_*.json`, `attempt_*.md`) correctly log the model name instead of `"unknown"`.
+
+**Files changed:** `metadata_generation_agent.py` (new), `validation_agent.py`, `pvmap_retry_loop.py`, `run_pipeline.py`
+
+---
+
+### 4. PVMAP Repair Pipeline (2026-02-10)
+
+**Problem:** LLMs frequently generate PVMAPs with minor key mismatches — wrong case (`ref_area` vs `REF_AREA`), extra whitespace, truncated names — that cause the 5-minute validation subprocess to fail. Each failure wastes a full retry iteration.
+
+**Solution:** Added `src/pipeline/validation/pvmap_repair.py` module that runs inside `ValidationAgent` after PVMAP generation and before the subprocess:
+
+```
+PVMAP Generated → repair_pvmap() → pre_validate_pvmap() → [subprocess or early return]
+```
+
+#### 4a. Key Repair (`repair_pvmap`)
+
+5-tier cascading match for each PVMAP key:
+1. **Exact match** — `REF_AREA` matches `REF_AREA`
+2. **Case-insensitive** — `ref_area` → `REF_AREA`
+3. **Whitespace-normalized** — `REF  AREA` → `REF_AREA`
+4. **Alphanumeric-only** — `ref-area` → `REF_AREA`
+5. **Fuzzy match** (≥0.85 cutoff via `difflib.SequenceMatcher`) — `REF_AERA` → `REF_AREA`
+
+Also normalizes ADK escaping artifacts: `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}`.
+
+#### 4b. Pre-Validation (`pre_validate_pvmap`)
+
+Fast structural checks (milliseconds vs 5-minute subprocess):
+- ≥50% PVMAP keys must match input columns
+- `observationAbout`, `observationDate`, `value` properties must be present
+- No unresolved `[DATA]`/`[NUMBER]` placeholders
+- At least one data row
+
+On pre-validation failure, returns immediate error feedback and skips subprocess entirely.
+
+#### 4c. Key Match Report (`generate_key_match_report`)
+
+Markdown report injected into feedback agent via `{key_match_report}` state variable:
+- Matched keys (exact or auto-fixed)
+- UNMATCHED keys (no match found — actionable guidance)
+- Unmapped input columns (suggestions for missing mappings)
+
+**State keys:** `pvmap_repair_changes`, `key_match_report`
+
+**Files changed:** `pvmap_repair.py` (new), `validation_agent.py`, `feedback_agent.py`, `pvmap_retry_loop.py`
+
+---
+
+### 5. Column Reference Table (2026-02-10)
+
+**Problem:** LLMs frequently invent or truncate column names when generating PVMAP keys, causing mismatches that even fuzzy repair can't fix.
+
+**Solution:** Added `column_stats` field to `DataContext` (`src/pipeline/sampling/data_context.py`) that generates a Section 1.5 "COLUMN REFERENCE TABLE" in the skeleton_summary:
+
+```
+## 1.5 COLUMN REFERENCE TABLE
+| Column | Type | Cardinality | Samples |
+|--------|------|-------------|---------|
+| REF_AREA | categorical | 42 | US, GB, JP, DE, FR |
+| TIME_PERIOD | date | 120 | 2023-01, 2023-02, 2023-03 |
+| OBS_VALUE | numeric | 847 | 0.25, 1.50, 5.25, 12.00 |
+```
+
+This gives the LLM exact column names to copy-paste, reducing key mismatches. Combined with PVMAP repair, this addresses key matching from both directions (better generation + programmatic correction).
+
+---
+
+### 6. Placeholder Syntax & Template Escaping (Resolved)
+
+**Problem:** `{Data}` and `{Number}` placeholders in PVMAP content conflicted with ADK's `LlmAgent` instruction templating, which interprets ALL `{word}` patterns as state variable references.
+
+**Root cause (bug fix 2026-02-11):** `feedback_agent.py` had literal `{Number}` in the `FEEDBACK_AGENT_INSTRUCTION` template text. ADK tried to resolve it as a state variable, throwing `KeyError: 'Context variable not found: 'Number'.'`. This crashed the FeedbackAgent on every retry, effectively limiting the retry loop to 1 attempt.
+
+**Solution:** Three-layer escaping strategy in `src/agents/template_utils.py`:
+
+| Function | Converts | Use Case |
+|----------|----------|----------|
+| `escape_pvmap_placeholders()` | `{Data}` → `[DATA]`, `{Number}` → `[NUMBER]`, `{word}` → `[word]` | State values injected into LlmAgent instructions |
+| `sanitize_for_adk()` | ALL `{word}` and `{{word}}` → `[word]` | Fully-resolved instructions (after Python `.replace()`) |
+| `unescape_pvmap_placeholders()` | `[DATA]` → `{Data}`, `[NUMBER]` → `{Number}` | Before writing final PVMAP to disk |
+
+**Critical lesson:** `{{word}}` is NOT an escape in ADK — the regex strips ALL braces. Only bracket escaping `[DATA]` works.
+
+**Files changed:** `template_utils.py`, `feedback_agent.py`, `pvmap_retry_loop.py`
+
+---
+
+### 7. LLM Metadata Capture via Artifact Plugin (2026-02-10)
+
+**Problem:** Attempt artifacts (`attempt_*.md`, `attempt_*.json`) lacked model metadata (name, token counts, timing, thinking content). The only way to capture this is via ADK plugin hooks.
+
+**Solution:** Refactored `src/utils/artifact_plugin.py` from file-based to state-based capture:
+
+```python
+class ArtifactLoggingPlugin(BasePlugin):
+    # before_model_callback: Start timer, extract config, enable ThinkingConfig
+    # after_model_callback: Extract usage, thinking content → pvmap_llm_result state
+```
+
+**State output:** `pvmap_llm_result` dict containing:
+- `model`, `temperature`, `max_output_tokens` — Request config
+- `prompt_token_count`, `candidates_token_count`, `total_token_count` — Usage stats
+- `thinking_content` — Chain-of-thought reasoning
+- `duration_seconds` — Wall-clock time
+
+Only captures calls from `"Generator"` / `"PVMAPGenerator"` agents. `ValidationAgent.save_attempt_response()` reads `pvmap_llm_result` to write rich artifacts.
+
+**Files changed:** `artifact_plugin.py` (refactored), `validation_agent.py`, `run_pipeline.py`
+
+---
+
+### 8. Error Feedback Propagation (Resolved)
+
+**Problem:** Error feedback may not propagate between LoopAgent iterations.
+
+**Solution:** `StatePreparationAgent` explicitly logs and verifies `error_feedback` presence in session state. Feedback accumulates across attempts via the ADK session state mechanism.
+
+---
+
+### 9. Sampling Agent Iteration Limit (Resolved)
+
+**Problem:** Forced tool calling mode with no iteration limit could cause infinite API calls.
+
+**Solution:** `SamplingAgentWrapper` uses `max_llm_calls` limit and timeout in the inner Runner.
+
+---
+
+## Failure Patterns Addressed
+
+| Pattern | Previous Blind Spot | How Improvements Help |
+|---------|--------------------|-----------------------|
+| **Dimension values as raw strings** | Feedback didn't know which properties need DCIDs vs passthrough | StatVar analysis shows raw strings; schema vocab provides valid DCID vocabulary |
+| **Wrong populationType / measuredProperty** | Feedback only saw heuristic scores, not which properties were wrong | Schema vocab lists valid skeletons; StatVar analysis shows what was actually generated |
+| **Corrupted CSV parsing in values** | MCF output showed corruption but nobody read it | StatVar analysis parses MCF and flags values with special characters |
+| **Generator regression on retry** | No guidance to preserve working rows | Anti-regression output format ("Rows to PRESERVE") |
+| **Missing column role context** | Feedback didn't know which columns are place/time/dimension | Skeleton summary provides column classification from sampling analysis |
+
+---
+
+## Architecture: Retry Loop Agents
+
+**Without MCP (7 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── PVMAPGenerationAgent         — Generates PVMAP with error feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP (merged with GT/user)
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor, extracts StatVar analysis
+├── QualityEvaluationAgent       — Computes heuristic + GT metrics, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+    ├── Path A: Validation failed → structural error feedback
+    └── Path B: Quality low → PV-aware or structural feedback with schema context
+```
+
+**With MCP (10 agents):**
+```
+LoopAgent (max_iterations=max_retries+1)
+├── StatePreparationAgent        — Prepares state, logs feedback presence
+├── StatVarDiscoveryAgent        — Loop-aware MCP StatVar discovery
+├── PVMAPGenerationAgent         — Generates PVMAP with MCP toolset + error feedback
+├── MetadataGenerationAgent      — Generates output_metadata.csv from PVMAP
+├── MCPSpotCheckAgent            — Post-generation MCP spot-check of mappings
+├── ValidationAgent              — Runs PVMAP repair + stat_var_processor
+├── MCPErrorResolverAgent        — Post-validation MCP error resolution
+├── QualityEvaluationAgent       — Computes heuristic + GT metrics, sets reject reason
+├── MaxRetriesCheckAgent         — Tracks best attempt, escalates after max attempts
+└── ConditionalFeedbackAgent     — Unified feedback (validation-failed OR quality-low)
+```
+
+**Key state keys:**
+- `error_feedback` — accumulated feedback for generator
+- `feedback_mode` — "VALIDATION FAILED", "PV ACCURACY LOW", or "QUALITY LOW"
+- `validation_counter_summary` — high-level validation metrics
+- `validation_statvar_analysis` — MCF-parsed StatVar property distributions
+- `quality_metrics` — heuristic scores + GT accuracy + reject reason
+- `schema_vocab_content` — compressed schema vocabulary JSON
+- `schema_category` — selected schema category name
+- `skeleton_summary` — column classification from sampling
+- `generated_config_path` — path to output_metadata.csv (set by MetadataGenerationAgent)
+- `generated_config_params` — dict of auto-generated config parameters
+- `pvmap_repair_changes` — list of key repairs applied by pvmap_repair module
+- `key_match_report` — markdown report of PVMAP key match status (matched/fixed/unmatched/unmapped)
+- `pvmap_llm_result` — LLM metadata dict (model, tokens, timing, thinking content)
+- `model` — LLM model name for artifact logging (set in initial_state)
+
+---
+
+## Verification
+
+```bash
+# Unit tests (all ~982 pass)
+PYTHONPATH="$(pwd):$(pwd)/src" .venv/bin/python -m pytest tests/ -x -q
+
+# Test StatVar extraction standalone
+python -c "
+from src.tools.validation_tool import _extract_statvar_summary
+summary = _extract_statvar_summary('output/brfss_nchs_asthma_prevalence/processed')
+print(summary)
+"
+
+# Pipeline run with feedback improvements
+python src/run_pipeline.py --dataset=brfss_nchs_asthma_prevalence --structured-output
+```

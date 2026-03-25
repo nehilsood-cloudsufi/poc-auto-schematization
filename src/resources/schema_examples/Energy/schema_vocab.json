@@ -1,0 +1,132 @@
+{
+  "category": "Energy",
+  "stat_var_skeletons": {
+    "Consumption": [
+      "consumedThing",
+      "measuredProperty",
+      "measurementDenominator"
+    ],
+    "Electricity": [
+      "consumingSector",
+      "measuredProperty",
+      "measurementQualifier"
+    ],
+    "Energy": [
+      "energySource",
+      "measuredProperty",
+      "measurementQualifier"
+    ],
+    "Fuel": [
+      "fuelType",
+      "measuredProperty",
+      "measurementQualifier"
+    ],
+    "Production": [
+      "measuredProperty",
+      "measurementDenominator",
+      "producedThing"
+    ],
+    "SDG_EG_FEC_RNEW": [
+      "footnote",
+      "measuredProperty"
+    ],
+    "SDG_ER_FFS_CMPT_GDP": [
+      "footnote",
+      "measuredProperty"
+    ],
+    "SDG_ER_FFS_CMPT_PC_CD": [
+      "footnote",
+      "measuredProperty"
+    ],
+    "SolarInstallation": []
+  },
+  "property_vocabulary": {
+    "consumedThing": [
+      "RenewableEnergy"
+    ],
+    "consumingSector": [
+      "Agriculture",
+      "CommerceAndPublicServices",
+      "ConstructionIndustry",
+      "Households",
+      "Manufacturing",
+      "TransportIndustry"
+    ],
+    "energySource": [
+      "Coal",
+      "EIA_Water",
+      "Geothermal",
+      "NaturalGas",
+      "OilProducts",
+      "Solar"
+    ],
+    "footnote": [
+      "Includes data from the following sources: Central Statistics Office; IEA fossil fuel subsidies database",
+      "Includes data from the following sources: Energy Balances"
+    ],
+    "fuelType": [
+      "HardCoal",
+      "NaturalGas",
+      "Nuclear",
+      "PetroleumCoke"
+    ],
+    "measuredProperty": [
+      "amount",
+      "consumption",
+      "generation",
+      "value"
+    ],
+    "measurementDenominator": [
+      "Amount_Consumption_Energy",
+      "Amount_Production_Energy"
+    ],
+    "measurementQualifier": [
+      "Annual"
+    ],
+    "producedThing": [
+      "ElectricityFromNuclearSources",
+      "ElectricityFromOilGasOrCoalSources"
+    ]
+  },
+  "examples": [
+    {
+      "label": "Annual Electricity Consumption",
+      "mapping": "measuredProperty:consumption, measurementQualifier:Annual, populationType:Electricity"
+    },
+    {
+      "label": "Annual Generation of Electricity: for Households",
+      "mapping": "consumingSector:Households, measuredProperty:generation, measurementQualifier:Annual, populationType:Electricity"
+    },
+    {
+      "label": "Annual Energy Generation From Coal",
+      "mapping": "energySource:Coal, measuredProperty:generation, measurementQualifier:Annual, populationType:Energy"
+    },
+    {
+      "label": "Annual Generation of Fuel: Hard Coal",
+      "mapping": "fuelType:HardCoal, measuredProperty:generation, measurementQualifier:Annual, populationType:Fuel"
+    },
+    {
+      "label": "Fraction of Electricity Production from Nuclear Sources",
+      "mapping": "measuredProperty:amount, measurementDenominator:Amount_Production_Energy, populationType:Production, producedThing:ElectricityFromNuclearSources"
+    },
+    {
+      "label": "Solar Installations",
+      "mapping": "populationType:SolarInstallation"
+    },
+    {
+      "label": "Renewable energy share in the total final energy consumption",
+      "mapping": "footnote:Includes data from the following sources: Energy Balances, measuredProperty:value, populationType:SDG_EG_FEC_RNEW"
+    }
+  ],
+  "schema_org": {
+    "primary_type": "Place",
+    "type_hierarchy": [
+      "Place",
+      "Thing"
+    ],
+    "schemaorg_properties": {},
+    "dc_only_properties": [
+      "energySource"
+    ]
+  }
+}

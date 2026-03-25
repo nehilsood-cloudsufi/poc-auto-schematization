@@ -1,0 +1,58 @@
+# Cloud Build ignore file — controls what gets uploaded to Cloud Build context.
+# This file takes precedence over .gitignore for gcloud builds submit.
+
+# Must include .gitignore to inherit base patterns
+#!include:.gitignore
+
+# Git
+.git
+
+# Environment
+.env
+.envrc
+.venv
+venv/
+
+# Bytecode
+__pycache__/
+*.py[codz]
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Tests and docs (not needed in container)
+tests/
+docs/
+.pytest_cache/
+htmlcov/
+
+# Project data (not needed in container)
+ground_truth/
+input/
+output/
+ui_output/
+logs/
+tmp/
+
+# IDE / OS
+.claude/
+.DS_Store
+.mypy_cache/
+.ruff_cache/
+
+# Project-specific exclusions
+output_*/
+input_*/
+test_input/
+test_output/
+http_cache.sqlite
+uv.lock
+/schema/
+ui_runs/
+src/resources/schema_org/schemaorg_full.jsonld
+
+# Docs
+README.md
+CLAUDE.md
