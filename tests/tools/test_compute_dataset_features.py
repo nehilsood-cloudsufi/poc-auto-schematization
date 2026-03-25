@@ -181,3 +181,27 @@ def test_find_input_csv_missing(tmp_path):
 
     result = find_input_csv("nonexistent_dataset", str(tmp_path))
     assert result is None
+
+
+def test_compute_correlations():
+    from tools.compute_dataset_features import compute_correlations
+
+    features_df = pd.DataFrame({
+        "dataset": ["a", "b", "c", "d", "e", "f", "g", "h"],
+        "pv_accuracy": [50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 60.0, 70.0],
+        "column_count": [3, 5, 8, 12, 20, 25, 2, 1],
+        "row_count": [100, 200, 300, 400, 500, 600, 50, 25],
+    })
+
+    result = compute_correlations(features_df, target="pv_accuracy",
+                                  factors=["column_count", "row_count"])
+
+    assert len(result) == 2
+    assert "factor" in result.columns
+    assert "spearman_r" in result.columns
+    assert "p_value" in result.columns
+    assert "n" in result.columns
+    # column_count should have negative correlation (more columns = lower accuracy)
+    col_row = result[result["factor"] == "column_count"].iloc[0]
+    assert col_row["spearman_r"] < 0
+    assert col_row["n"] == 8
