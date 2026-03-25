@@ -1,6 +1,10 @@
 """Extract dataset structural features and correlate with PV accuracy."""
 
+import glob
+import math
+import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -112,6 +116,11 @@ def extract_gemini3pro_metrics(comparison_md_path: str) -> dict[str, dict[str, f
 import pandas as pd
 
 
+COMPARISON_MD = "analysis/Gemini_vs_Claude_Comparison.md"
+INPUT_BASE_DIR = "input"
+OUTPUT_DIR = "analysis/factor_analysis"
+
+
 def _is_numeric_column(series: pd.Series, threshold: float = 0.8) -> bool:
     """Check if >threshold of non-null values in a column parse as numbers."""
     non_null = series.dropna()
@@ -146,8 +155,6 @@ def extract_structural_features(csv_path: str) -> dict[str, float]:
         "mean_column_cardinality": sum(cardinalities) / len(cardinalities) if cardinalities else 0,
     }
 
-
-import glob
 
 DOMAIN_TAXONOMY = {
     # Economics/Finance
@@ -253,8 +260,6 @@ def find_input_csv(dataset_name: str, input_base_dir: str) -> str | None:
     return matches[0] if matches else None
 
 
-import math
-
 STRUCTURAL_FACTORS = [
     "column_count",
     "row_count",
@@ -344,3 +349,121 @@ def compute_correlations(
     if len(result) > 0:
         result = result.sort_values("spearman_r", key=abs, ascending=False).reset_index(drop=True)
     return result
+
+
+def compute_bucket_stats(
+    features_df: pd.DataFrame,
+    factor: str,
+    target: str = "pv_accuracy",
+    buckets: list[tuple[str, float, float]] | None = None,
+) -> pd.DataFrame:
+    """Compute average target metric for each bucket of a factor.
+
+    buckets: list of (label, min_val, max_val). If None, auto-creates 3 buckets.
+    Returns DataFrame with: bucket, count, avg_pv_accuracy, median_pv_accuracy.
+    """
+    valid = features_df[[factor, target]].dropna()
+
+    if buckets is None:
+        # Auto-create tercile buckets
+        q33 = valid[factor].quantile(0.33)
+        q66 = valid[factor].quantile(0.66)
+        buckets = [
+            ("low", float("-inf"), q33),
+            ("mid", q33, q66),
+            ("high", q66, float("inf")),
+        ]
+
+    rows = []
+    for label, lo, hi in buckets:
+        mask = (valid[factor] > lo) & (valid[factor] <= hi)
+        if label == buckets[0][0]:  # First bucket includes lower bound
+            mask = (valid[factor] >= lo) & (valid[factor] <= hi)
+        subset = valid[mask]
+        if len(subset) == 0:
+            continue
+        rows.append({
+            "bucket": label,
+            "count": len(subset),
+            f"avg_{target}": round(subset[target].mean(), 1),
+            f"median_{target}": round(subset[target].median(), 1),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def main():
+    """Main entry point: parse metrics, extract features, compute correlations, write CSVs."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    comparison_path = os.path.join(project_root, COMPARISON_MD)
+    input_dir = os.path.join(project_root, INPUT_BASE_DIR)
+    output_dir = os.path.join(project_root, OUTPUT_DIR)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Step 1: Parse Gemini 3 Pro metrics
+    print(f"Parsing metrics from {comparison_path}...")
+    metrics = extract_gemini3pro_metrics(comparison_path)
+    print(f"Found {len(metrics)} datasets with non-zero Gemini 3 Pro metrics")
+
+    # Step 2: Extract structural features for each dataset
+    rows = []
+    missing_csvs = []
+    for dataset, m in sorted(metrics.items()):
+        csv_path = find_input_csv(dataset, input_dir)
+
+        row = {
+            "dataset": dataset,
+            "domain": get_domain(dataset),
+            "pv_accuracy": m.get("pv_accuracy", 0.0),
+            "node_accuracy": m.get("node_accuracy", 0.0),
+            "node_coverage": m.get("node_coverage", 0.0),
+        }
+
+        if csv_path:
+            features = extract_structural_features(csv_path)
+            row.update(features)
+        else:
+            missing_csvs.append(dataset)
+
+        rows.append(row)
+
+    features_df = pd.DataFrame(rows)
+
+    print(f"\nStructural features extracted: {len(features_df) - len(missing_csvs)} datasets")
+    if missing_csvs:
+        print(f"Missing input CSVs ({len(missing_csvs)}): {', '.join(missing_csvs)}")
+
+    # Step 3: Save features CSV
+    features_path = os.path.join(output_dir, "dataset_features_and_accuracy.csv")
+    features_df.to_csv(features_path, index=False)
+    print(f"\nFeatures saved to {features_path}")
+
+    # Step 4: Compute correlations
+    corr_df = compute_correlations(features_df)
+    corr_path = os.path.join(output_dir, "correlation_summary.csv")
+    corr_df.to_csv(corr_path, index=False)
+    print(f"Correlations saved to {corr_path}")
+
+    # Step 5: Print summary
+    print("\n=== CORRELATION RANKING ===")
+    print(corr_df.to_string(index=False))
+
+    # Step 6: Domain breakdown
+    print("\n=== DOMAIN BREAKDOWN ===")
+    domain_stats = features_df.groupby("domain")["pv_accuracy"].agg(["count", "mean", "median"]).round(1)
+    domain_stats = domain_stats.sort_values("mean", ascending=False)
+    print(domain_stats.to_string())
+
+    # Step 7: Bucket analysis for top factors
+    print("\n=== BUCKET ANALYSIS ===")
+    for _, row in corr_df.head(4).iterrows():
+        factor = row["factor"]
+        print(f"\n--- {factor} (r={row['spearman_r']}) ---")
+        bucket_df = compute_bucket_stats(features_df, factor)
+        print(bucket_df.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
