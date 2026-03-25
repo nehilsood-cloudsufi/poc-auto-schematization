@@ -203,6 +203,14 @@ def create_parser() -> argparse.ArgumentParser:
         help='Enable verbose logging'
     )
 
+    # Prompt version
+    parser.add_argument(
+        '--prompt-version',
+        choices=['v2', 'v3'],
+        default='v2',
+        help='PVMAP prompt version to use (default: v2)'
+    )
+
     return parser
 
 
