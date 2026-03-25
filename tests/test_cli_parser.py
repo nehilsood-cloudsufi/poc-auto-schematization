@@ -337,10 +337,6 @@ class TestInvalidValues:
 class TestRemovedFlags:
     """Flags that have been removed should cause SystemExit."""
 
-    def test_prompt_version_removed(self):
-        with pytest.raises(SystemExit):
-            parse_args(["--prompt-version", "v2"])
-
     def test_sampling_mode_removed(self):
         with pytest.raises(SystemExit):
             parse_args(["--sampling-mode", "legacy"])
@@ -487,6 +483,7 @@ class TestHelperFunctions:
             "structured_output", "no_structured_output",
             "verbose",
             "skip_column_discovery",
+            "prompt_version",
         }
         assert expected_keys == set(result.keys())
 
