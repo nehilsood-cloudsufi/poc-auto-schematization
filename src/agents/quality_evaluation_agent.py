@@ -89,6 +89,7 @@ class QualityEvaluationAgent(BaseAgent):
     # Quality thresholds (ClassVar to avoid Pydantic field treatment)
     QUALITY_THRESHOLD: ClassVar[float] = 70.0  # Heuristic score threshold (out of 100)
     PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
+    COLUMN_COVERAGE_THRESHOLD: ClassVar[float] = 80.0  # Non-GT quality gate
     STAGNATION_RATIO: ClassVar[float] = 0.10  # Minimum improvement as fraction of previous accuracy
 
     # Private attribute for min_attempts enforcement (not a Pydantic field)
@@ -184,24 +185,48 @@ class QualityEvaluationAgent(BaseAgent):
                 )
 
         # =====================================================================
-        # Step 1b-ii: Re-evaluate quality_acceptable with PV accuracy (Priority 2)
-        # PV accuracy < 30% overrides heuristic acceptance when GT is available.
+        # Step 1b-ii: Re-evaluate quality_acceptable based on GT availability
+        # With GT: PV accuracy >= 30% OR heuristic >= 70 (existing behavior)
+        # Without GT: column_coverage >= 80% gates retries (heuristic still logged)
         # =====================================================================
+        gt_available = bool(gt_pvmap_path)
         gt_pv_accuracy = quality_metrics.get("gt_pv_accuracy")
-        if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
-            quality_acceptable = False  # Override even if heuristic was fine
-            quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
-            if not quality_diff_summary:
-                quality_diff_summary = format_quality_report(
-                    {"total": quality_metrics.get("heuristic_score", 0),
-                     "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
-                     "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
-                     "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
-                     "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
-                     "issues": ""}
-                )
-        elif not quality_acceptable:
-            quality_metrics["quality_reject_reason"] = "heuristic_low"
+
+        if gt_available:
+            # GT path: PV accuracy < 30% overrides heuristic acceptance
+            if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
+                quality_acceptable = False  # Override even if heuristic was fine
+                quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
+                if not quality_diff_summary:
+                    quality_diff_summary = format_quality_report(
+                        {"total": quality_metrics.get("heuristic_score", 0),
+                         "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                         "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                         "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
+                         "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                         "issues": ""}
+                    )
+            elif not quality_acceptable:
+                quality_metrics["quality_reject_reason"] = "heuristic_low"
+        else:
+            # Non-GT path: only column_coverage gates retries
+            col_cov = quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0)
+            quality_acceptable = col_cov >= self.COLUMN_COVERAGE_THRESHOLD
+            if not quality_acceptable:
+                quality_metrics["quality_reject_reason"] = "column_coverage_low"
+                if not quality_diff_summary:
+                    quality_diff_summary = format_quality_report(
+                        {"total": quality_metrics.get("heuristic_score", 0),
+                         "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                         "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                         "column_coverage": col_cov,
+                         "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                         "issues": ""}
+                    )
+            logger.info(
+                "Non-GT quality gate: column_coverage=%.1f%%, threshold=%.1f%%, acceptable=%s",
+                col_cov, self.COLUMN_COVERAGE_THRESHOLD, quality_acceptable,
+            )
 
         # =====================================================================
         # Step 1c: Enrich diff summary with counter metrics (when quality low)
