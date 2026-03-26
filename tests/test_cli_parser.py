@@ -484,6 +484,7 @@ class TestHelperFunctions:
             "verbose",
             "skip_column_discovery",
             "prompt_version",
+            "feedback_prompt_version",
         }
         assert expected_keys == set(result.keys())
 

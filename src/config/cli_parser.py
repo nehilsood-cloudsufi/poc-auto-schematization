@@ -211,6 +211,14 @@ def create_parser() -> argparse.ArgumentParser:
         help='PVMAP prompt version to use (default: v3)'
     )
 
+    # Feedback prompt version
+    parser.add_argument(
+        '--feedback-prompt-version',
+        choices=['v1', 'v2'],
+        default='v1',
+        help='Feedback agent prompt version (default: v1)'
+    )
+
     return parser
 
 

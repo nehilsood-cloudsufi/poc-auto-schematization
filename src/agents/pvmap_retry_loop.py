@@ -1184,6 +1184,7 @@ class ConditionalFeedbackAgent(BaseAgent):
         name: str = "UnifiedFeedback",
         model: str = "gemini-2.5-flash",
         thinking_level: Optional[str] = None,
+        feedback_prompt_version: str = "v1",
     ):
         """
         Initialize ConditionalFeedbackAgent.
@@ -1192,8 +1193,11 @@ class ConditionalFeedbackAgent(BaseAgent):
             name: Agent name
             model: Gemini model for the inner LlmAgent
             thinking_level: Thinking level for Gemini models
+            feedback_prompt_version: Feedback prompt version ('v1' or 'v2')
         """
-        feedback_agent = create_feedback_agent(model=model, thinking_level=thinking_level)
+        feedback_agent = create_feedback_agent(
+            model=model, thinking_level=thinking_level, prompt_version=feedback_prompt_version
+        )
         super().__init__(
             name=name,
             feedback_agent=feedback_agent,
@@ -1908,6 +1912,7 @@ def create_pvmap_retry_loop(
     mcp_url: Optional[str] = None,
     min_attempts: Optional[int] = None,
     thinking_level: Optional[str] = None,
+    feedback_prompt_version: str = "v1",
 ) -> LoopAgent:
     """
     Create PVMAP generation retry loop with quality-based retries.
@@ -1976,7 +1981,10 @@ def create_pvmap_retry_loop(
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
     quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator", min_attempts=min_attempts)
-    unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model, thinking_level=thinking_level)
+    unified_feedback = ConditionalFeedbackAgent(
+        name="UnifiedFeedback", model=model, thinking_level=thinking_level,
+        feedback_prompt_version=feedback_prompt_version,
+    )
     max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
     # Build sub_agents list

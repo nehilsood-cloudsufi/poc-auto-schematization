@@ -330,6 +330,7 @@ def run_dataset_pipeline(
     skip_column_discovery: bool = False,
     use_llm_judge: bool = False,
     prompt_version: str = "v3",
+    feedback_prompt_version: str = "v1",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -398,6 +399,7 @@ def run_dataset_pipeline(
         mcp_url=mcp_url,
         min_attempts=min_attempts,
         thinking_level=thinking_level,
+        feedback_prompt_version=feedback_prompt_version,
     )
     logger.info("Using ADK LoopAgent-based PVMAP retry loop")
     if enable_mcp and mcp_url:
@@ -528,6 +530,7 @@ def run_dataset_pipeline(
         # Schema examples control
         "use_schema_examples": use_schema_examples,
         "prompt_version": prompt_version,
+        "feedback_prompt_version": feedback_prompt_version,
     }
 
     # Inject human feedback if provided (for UI re-runs)
@@ -803,6 +806,8 @@ if __name__ == "__main__":
     # Prompt version
     parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v3",
                         help="PVMAP prompt version to use (default: v3)")
+    parser.add_argument("--feedback-prompt-version", choices=["v1", "v2"], default="v1",
+                        help="Feedback agent prompt version (default: v1)")
     args = parser.parse_args()
 
     # Validation: --input-file and --dataset are mutually exclusive
@@ -944,6 +949,7 @@ if __name__ == "__main__":
             skip_column_discovery=getattr(args, 'skip_column_discovery', False),
             use_llm_judge=getattr(args, 'use_llm_judge', False),
             prompt_version=getattr(args, 'prompt_version', 'v3'),
+            feedback_prompt_version=getattr(args, 'feedback_prompt_version', 'v1'),
         )
 
         print("\n" + "=" * 60)
