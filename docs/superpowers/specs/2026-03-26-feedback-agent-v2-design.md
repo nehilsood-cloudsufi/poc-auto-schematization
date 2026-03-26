@@ -91,11 +91,13 @@ BOTTOM LAYER (high attention — recency)
 
 ### GT Feedback Section Content (~20 lines, injected conditionally)
 
-When GT is available, `{{GT_FEEDBACK_SECTION}}` is populated with:
+**Placeholder mechanism:** The GT section uses a normal state variable `{gt_feedback_section}` (single braces), NOT double-brace `{{...}}` syntax. `ConditionalFeedbackAgent._prepare_feedback_state()` sets this state variable before invoking the FeedbackAgent LlmAgent. ADK resolves `{gt_feedback_section}` from state at runtime, just like all other placeholders in the prompt.
+
+When GT is available, `ConditionalFeedbackAgent` populates `gt_feedback_section` with:
 
 ```
 ## Ground Truth Comparison
-{gt_score_section}
+[GT score section formatted by ConditionalFeedbackAgent._format_gt_section()]
 
 ### PV Accuracy Analysis
 If PV accuracy is low, the PVMAP structure is OK but property-value pairs don't match:
@@ -106,7 +108,9 @@ If PV accuracy is low, the PVMAP structure is OK but property-value pairs don't 
 - If raw strings appear where DCIDs expected, suggest Column:Value mappings with vocab DCIDs
 ```
 
-When no GT: `{{GT_FEEDBACK_SECTION}}` = empty string.
+When no GT: `gt_feedback_section` = empty string.
+
+**Note:** `gt_score_section` formatting stays in `ConditionalFeedbackAgent._format_gt_section()` (pvmap_retry_loop.py line 1457), NOT in `QualityEvaluationAgent`. The quality agent only sets the raw metric values; the feedback agent formats them for the prompt.
 
 ## Quality Gate Refactor
 
@@ -135,13 +139,14 @@ if gt_available:
         or heuristic.score >= QUALITY_THRESHOLD  # 70
     )
     quality_reject_reason = "pv_accuracy_low" if not quality_acceptable else None
-    state["gt_score_section"] = format_gt_section(gt_comparison)
+    # NOTE: gt_score_section formatting stays in ConditionalFeedbackAgent._format_gt_section()
+    # QualityEvaluationAgent only stores raw gt_node_accuracy, gt_pv_accuracy in quality_metrics
 else:
-    # Non-GT mode: column coverage is the only quality gate
+    # Non-GT mode: column coverage is the only additional quality gate
+    # NOTE: existing check_column_completeness() critical gate is preserved (runs first)
     column_coverage = heuristic.breakdown["column_coverage"]
     quality_acceptable = column_coverage >= COLUMN_COVERAGE_THRESHOLD  # 80
     quality_reject_reason = "column_coverage_low" if not quality_acceptable else None
-    state["gt_score_section"] = ""  # not populated
 ```
 
 ### New Constants
@@ -156,7 +161,14 @@ Existing constants unchanged:
 
 ## Retry Loop Changes
 
-### max_retries
+### max_retries and Loop Ordering
+
+**Loop agent order:** `QualityEvaluator → MaxRetriesCheck → UnifiedFeedback`
+
+`MaxRetriesCheck` runs BEFORE `UnifiedFeedback`. When it escalates at `attempt >= max_retries`, the loop exits WITHOUT running feedback on the final iteration. This means:
+
+- **Non-GT (max_retries=2):** attempt 0 (initial) → feedback → attempt 1 (retry) → feedback → attempt 2 (MaxRetriesCheck escalates, no feedback). **2 feedback-informed attempts.** This is acceptable — with the processor-focused feedback, 2 informed retries should be sufficient.
+- **GT (max_retries=3):** attempt 0 → feedback → attempt 1 → feedback → attempt 2 → feedback → attempt 3 (escalates). **3 feedback-informed attempts.**
 
 ```python
 def create_pvmap_retry_loop(...):
@@ -172,22 +184,24 @@ effective_max = 2 if not gt_available else self._max_retries  # 3
 
 ### ConditionalFeedbackAgent Changes
 
-1. **GT placeholder injection:**
+1. **GT placeholder injection (uses single-brace `{gt_feedback_section}`, resolved by ADK from state):**
    ```python
    gt_available = bool(ctx.session.state.get("gt_pvmap_path_cached"))
    if gt_available:
        gt_section = GT_FEEDBACK_TEMPLATE.format(
-           gt_score_section=ctx.session.state.get("gt_score_section", "")
+           gt_score_section=self._format_gt_section(ctx)  # stays in ConditionalFeedbackAgent
        )
    else:
        gt_section = ""
    ctx.session.state["gt_feedback_section"] = gt_section
    ```
+   **Note on ADK safety:** The variable name `gt_feedback_section` must not collide with any LLM-generated PVMAP content. This is safe because PVMAP placeholders use `{Data}`, `{Number}` patterns which are escaped to `[DATA]`, `[NUMBER]` before reaching the feedback agent.
 
-2. **Drop unused variables from preparation:**
-   - Remove `sampled_data` cap/escape for feedback
-   - Remove `structure_warnings` cap/escape
-   - Remove `mcp_resolved_context` cap/escape
+2. **Drop unused variables from preparation — all 4 locations per variable:**
+   - Remove `sampled_data` from `_FEEDBACK_CAPS`, `_FEEDBACK_STATE_KEYS`, escaping loops, and `_FEEDBACK_RESTORE_KEYS`
+   - Remove `structure_warnings` from same 4 locations
+   - Remove `mcp_resolved_context` from same 4 locations
+   - **Important:** `sampled_data` MUST remain in session state for `QualityEvaluationAgent._evaluate_with_heuristics()` — only remove from the feedback preparation path, not from state itself.
 
 3. **Feedback prompt version selection:**
    ```python
@@ -249,7 +263,14 @@ MODIFY:
 - Add `--feedback-prompt-version` flag reading
 
 #### A4. `src/agents/feedback_agent.py`
-MODIFY — support feedback prompt version selection (load `feedback_agent.txt` or `feedback_agent_v2.txt`).
+MODIFY — support feedback prompt version selection. Currently the prompt is loaded at module import time as a constant (`FEEDBACK_AGENT_INSTRUCTION = load_prompt("feedback_agent.txt")`). Change `create_feedback_agent()` to accept a `prompt_version` parameter and load the correct template at call time:
+```python
+def create_feedback_agent(model=..., prompt_version="v1", ...):
+    template_name = f"feedback_agent{'_v2' if prompt_version == 'v2' else ''}.txt"
+    instruction = load_prompt(template_name)
+    return LlmAgent(instruction=instruction, ...)
+```
+The module-level `FEEDBACK_AGENT_INSTRUCTION` constant can remain as the v1 default for backward compatibility.
 
 #### A5. `src/config/cli_parser.py`
 MODIFY — add `--feedback-prompt-version` flag (choices: v1, v2; default: v1).
@@ -303,6 +324,7 @@ Same pattern as PVMAP v3: flip defaults after A/B validation.
 | Dropping `{sampled_data}` from feedback hurts analysis | Low | skeleton_summary has column info; data is in pvmap_csv |
 | GT/non-GT path bug | Low | Separate tests for both paths |
 | max_retries=2 insufficient for some non-GT datasets | Low | Can fall back to `--feedback-prompt-version v1` which keeps 3 retries |
+| ADK template variable collision with `{gt_feedback_section}` | Very Low | PVMAP placeholders ({Data}, {Number}) are escaped to [DATA], [NUMBER] before reaching feedback agent; no collision possible |
 
 ## File Changes Summary
 
