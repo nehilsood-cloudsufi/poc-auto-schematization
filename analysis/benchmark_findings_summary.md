@@ -1,25 +1,5 @@
 # PV Accuracy Factor Analysis — Summary
 
-## Plain-English Version (for leadership)
-
-We tested our automated pipeline on 48 real-world datasets to figure out why it works well on some and fails on others. Here's what we found.
-
-**The subject matter of the data is what decides success or failure — not how big or complicated the table is.**
-
-Datasets about demographics and census data get about 39% of mappings right. Datasets about crime, Brazilian government programs, or Korean education get close to 0%. A table with 56 columns can score 89% if it's about wages. A table with 4 columns can score 0% if it's about school bullying.
-
-Why? Our system maps data into an existing dictionary of terms (Data Commons schema). Some topics have hundreds of pre-defined terms to match against. Others have almost none. When the dictionary has the right words, the system works. When it doesn't, it can't.
-
-**Table size doesn't matter.** We tested whether having more columns or more rows makes it harder. It doesn't. The pipeline handles wide tables and large datasets just as well as small ones.
-
-**Our test baseline has problems.** We checked whether the "correct answers" we compare against are themselves valid. Only 28 of 48 (58%) actually work when we run them. The other 20 have technical issues — wrong column names, missing files, or API errors. So our reported accuracy numbers are probably worse than reality for some datasets.
-
-**What would improve results:** Expanding the dictionary for poorly-covered topics (crime, education, international data). Also, fixing the broken test files would give us more accurate measurements to work with.
-
----
-
-## Technical Version
-
 Hey,
 
 I spent some time digging into what actually drives PV accuracy across our benchmark datasets. I wanted to understand why some datasets do well and others completely fail, so I pulled the 49 datasets from our evaluation benchmark and ran a proper statistical analysis.
