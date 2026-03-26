@@ -1,6 +1,8 @@
-import pytest
-import pandas as pd
+import os
+
 import numpy as np
+import pandas as pd
+import pytest
 
 
 def test_domain_palette_has_all_domains():
@@ -39,3 +41,26 @@ def test_get_schema_coverage_tier():
     assert get_schema_coverage_tier("Economics/Finance") == "Moderate"
     assert get_schema_coverage_tier("Crime/Safety") == "Weak"
     assert get_schema_coverage_tier("India") == "Weak"
+
+
+# ---------------------------------------------------------------------------
+# Smoke tests for chart generation
+# ---------------------------------------------------------------------------
+
+def test_generate_all_charts_produces_6_files(tmp_path, monkeypatch):
+    from tools.generate_analysis_charts import generate_all_charts
+    monkeypatch.setattr("tools.generate_analysis_charts.CHART_DIR", str(tmp_path))
+    paths = generate_all_charts()
+    assert len(paths) == 6
+    for name, path in paths.items():
+        assert os.path.exists(path), f"Chart {name} not created at {path}"
+        assert os.path.getsize(path) > 1000, f"Chart {name} too small"
+
+
+def test_chart_h1_returns_valid_png(tmp_path, monkeypatch):
+    from tools.generate_analysis_charts import chart_h1_column_count, CSV_PATH
+    monkeypatch.setattr("tools.generate_analysis_charts.CHART_DIR", str(tmp_path))
+    df = pd.read_csv(CSV_PATH)
+    path = chart_h1_column_count(df)
+    assert path.endswith(".png")
+    assert os.path.exists(path)
