@@ -18,7 +18,7 @@ The `QualityEvaluationAgent` mixes heuristic scoring with GT comparison, and the
 ## Goals
 
 1. **Reduce feedback prompt by ~55%** (291 → ~130 lines) — strip redundant metrics interpretation
-2. **Separate GT from non-GT paths** — GT analysis as conditional `{{GT_FEEDBACK_SECTION}}` placeholder
+2. **Separate GT from non-GT paths** — GT analysis as conditional `{gt_feedback_section}` placeholder
 3. **Production-optimized retry logic** — non-GT: max_retries=2, column_coverage as sole quality gate
 4. **Processor-focused feedback** — organize around stat_var_processor outcomes (0 rows / partial / full)
 5. **Maintain placeholder contract** — same injection mechanism via `ConditionalFeedbackAgent`
@@ -34,7 +34,7 @@ The `QualityEvaluationAgent` mixes heuristic scoring with GT comparison, and the
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| GT separation | Conditional `{{GT_FEEDBACK_SECTION}}` placeholder | Empty when no GT, populated with PV accuracy analysis when GT exists |
+| GT separation | Conditional `{gt_feedback_section}` placeholder | Empty when no GT, populated with PV accuracy analysis when GT exists |
 | QualityEvaluationAgent refactor | Conditional block within same class | Minimal refactor — no new classes |
 | Non-GT primary gate | stat_var_processor success + data_rows > 0 | Production reality: "did it produce valid output?" |
 | Non-GT secondary gate | Column coverage >= 80% only | Catches unmapped dimensions even when processor succeeds |
@@ -70,7 +70,7 @@ MIDDLE LAYER (injected context — reference data)
 ├── 11. {skeleton_summary} (compacted)
 ├── 12. {schema_category} + {schema_vocab_content}
 ├── 13. {validation_statvar_analysis}
-└── 14. {{GT_FEEDBACK_SECTION}} (empty when no GT)
+└── 14. {gt_feedback_section} (empty when no GT)
 
 BOTTOM LAYER (high attention — recency)
 ├── 15. Output Format (~15 lines)
@@ -246,7 +246,7 @@ Same as above, plus:
 ### Phase A: Prompt Rewrite + Quality Gate + A/B Testing
 
 #### A1. `src/resources/prompts/feedback_agent_v2.txt`
-NEW — rewritten prompt ~130 lines with sandwich architecture, processor-focused paths, GT as `{{GT_FEEDBACK_SECTION}}`.
+NEW — rewritten prompt ~130 lines with sandwich architecture, processor-focused paths, GT as `{gt_feedback_section}`.
 
 #### A2. `src/agents/quality_evaluation_agent.py`
 MODIFY — add `gt_available` conditional:
@@ -257,7 +257,7 @@ MODIFY — add `gt_available` conditional:
 
 #### A3. `src/agents/pvmap_retry_loop.py`
 MODIFY:
-- `ConditionalFeedbackAgent`: inject `{{GT_FEEDBACK_SECTION}}`, drop 3 unused state vars from preparation
+- `ConditionalFeedbackAgent`: inject `{gt_feedback_section}`, drop 3 unused state vars from preparation
 - `MaxRetriesCheckAgent`: `max_retries = 2` when no GT, `3` when GT
 - `StatePreparationAgent`: support `feedback_prompt_version` from state, load correct template
 - Add `--feedback-prompt-version` flag reading
