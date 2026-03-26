@@ -1160,7 +1160,7 @@ class MCPErrorResolverAgent(BaseAgent):
 
 
 # Keys whose originals are saved before feedback compaction and restored after
-_FEEDBACK_RESTORE_KEYS = ["skeleton_summary", "schema_vocab_content", "sampled_data"]
+_FEEDBACK_RESTORE_KEYS = ["skeleton_summary", "schema_vocab_content"]
 
 
 class ConditionalFeedbackAgent(BaseAgent):
@@ -1488,8 +1488,7 @@ class ConditionalFeedbackAgent(BaseAgent):
             ctx.session.state["pvmap_repair_changes"] = "No auto-repairs were needed."
 
         # Escape all PVMAP-containing state
-        for key in ["pvmap_csv", "validation_error", "sampled_data",
-                     "structure_warnings", "mcp_resolved_context",
+        for key in ["pvmap_csv", "validation_error",
                      "quality_diff_summary", "pvmap_repair_changes"]:
             val = ctx.session.state.get(key, "")
             if val:
@@ -1536,12 +1535,9 @@ class ConditionalFeedbackAgent(BaseAgent):
             "pvmap_csv": 3000,
             "validation_error": 2000,
             "validation_counter_summary": 2000,
-            "sampled_data": 2000,
             "key_match_report": 1500,
             "validation_statvar_analysis": 1500,
             "quality_diff_summary": 1500,
-            "mcp_resolved_context": 1500,
-            "structure_warnings": 1500,
         }
         for key, max_chars in _FEEDBACK_CAPS.items():
             val = ctx.session.state.get(key, "")
@@ -1555,9 +1551,9 @@ class ConditionalFeedbackAgent(BaseAgent):
         # =====================================================================
         _FEEDBACK_STATE_KEYS = [
             "skeleton_summary", "schema_vocab_content", "pvmap_csv",
-            "validation_error", "sampled_data", "key_match_report",
+            "validation_error", "key_match_report",
             "validation_statvar_analysis", "quality_diff_summary",
-            "mcp_resolved_context", "validation_counter_summary",
+            "validation_counter_summary",
         ]
         MAX_FEEDBACK_TOTAL = 30000
         total = sum(len(ctx.session.state.get(k, "")) for k in _FEEDBACK_STATE_KEYS)
@@ -1580,6 +1576,18 @@ class ConditionalFeedbackAgent(BaseAgent):
                     new_size = max(len(val) // 2, 500)
                     ctx.session.state[key] = val[:new_size] + "\n...[truncated for token budget]"
                     total -= (len(val) - new_size)
+
+        # =====================================================================
+        # Inject GT feedback section conditionally for v2 prompt template.
+        # When GT is available, builds a detailed GT analysis section.
+        # When GT is not available, sets empty string (v2 prompt omits section).
+        # =====================================================================
+        gt_available = bool(ctx.session.state.get("gt_pvmap_path_cached"))
+        if gt_available:
+            gt_section = self._build_gt_feedback_section(ctx)
+        else:
+            gt_section = ""
+        ctx.session.state["gt_feedback_section"] = gt_section
 
         logger.info(
             "Feedback state sizes: skeleton=%d, vocab=%d, sampled=%d, total=%d",
@@ -1664,6 +1672,25 @@ class ConditionalFeedbackAgent(BaseAgent):
             lines.append("but focus on the heuristic issues above for specific fixes.")
 
         return "\n".join(lines)
+
+    def _build_gt_feedback_section(self, ctx: InvocationContext) -> str:
+        """Build GT-specific feedback section for the v2 prompt template."""
+        quality_metrics = ctx.session.state.get("quality_metrics", {})
+        if isinstance(quality_metrics, str):
+            # Already formatted from prior attempt; use gt_score_section fallback
+            gt_score = ctx.session.state.get("gt_score_section", "")
+        else:
+            gt_score = self._format_gt_section(quality_metrics)
+        return f"""## Ground Truth Comparison
+{gt_score}
+
+### PV Accuracy Analysis
+The PVMAP structure may be OK but property-value pairs don't match expected patterns:
+- Cross-reference generated properties against the schema vocabulary
+- Check if dimension values use proper DCIDs from vocabulary
+- Verify populationType matches stat_var_skeletons for this domain
+- Check StatVar Analysis for corrupted/malformed values
+- If raw strings appear where DCIDs expected, suggest Column:Value mappings with vocabulary DCIDs"""
 
 
 class MaxRetriesCheckAgent(BaseAgent):
