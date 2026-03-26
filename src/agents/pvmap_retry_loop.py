@@ -1731,7 +1731,9 @@ class MaxRetriesCheckAgent(BaseAgent):
             )
             return
 
-        if attempt >= self._max_retries:
+        gt_available = bool(ctx.session.state.get("gt_pvmap_path_cached"))
+        effective_max = self._max_retries if gt_available else min(self._max_retries, 2)
+        if attempt >= effective_max:
             # Priority-based best-attempt selection + re-validation
             current_rows = ctx.session.state.get("validation_data_rows", 0)
             best_rows = ctx.session.state.get("best_data_rows", 0)
@@ -1863,17 +1865,18 @@ class MaxRetriesCheckAgent(BaseAgent):
             error_feedback = ctx.session.state.get("error_feedback", "")
             generation_success = ctx.session.state.get("generation_success", False)
 
+            gt_tag = "" if gt_available else " (non-GT reduced)"
             if generation_success:
                 # Best attempt was restored and was valid
                 best_attempt = ctx.session.state.get("best_attempt_number", "?")
                 msg = (
-                    f"Max retries ({self._max_retries + 1}) exceeded, but restored "
+                    f"Max retries ({effective_max + 1}{gt_tag}) exceeded, but restored "
                     f"validated attempt #{best_attempt} ({best_rows} data rows). "
                     f"Marking as SUCCESS."
                 )
                 ctx.session.state["error"] = None
             elif error_feedback:
-                msg = f"Max retries ({self._max_retries + 1}) exceeded. Last feedback: {error_feedback[:500]}"
+                msg = f"Max retries ({effective_max + 1}{gt_tag}) exceeded. Last feedback: {error_feedback[:500]}"
                 ctx.session.state["error"] = msg
             else:
                 quality_metrics = ctx.session.state.get("quality_metrics", {})
@@ -1881,7 +1884,7 @@ class MaxRetriesCheckAgent(BaseAgent):
                     score = quality_metrics.get("heuristic_score", 0)
                 else:
                     score = ctx.session.state.get("quality_score", 0)
-                msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
+                msg = f"Max retries ({effective_max + 1}{gt_tag}) exceeded. Best quality: {score:.1f}%"
                 ctx.session.state["error"] = msg
 
             # Update generation notes with final status
@@ -1924,7 +1927,7 @@ class MaxRetriesCheckAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Attempt {attempt + 1} did not meet criteria. {self._max_retries - attempt} retries remaining.")
+                    types.Part(text=f"Attempt {attempt + 1} did not meet criteria. {effective_max - attempt} retries remaining.")
                 ]),
                 actions=EventActions(escalate=False)  # Continue loop
             )
