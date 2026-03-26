@@ -127,7 +127,7 @@ def _setup_document_styles(doc: Document) -> None:
     font.name = "Calibri"
     font.size = Pt(11)
     pf = style.paragraph_format
-    pf.line_spacing = 1.15 * Pt(11)  # 1.15 line spacing approximation
+    pf.line_spacing = 1.15
 
     # Margins: 1 inch all sides
     for section in doc.sections:
