@@ -14,6 +14,13 @@ from src.pipeline.validation.log_filter import (
     _analyze_value_patterns,
     _get_fix_suggestion,
     _fragmentation_interpretation,
+    ERROR_PRIORITY,
+    ERROR_PATTERNS,
+    ITERATION_ADVICE,
+    _sort_errors_by_priority,
+    _get_error_pattern,
+    detect_systematic_patterns,
+    _detect_format_pattern,
 )
 
 
@@ -923,3 +930,328 @@ class TestEnhancedExtraction:
         assert '## Top Unmatched Input Values' not in summary
         assert '## Spelling Issues' not in summary
         assert '## MCF Output' not in summary
+
+
+# ============================================================================
+# New tests for enrichment features (error priority, patterns, examples, hints)
+# ============================================================================
+
+
+class TestErrorPriority:
+    """Tests for ERROR_PRIORITY list and _sort_errors_by_priority."""
+
+    def test_priority_list_has_eight_entries(self):
+        """ERROR_PRIORITY should contain exactly 8 error types."""
+        assert len(ERROR_PRIORITY) == 8
+
+    def test_pvmap_key_mismatch_is_highest_priority(self):
+        """PVMAP key mismatch should be fixed first (index 0)."""
+        assert ERROR_PRIORITY[0] == 'error-pvmap-dropped-undefined-property'
+
+    def test_multiply_factor_is_lowest_priority(self):
+        """Invalid multiply factor should be lowest priority."""
+        assert ERROR_PRIORITY[-1] == 'error-invalid-multiply-factor'
+
+    def test_sort_known_errors_by_priority(self):
+        """Known errors should sort by their position in ERROR_PRIORITY."""
+        errors = {
+            'error-unresolved-place': 50,
+            'error-pvmap-dropped-undefined-property': 10,
+            'error-mismatched-svobs': 200,
+        }
+        sorted_errs = _sort_errors_by_priority(errors)
+        names = [name for name, _ in sorted_errs]
+        assert names == [
+            'error-pvmap-dropped-undefined-property',
+            'error-unresolved-place',
+            'error-mismatched-svobs',
+        ]
+
+    def test_sort_unknown_errors_last_by_count(self):
+        """Unknown errors should sort after all known errors, by count desc."""
+        errors = {
+            'error-unresolved-place': 10,
+            'error-custom-unknown': 999,
+            'error-another-unknown': 50,
+        }
+        sorted_errs = _sort_errors_by_priority(errors)
+        names = [name for name, _ in sorted_errs]
+        assert names[0] == 'error-unresolved-place'
+        # Unknown errors sorted by count desc
+        assert names[1] == 'error-custom-unknown'
+        assert names[2] == 'error-another-unknown'
+
+
+class TestErrorPatterns:
+    """Tests for ERROR_PATTERNS and _get_error_pattern."""
+
+    def test_known_error_returns_pattern(self):
+        """Known error type should return a pattern dict with category, common_causes, fix."""
+        pattern = _get_error_pattern('error-unresolved-place')
+        assert pattern is not None
+        assert 'category' in pattern
+        assert 'common_causes' in pattern
+        assert 'fix' in pattern
+        assert pattern['category'] == 'Place Resolution'
+
+    def test_unknown_error_returns_none(self):
+        """Unknown error type should return None."""
+        assert _get_error_pattern('error-totally-unknown-type') is None
+
+    def test_all_priority_errors_have_patterns(self):
+        """Every error in ERROR_PRIORITY should have a corresponding ERROR_PATTERNS entry."""
+        for error_type in ERROR_PRIORITY:
+            pattern = _get_error_pattern(error_type)
+            assert pattern is not None, f"Missing pattern for {error_type}"
+            assert 'category' in pattern
+            assert 'fix' in pattern
+
+    def test_prefix_matching(self):
+        """Error types with suffixes should match via prefix."""
+        # error-unresolved-place_geoId/6 should match error-unresolved-place
+        pattern = _get_error_pattern('error-unresolved-place_geoId/6')
+        assert pattern is not None
+        assert pattern['category'] == 'Place Resolution'
+
+
+class TestSystematicPatternDetection:
+    """Tests for detect_systematic_patterns."""
+
+    def test_single_value_pattern(self):
+        """Single failing value should produce single_value pattern."""
+        patterns = detect_systematic_patterns(
+            'error-unresolved-place',
+            [('geoId/6', 100)],
+            100,
+        )
+        assert len(patterns) >= 1
+        single = [p for p in patterns if p['type'] == 'single_value']
+        assert len(single) == 1
+        assert single[0]['value'] == 'geoId/6'
+        assert single[0]['confidence'] == 1.0
+
+    def test_few_values_pattern(self):
+        """A small number of unique values causing many errors should produce few_values."""
+        patterns = detect_systematic_patterns(
+            'error-unresolved-place',
+            [('geoId/6', 50), ('geoId/4', 30)],
+            100,
+        )
+        few = [p for p in patterns if p['type'] == 'few_values']
+        assert len(few) == 1
+        assert few[0]['confidence'] == 0.8
+
+    def test_format_pattern_leading_zeros(self):
+        """Single-digit values should trigger missing_leading_zeros format pattern."""
+        examples = [('6', 30), ('4', 20), ('9', 10)]
+        patterns = detect_systematic_patterns('error-unresolved-place', examples, 60)
+        fmt = [p for p in patterns if p['type'] == 'format_pattern']
+        assert len(fmt) == 1
+        assert fmt[0]['pattern'] == 'missing_leading_zeros'
+
+    def test_below_threshold_returns_empty(self):
+        """Total count below 5 should return no patterns."""
+        patterns = detect_systematic_patterns(
+            'error-unresolved-place', [('geoId/6', 3)], 3
+        )
+        assert patterns == []
+
+    def test_empty_examples_returns_empty(self):
+        """Empty examples list should return no patterns."""
+        assert detect_systematic_patterns('error-unresolved-place', [], 100) == []
+
+    def test_many_unique_values_no_few_pattern(self):
+        """Many unique values should not trigger few_values pattern."""
+        examples = [(f'val_{i}', 1) for i in range(50)]
+        patterns = detect_systematic_patterns('error-test', examples, 50)
+        few = [p for p in patterns if p['type'] == 'few_values']
+        assert len(few) == 0
+
+
+class TestDetectFormatPattern:
+    """Tests for _detect_format_pattern."""
+
+    def test_leading_zeros_detected(self):
+        """Majority single-digit values should detect missing_leading_zeros."""
+        result = _detect_format_pattern(['6', '4', '9', '1', '2'])
+        assert result is not None
+        assert result['pattern'] == 'missing_leading_zeros'
+        assert result['confidence'] == 0.9
+
+    def test_dcid_prefix_detected(self):
+        """Values starting with geoId/ without dcid: should detect missing_dcid_prefix."""
+        result = _detect_format_pattern(['geoId/06', 'geoId/48', 'geoId/36'])
+        assert result is not None
+        assert result['pattern'] == 'missing_dcid_prefix'
+        assert result['confidence'] == 0.85
+
+    def test_no_pattern_for_mixed_values(self):
+        """Mixed values should return None."""
+        result = _detect_format_pattern(['California', 'Texas', 'New York'])
+        assert result is None
+
+    def test_empty_list_returns_none(self):
+        """Empty list should return None."""
+        assert _detect_format_pattern([]) is None
+
+    def test_entity_names_detect_dcid_prefix(self):
+        """Entity names like Person, Household should detect missing_dcid_prefix."""
+        result = _detect_format_pattern(['Person', 'Household', 'Establishment'])
+        assert result is not None
+        assert result['pattern'] == 'missing_dcid_prefix'
+
+
+class TestDebugExampleExtraction:
+    """Tests for debug example mining in filter_counters."""
+
+    def test_place_examples_extracted(self):
+        """Debug counters for unresolved places should populate error_examples."""
+        counters_content = '''"key","value"
+"error-unresolved-place",100
+"error-unresolved-place_geoId/6",50
+"error-unresolved-place_geoId/4",30
+"error-unresolved-place_geoId/9",20
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'error-unresolved-place' in result.error_examples
+            examples = result.error_examples['error-unresolved-place']
+            # Sorted by count desc
+            assert examples[0] == ('geoId/6', 50)
+            assert len(examples) == 3
+        finally:
+            counters_path.unlink()
+
+    def test_key_mismatch_examples_extracted(self):
+        """Debug counters for PVMAP key mismatches should populate error_examples."""
+        counters_content = '''"key","value"
+"error-pvmap-dropped-undefined-property",50
+"error-pvmap-dropped-undefined-property_Bad Column",30
+"error-pvmap-dropped-undefined-property_Another Bad",20
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'error-pvmap-dropped-undefined-property' in result.error_examples
+            examples = result.error_examples['error-pvmap-dropped-undefined-property']
+            assert examples[0] == ('Bad Column', 30)
+        finally:
+            counters_path.unlink()
+
+    def test_max_five_examples(self):
+        """At most 5 debug examples should be kept per error type."""
+        lines = ['"key","value"', '"error-unresolved-place",100']
+        for i in range(10):
+            lines.append(f'"error-unresolved-place_val{i}",{10-i}')
+        counters_content = '\n'.join(lines)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            examples = result.error_examples.get('error-unresolved-place', [])
+            assert len(examples) == 5
+        finally:
+            counters_path.unlink()
+
+    def test_no_debug_counters_no_examples(self):
+        """If no debug counters exist, error_examples should be empty for that type."""
+        counters_content = '''"key","value"
+"error-unresolved-place",100
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'error-unresolved-place' not in result.error_examples
+        finally:
+            counters_path.unlink()
+
+    def test_multiple_error_types_mined(self):
+        """Debug examples should be mined for multiple error types independently."""
+        counters_content = '''"key","value"
+"error-unresolved-place",100
+"error-unresolved-place_geoId/6",50
+"error-mismatched-svobs",80
+"error-mismatched-svobs_Count_Person",40
+'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(counters_content)
+            counters_path = Path(f.name)
+        try:
+            result = filter_counters(counters_path)
+            assert 'error-unresolved-place' in result.error_examples
+            assert 'error-mismatched-svobs' in result.error_examples
+            assert result.error_examples['error-unresolved-place'][0] == ('geoId/6', 50)
+            assert result.error_examples['error-mismatched-svobs'][0] == ('Count_Person', 40)
+        finally:
+            counters_path.unlink()
+
+
+class TestEnrichedSummary:
+    """Tests for enriched to_summary() output."""
+
+    def test_priority_ordering_in_output(self):
+        """Errors should appear in priority order, not by count."""
+        logs = FilteredLogs(
+            errors={
+                'error-mismatched-svobs': 999,
+                'error-pvmap-dropped-undefined-property': 1,
+            }
+        )
+        summary = logs.to_summary()
+        # pvmap key mismatch has higher priority and should appear first
+        pvmap_pos = summary.find('pvmap dropped undefined property')
+        mismatch_pos = summary.find('mismatched svobs')
+        assert pvmap_pos < mismatch_pos
+
+    def test_fix_recipes_present(self):
+        """Fix recipes from ERROR_PATTERNS should appear in summary."""
+        logs = FilteredLogs(
+            errors={'error-unresolved-place': 50}
+        )
+        summary = logs.to_summary()
+        assert 'Fix:' in summary
+        assert 'Common causes:' in summary
+        assert 'Place Resolution' in summary
+
+    def test_examples_shown_in_summary(self):
+        """Debug examples should appear as 'Failing values' in summary."""
+        logs = FilteredLogs(
+            errors={'error-unresolved-place': 50},
+            error_examples={
+                'error-unresolved-place': [('geoId/6', 30), ('geoId/4', 20)]
+            },
+        )
+        summary = logs.to_summary()
+        assert 'Failing values:' in summary
+        assert 'geoId/6' in summary
+        assert 'geoId/4' in summary
+
+    def test_iteration_hint_shown(self):
+        """Iteration guidance should appear when attempt_number is set."""
+        logs = FilteredLogs(attempt_number=0)
+        summary = logs.to_summary()
+        assert '## Iteration Guidance' in summary
+        assert 'ATTEMPT 1' in summary
+
+        logs2 = FilteredLogs(attempt_number=2)
+        summary2 = logs2.to_summary()
+        assert 'ATTEMPT 3 (FINAL)' in summary2
+
+    def test_no_errors_no_error_section(self):
+        """When there are no errors, the error section should not appear."""
+        logs = FilteredLogs(
+            input_rows=100,
+            output_rows=100,
+            coverage_pct=100.0,
+        )
+        summary = logs.to_summary()
+        assert '## Errors (must fix)' not in summary
+        assert '## Systematic Error Patterns' not in summary
