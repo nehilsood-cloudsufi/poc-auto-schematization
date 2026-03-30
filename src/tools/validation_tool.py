@@ -434,7 +434,7 @@ def run_validation(
         raw_log_path.write_text(raw_log_content, encoding="utf-8")
 
         # Parse counters file using smart log filter (for structured feedback)
-        filtered_logs = filter_counters(counters_file) if counters_file.exists() else None
+        filtered_logs = filter_counters(counters_file, attempt_number=attempt_number) if counters_file.exists() else None
         counters = {}  # Keep for backward compatibility
 
         # Check return code
