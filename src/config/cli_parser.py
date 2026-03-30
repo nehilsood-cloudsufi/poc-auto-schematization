@@ -215,8 +215,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--feedback-prompt-version',
         choices=['v1', 'v2'],
-        default='v1',
-        help='Feedback agent prompt version (default: v1)'
+        default='v2',
+        help='Feedback agent prompt version (default: v2)'
     )
 
     return parser

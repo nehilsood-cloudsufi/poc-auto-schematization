@@ -330,7 +330,7 @@ def run_dataset_pipeline(
     skip_column_discovery: bool = False,
     use_llm_judge: bool = False,
     prompt_version: str = "v3",
-    feedback_prompt_version: str = "v1",
+    feedback_prompt_version: str = "v2",
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -806,7 +806,7 @@ if __name__ == "__main__":
     # Prompt version
     parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v3",
                         help="PVMAP prompt version to use (default: v3)")
-    parser.add_argument("--feedback-prompt-version", choices=["v1", "v2"], default="v1",
+    parser.add_argument("--feedback-prompt-version", choices=["v1", "v2"], default="v2",
                         help="Feedback agent prompt version (default: v1)")
     args = parser.parse_args()
 
@@ -949,7 +949,7 @@ if __name__ == "__main__":
             skip_column_discovery=getattr(args, 'skip_column_discovery', False),
             use_llm_judge=getattr(args, 'use_llm_judge', False),
             prompt_version=getattr(args, 'prompt_version', 'v3'),
-            feedback_prompt_version=getattr(args, 'feedback_prompt_version', 'v1'),
+            feedback_prompt_version=getattr(args, 'feedback_prompt_version', 'v2'),
         )
 
         print("\n" + "=" * 60)

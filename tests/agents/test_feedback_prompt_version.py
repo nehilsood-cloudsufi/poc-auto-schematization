@@ -37,7 +37,7 @@ def test_run_dataset_pipeline_accepts_feedback_prompt_version():
     from src.run_pipeline import run_dataset_pipeline
     sig = inspect.signature(run_dataset_pipeline)
     assert "feedback_prompt_version" in sig.parameters
-    assert sig.parameters["feedback_prompt_version"].default == "v1"
+    assert sig.parameters["feedback_prompt_version"].default == "v2"
 
 
 def test_quality_eval_has_column_coverage_threshold():
