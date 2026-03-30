@@ -358,7 +358,8 @@ def run_dataset_pipeline(
         use_schema_examples: If True (default), inject schema examples into PVMAP prompt
         human_feedback: Optional human feedback text to inject as initial error_feedback
         min_attempts: Minimum pipeline attempts before allowing quality exit
-        max_retries: Max retry attempts after initial generation (default: 2, for 3 total)
+        max_retries: DEPRECATED. Accepted for backward compatibility; the tiered correction
+            pipeline always performs up to 3 validation passes regardless of this value.
         extra_plugins: Additional ADK plugins (e.g., progress tracking for UI)
     Returns:
         Final state dictionary
@@ -569,10 +570,10 @@ def run_dataset_pipeline(
         user_message = types.Content(parts=[types.Part(text=f"Generate PVMAP for {dataset_name}")])
         events = []  # Shared mutable list — survives timeout
 
-        # Dynamic timeout: scales with retry count
-        pipeline_timeout = (max_retries + 1) * PER_ATTEMPT_TIMEOUT
-        logger.info("Pipeline timeout: %ds (%d attempts x %ds)",
-                     pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT)
+        # Fixed timeout: tiered correction pipeline always does max 3 validation passes
+        pipeline_timeout = 3 * PER_ATTEMPT_TIMEOUT
+        logger.info("Pipeline timeout: %ds (3 validation passes x %ds)",
+                     pipeline_timeout, PER_ATTEMPT_TIMEOUT)
 
         async def _create_session_and_run():
             # Create session with initial state
