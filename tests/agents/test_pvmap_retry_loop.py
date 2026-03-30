@@ -74,25 +74,17 @@ def run_agent(agent, ctx):
 class TestCreatePvmapRetryLoop:
     """Tests for the create_pvmap_retry_loop factory function."""
 
-    def test_creates_loop_agent(self):
-        """Should create a LoopAgent instance."""
+    def test_creates_sequential_agent(self):
+        """Should create a SequentialAgent instance."""
+        from google.adk.agents import SequentialAgent
         loop = create_pvmap_retry_loop()
         assert loop.name == "PVMAPRetryLoop"
+        assert isinstance(loop, SequentialAgent)
 
-    def test_default_max_retries_is_3(self):
-        """Default should be 3 retries (4 total attempts)."""
+    def test_has_six_sub_agents(self):
+        """Should have 6 sub-agents in the pipeline (with TieredCorrection)."""
         loop = create_pvmap_retry_loop()
-        assert loop.max_iterations == 4  # 3 retries + 1 initial
-
-    def test_custom_max_retries(self):
-        """Should accept custom max_retries."""
-        loop = create_pvmap_retry_loop(max_retries=2)
-        assert loop.max_iterations == 3  # 2 retries + 1 initial
-
-    def test_has_seven_sub_agents(self):
-        """Should have 7 sub-agents in the loop (with MetadataGenerator)."""
-        loop = create_pvmap_retry_loop()
-        assert len(loop.sub_agents) == 7
+        assert len(loop.sub_agents) == 6
 
     def test_sub_agent_order(self):
         """Sub-agents should be in correct order."""
@@ -105,8 +97,7 @@ class TestCreatePvmapRetryLoop:
             "MetadataGenerator",
             "Validator",
             "QualityEvaluator",
-            "MaxRetriesCheck",
-            "UnifiedFeedback",
+            "TieredCorrection",
         ]
 
         assert agent_names == expected_order
@@ -856,21 +847,22 @@ class TestMaxRetriesCheckAgent:
 class TestLoopFlow:
     """Integration-style tests for the full loop flow."""
 
-    def test_max_attempts_is_four(self):
-        """Loop should allow max 4 attempts by default."""
+    def test_pipeline_is_sequential(self):
+        """Pipeline should be a SequentialAgent with tiered correction."""
+        from google.adk.agents import SequentialAgent
         loop = create_pvmap_retry_loop()
-        assert loop.max_iterations == 4
+        assert isinstance(loop, SequentialAgent)
 
-    def test_loop_structure_supports_quality_retries(self):
-        """Loop should have agents for quality-based retries."""
+    def test_pipeline_structure_supports_quality_retries(self):
+        """Pipeline should have agents for quality-based retries."""
         loop = create_pvmap_retry_loop()
         agent_names = [a.name for a in loop.sub_agents]
 
         # Must have quality evaluator
         assert "QualityEvaluator" in agent_names
 
-        # Must have unified feedback
-        assert "UnifiedFeedback" in agent_names
+        # Must have tiered correction (replaces UnifiedFeedback + MaxRetriesCheck)
+        assert "TieredCorrection" in agent_names
 
     def test_state_outputs_documented(self):
         """Loop docstring should document all state outputs."""
@@ -899,9 +891,10 @@ class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
     def test_handles_zero_max_retries(self):
-        """Should handle max_retries=0 (single attempt only)."""
+        """Should handle max_retries=0 (deprecated, logs warning)."""
+        from google.adk.agents import SequentialAgent
         loop = create_pvmap_retry_loop(max_retries=0)
-        assert loop.max_iterations == 1
+        assert isinstance(loop, SequentialAgent)
 
     def test_generator_is_wrapper_agent(self):
         """Generator sub-agent should be a GeneratorWrapperAgent."""

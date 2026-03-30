@@ -94,16 +94,26 @@ class QualityEvaluationAgent(BaseAgent):
 
     # Private attribute for min_attempts enforcement (not a Pydantic field)
     _min_attempts: Optional[int] = PrivateAttr(default=None)
+    _escalate_on_quality: bool = PrivateAttr(default=True)
 
-    def __init__(self, name: str = "QualityEvaluator", min_attempts: Optional[int] = None):
+    def __init__(
+        self,
+        name: str = "QualityEvaluator",
+        min_attempts: Optional[int] = None,
+        escalate_on_quality: bool = True,
+    ):
         """Initialize QualityEvaluationAgent.
 
         Args:
             name: Agent name
             min_attempts: Minimum attempts before allowing quality exit (optional)
+            escalate_on_quality: Whether to escalate on quality_acceptable/stagnant.
+                When False, still sets all state flags but yields escalate=False.
+                Useful in SequentialAgent where escalation propagates up.
         """
         super().__init__(name=name)
         self._min_attempts = min_attempts
+        self._escalate_on_quality = escalate_on_quality
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -373,7 +383,7 @@ class QualityEvaluationAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[types.Part(text=message)]),
-                actions=EventActions(escalate=True)
+                actions=EventActions(escalate=self._escalate_on_quality)
             )
 
         elif quality_stagnant:
@@ -393,7 +403,7 @@ class QualityEvaluationAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[types.Part(text=message)]),
-                actions=EventActions(escalate=True)
+                actions=EventActions(escalate=self._escalate_on_quality)
             )
 
         else:

@@ -28,7 +28,7 @@ Key ADK features used:
 import os
 import sys
 from pathlib import Path
-from typing import Optional, AsyncGenerator
+from typing import Any, Optional, AsyncGenerator
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -40,7 +40,7 @@ import re
 
 from pydantic import PrivateAttr
 
-from google.adk.agents import LoopAgent, BaseAgent, LlmAgent
+from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
@@ -1933,6 +1933,527 @@ class MaxRetriesCheckAgent(BaseAgent):
             )
 
 
+class TieredCorrectionAgent(BaseAgent):
+    """Tiered correction pipeline: programmatic fix -> LLM patch -> full regen.
+
+    Only runs if quality is not acceptable after attempt 0.
+    Internally runs up to 2 additional validation passes (Tier 1+2 combined, Tier 3).
+    """
+
+    _patch_agent: Any = PrivateAttr(default=None)
+    _generator_wrapper: Any = PrivateAttr(default=None)
+    _metadata_agent: Any = PrivateAttr(default=None)
+    _validation_agent: Any = PrivateAttr(default=None)
+    _model: str = PrivateAttr(default="gemini-3.1-pro-preview")
+    _thinking_level: Optional[str] = PrivateAttr(default=None)
+    _enable_mcp: bool = PrivateAttr(default=False)
+    _mcp_url: Optional[str] = PrivateAttr(default=None)
+    _use_structured_output: bool = PrivateAttr(default=True)
+    _feedback_prompt_version: str = PrivateAttr(default="v2")
+
+    def __init__(
+        self,
+        name: str = "TieredCorrection",
+        patch_agent=None,
+        generator_wrapper=None,
+        metadata_agent=None,
+        validation_agent=None,
+        model: str = "gemini-3.1-pro-preview",
+        thinking_level: Optional[str] = None,
+        enable_mcp: bool = False,
+        mcp_url: Optional[str] = None,
+        use_structured_output: bool = True,
+        feedback_prompt_version: str = "v2",
+    ):
+        super().__init__(name=name)
+        self._patch_agent = patch_agent
+        self._generator_wrapper = generator_wrapper
+        self._metadata_agent = metadata_agent
+        self._validation_agent = validation_agent
+        self._model = model
+        self._thinking_level = thinking_level
+        self._enable_mcp = enable_mcp
+        self._mcp_url = mcp_url
+        self._use_structured_output = use_structured_output
+        self._feedback_prompt_version = feedback_prompt_version
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        """Run tiered correction: programmatic -> LLM patch -> full regen."""
+        from src.pipeline.validation.log_filter import filter_counters
+        from src.pipeline.validation.pvmap_corrector import apply_correction_rules
+        from src.tools.validation_tool import run_validation
+
+        # =====================================================================
+        # GATE CHECK: skip if attempt 0 already produced acceptable quality
+        # =====================================================================
+        quality_acceptable = ctx.session.state.get("quality_acceptable", False)
+        quality_stagnant = ctx.session.state.get("quality_stagnant", False)
+        validation_passed = ctx.session.state.get("validation_passed", False)
+
+        if quality_acceptable:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Quality acceptable after attempt 0 -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        if quality_stagnant:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Quality stagnant after attempt 0 -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        if validation_passed and not ctx.session.state.get("quality_diff_summary"):
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Validation passed with no quality issues -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        # =====================================================================
+        # SAVE BEST-SO-FAR from attempt 0
+        # =====================================================================
+        best_pvmap = ctx.session.state.get("pvmap_csv", "")
+        best_rows = ctx.session.state.get("validation_data_rows", 0)
+        best_valid = ctx.session.state.get("validation_passed", False)
+
+        current_dataset = ctx.session.state.get("current_dataset")
+        if not current_dataset:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="ERROR: No current_dataset in state -- cannot run tiered correction.")
+                ])
+            )
+            return
+
+        yield Event(
+            author=self.name,
+            content=types.Content(parts=[
+                types.Part(text="Starting tiered correction pipeline...")
+            ])
+        )
+
+        # =====================================================================
+        # TIER 1: Programmatic correction
+        # =====================================================================
+        counters_path = Path(current_dataset.output_dir) / "processed_counters.txt"
+        filtered_logs = None
+
+        if counters_path.exists():
+            try:
+                filtered_logs = filter_counters(counters_path, attempt_number=1)
+                key_match_report = ctx.session.state.get("key_match_report", "")
+
+                input_data_path = None
+                if current_dataset.input_data_files:
+                    input_data_path = Path(str(current_dataset.input_data_files[0]))
+
+                corrected, changes = apply_correction_rules(
+                    pvmap_csv=best_pvmap,
+                    filtered_logs=filtered_logs,
+                    key_match_report=key_match_report,
+                    input_data_path=input_data_path,
+                )
+
+                if changes:
+                    ctx.session.state["pvmap_csv"] = corrected
+                    # Write corrected PVMAP to file
+                    pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                    pvmap_path.write_text(corrected, encoding="utf-8")
+
+                    # Run validation
+                    tier1_result = self._run_validation_pass(
+                        ctx, current_dataset, corrected, "Tier 1"
+                    )
+
+                    if tier1_result.get("success"):
+                        ctx.session.state["validation_passed"] = True
+                        ctx.session.state["validation_data_rows"] = tier1_result.get("data_rows", 0)
+                        ctx.session.state["validation_counter_summary"] = tier1_result.get("counter_summary", "")
+
+                        tier1_rows = tier1_result.get("data_rows", 0)
+                        if tier1_rows > best_rows or (tier1_result["success"] and not best_valid):
+                            best_pvmap = corrected
+                            best_rows = tier1_rows
+                            best_valid = True
+
+                        # Evaluate quality to check if we can stop
+                        score, acceptable = self._evaluate_quality(ctx, corrected)
+                        if acceptable:
+                            ctx.session.state["quality_acceptable"] = True
+                            ctx.session.state["exit_reason"] = "quality_met"
+                            ctx.session.state["generation_success"] = True
+                            ctx.session.state["retry_count"] = 1
+                            yield Event(
+                                author=self.name,
+                                content=types.Content(parts=[
+                                    types.Part(text=f"Tier 1: {len(changes)} programmatic fixes applied. Quality acceptable (score={score:.1f}). Done.")
+                                ])
+                            )
+                            return
+                    else:
+                        # Tier 1 validation failed -- update best if more rows
+                        tier1_rows = tier1_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier1_result, best_rows, best_valid):
+                            best_pvmap = corrected
+                            best_rows = tier1_rows
+                            best_valid = tier1_result.get("success", False)
+
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Tier 1: {len(changes)} programmatic fixes applied.")
+                        ])
+                    )
+                else:
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text="Tier 1: No programmatic fixes applicable.")
+                        ])
+                    )
+            except Exception as e:
+                logger.warning("Tier 1 correction failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 1: Error ({str(e)[:100]}), continuing to Tier 2.")
+                    ])
+                )
+        else:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Tier 1: No counters file found, skipping programmatic correction.")
+                ])
+            )
+
+        # =====================================================================
+        # TIER 2: Lightweight LLM patch
+        # =====================================================================
+        if self._patch_agent:
+            try:
+                # Start from best known PVMAP
+                ctx.session.state["pvmap_csv"] = best_pvmap
+                if filtered_logs:
+                    ctx.session.state["validation_counter_summary"] = filtered_logs.to_summary()
+
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text="Tier 2: Running lightweight LLM patch...")
+                    ])
+                )
+
+                # Escape state before running patch agent
+                for key in ["pvmap_csv", "validation_counter_summary", "key_match_report"]:
+                    val = ctx.session.state.get(key, "")
+                    if val and isinstance(val, str):
+                        ctx.session.state[key] = escape_pvmap_placeholders(val)
+
+                async for event in self._patch_agent.run_async(ctx):
+                    yield event
+
+                patched = ctx.session.state.get("pvmap_csv", "")
+                if patched and patched != best_pvmap:
+                    # Write and validate
+                    pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                    pvmap_path.write_text(patched, encoding="utf-8")
+
+                    tier2_result = self._run_validation_pass(
+                        ctx, current_dataset, patched, "Tier 2"
+                    )
+
+                    if tier2_result.get("success"):
+                        ctx.session.state["validation_passed"] = True
+                        ctx.session.state["validation_data_rows"] = tier2_result.get("data_rows", 0)
+                        ctx.session.state["validation_counter_summary"] = tier2_result.get("counter_summary", "")
+
+                        tier2_rows = tier2_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier2_result, best_rows, best_valid):
+                            best_pvmap = patched
+                            best_rows = tier2_rows
+                            best_valid = True
+
+                        score, acceptable = self._evaluate_quality(ctx, patched)
+                        if acceptable:
+                            ctx.session.state["quality_acceptable"] = True
+                            ctx.session.state["exit_reason"] = "quality_met"
+                            ctx.session.state["generation_success"] = True
+                            ctx.session.state["retry_count"] = 2
+                            yield Event(
+                                author=self.name,
+                                content=types.Content(parts=[
+                                    types.Part(text=f"Tier 2: LLM patch improved quality (score={score:.1f}). Done.")
+                                ])
+                            )
+                            return
+                    else:
+                        # Safety: discard if fewer rows than best
+                        tier2_rows = tier2_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier2_result, best_rows, best_valid):
+                            best_pvmap = patched
+                            best_rows = tier2_rows
+                            best_valid = tier2_result.get("success", False)
+
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Tier 2: LLM patch applied ({tier2_result.get('data_rows', 0)} rows).")
+                        ])
+                    )
+                else:
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text="Tier 2: LLM patch made no changes.")
+                        ])
+                    )
+            except Exception as e:
+                logger.warning("Tier 2 LLM patch failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 2: LLM patch error ({str(e)[:100]}), continuing to Tier 3.")
+                    ])
+                )
+
+        # =====================================================================
+        # TIER 3: Full regeneration (ONE time)
+        # =====================================================================
+        if self._generator_wrapper and self._metadata_agent and self._validation_agent:
+            try:
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text="Tier 3: Full regeneration with feedback...")
+                    ])
+                )
+
+                # Prepare state for full regeneration
+                ctx.session.state["pvmap_csv"] = best_pvmap
+                if filtered_logs:
+                    ctx.session.state["error_feedback"] = filtered_logs.to_summary()
+                ctx.session.state["attempt_number"] = 2
+
+                # Trim session events to prevent token overflow
+                self._trim_session_events(ctx)
+
+                # Reset per-iteration flags
+                ctx.session.state["validation_passed"] = False
+                ctx.session.state["quality_acceptable"] = False
+                ctx.session.state["quality_stagnant"] = False
+
+                # Re-populate prompt template (StatePrep logic)
+                # Force re-read of file-backed state
+                ctx.session.state.pop("sampled_data", None)
+                ctx.session.state.pop("schema_examples", None)
+
+                # Run StatePrep to re-populate state
+                state_prep = StatePreparationAgent(name="TieredStatePrep")
+                async for event in state_prep.run_async(ctx):
+                    yield event
+
+                # Run Generator -> MetadataGen -> Validate
+                for agent in [self._generator_wrapper, self._metadata_agent, self._validation_agent]:
+                    async for event in agent.run_async(ctx):
+                        yield event
+
+                tier3_valid = ctx.session.state.get("validation_passed", False)
+                tier3_rows = ctx.session.state.get("validation_data_rows", 0)
+                tier3_pvmap = ctx.session.state.get("pvmap_csv", "")
+
+                tier3_result = {
+                    "success": tier3_valid,
+                    "data_rows": tier3_rows,
+                }
+                if self._is_better_attempt(tier3_result, best_rows, best_valid):
+                    best_pvmap = tier3_pvmap
+                    best_rows = tier3_rows
+                    best_valid = tier3_valid
+
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 3: Full regeneration complete ({tier3_rows} rows, valid={tier3_valid}).")
+                    ])
+                )
+
+            except Exception as e:
+                logger.warning("Tier 3 full regeneration failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 3: Full regeneration error ({str(e)[:100]}).")
+                    ])
+                )
+
+        # =====================================================================
+        # FINALIZE: restore best-so-far if current is not the best
+        # =====================================================================
+        current_pvmap = ctx.session.state.get("pvmap_csv", "")
+        current_valid = ctx.session.state.get("validation_passed", False)
+        current_rows = ctx.session.state.get("validation_data_rows", 0)
+
+        should_restore = False
+        if best_pvmap and best_pvmap != current_pvmap:
+            if best_valid and not current_valid:
+                should_restore = True
+            elif not current_valid and not best_valid and best_rows > current_rows:
+                should_restore = True
+            elif best_valid and current_valid and best_rows > current_rows:
+                should_restore = True
+
+        if should_restore:
+            ctx.session.state["pvmap_csv"] = best_pvmap
+            ctx.session.state["validation_data_rows"] = best_rows
+            ctx.session.state["validation_passed"] = best_valid
+            # Re-write best PVMAP to file
+            try:
+                pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                pvmap_path.write_text(best_pvmap, encoding="utf-8")
+            except Exception:
+                pass
+            logger.info(
+                "Restored best PVMAP: %d rows (valid=%s) vs current %d rows (valid=%s)",
+                best_rows, best_valid, current_rows, current_valid,
+            )
+
+        # Set final state
+        if not ctx.session.state.get("exit_reason"):
+            if best_valid:
+                ctx.session.state["exit_reason"] = "tiered_correction_complete"
+                ctx.session.state["generation_success"] = True
+            else:
+                ctx.session.state["exit_reason"] = "max_retries"
+                ctx.session.state["generation_success"] = False
+        if not ctx.session.state.get("retry_count"):
+            ctx.session.state["retry_count"] = ctx.session.state.get("attempt_number", 0)
+
+        yield Event(
+            author=self.name,
+            content=types.Content(parts=[
+                types.Part(text=f"Tiered correction complete: best={best_rows} rows, valid={best_valid}.")
+            ])
+        )
+
+    def _run_validation_pass(
+        self,
+        ctx: InvocationContext,
+        current_dataset,
+        pvmap_csv: str,
+        tier_label: str,
+    ) -> dict:
+        """Write PVMAP to file and run validation subprocess.
+
+        Returns:
+            Validation result dict with keys: success, data_rows, counter_summary, etc.
+        """
+        from src.tools.validation_tool import run_validation
+
+        input_file = None
+        if current_dataset.input_data_files:
+            input_file = str(current_dataset.input_data_files[0])
+
+        if not input_file or not Path(input_file).exists():
+            return {"success": False, "data_rows": 0, "error": "No input file"}
+
+        pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+
+        # Get metadata file (same logic as ValidationAgent)
+        metadata_file = None
+        generated_config = ctx.session.state.get("generated_config_path")
+        if generated_config and Path(generated_config).exists():
+            metadata_file = generated_config
+        if not metadata_file and current_dataset.use_metadata and current_dataset.metadata_files:
+            metadata_file = str(current_dataset.metadata_files[0])
+        if not metadata_file:
+            if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
+                gt_meta_dir = Path(current_dataset.ground_truth_metadata)
+                gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
+                if gt_meta_files:
+                    metadata_file = str(gt_meta_files[0])
+
+        logger.info("Running %s validation pass", tier_label)
+        result = run_validation(
+            input_data=input_file,
+            pvmap_path=str(pvmap_path),
+            metadata_file=metadata_file or "",
+            output_dir=str(current_dataset.output_dir),
+            timeout=300,
+        )
+        logger.info(
+            "%s validation: success=%s, data_rows=%d",
+            tier_label, result["success"], result.get("data_rows", 0),
+        )
+        return result
+
+    def _evaluate_quality(
+        self, ctx: InvocationContext, pvmap_csv: str
+    ) -> tuple:
+        """Calculate heuristic quality score.
+
+        Returns:
+            Tuple of (score: float, is_acceptable: bool)
+        """
+        try:
+            from src.tools.heuristic_quality import calculate_heuristic_score
+            sampled_data = ctx.session.state.get("sampled_data", "")
+            metadata = ctx.session.state.get("metadata", "")
+            result = calculate_heuristic_score(
+                pvmap_csv=pvmap_csv,
+                sampled_data=sampled_data,
+                metadata=metadata,
+            )
+            score = result.get("total", 0)
+            threshold = 70.0
+            return score, score >= threshold
+        except Exception as e:
+            logger.warning("Quality evaluation failed: %s", e)
+            return 0.0, False
+
+    def _is_better_attempt(
+        self, current_result: dict, best_rows: int, best_valid: bool
+    ) -> bool:
+        """Check if current result is better than best-so-far.
+
+        Priority: valid > invalid, then data_rows.
+        """
+        current_valid = current_result.get("success", False)
+        current_rows = current_result.get("data_rows", 0)
+
+        if current_valid and not best_valid:
+            return True
+        if not current_valid and best_valid:
+            return False
+        return current_rows > best_rows
+
+    def _trim_session_events(self, ctx: InvocationContext) -> None:
+        """Trim old session events to prevent token overflow."""
+        try:
+            events = ctx.session.events
+            original_count = len(events)
+            max_kept = 20
+            if original_count > max_kept:
+                del events[:-max_kept]
+                logger.info(
+                    "Trimmed session events: %d -> %d",
+                    original_count, len(events),
+                )
+        except Exception as e:
+            logger.warning("Failed to trim session events: %s", e)
+
+
 def create_pvmap_retry_loop(
     model: str = "gemini-2.5-flash",
     max_retries: int = 3,
@@ -1943,60 +2464,64 @@ def create_pvmap_retry_loop(
     min_attempts: Optional[int] = None,
     thinking_level: Optional[str] = None,
     feedback_prompt_version: str = "v1",
-) -> LoopAgent:
+) -> SequentialAgent:
     """
-    Create PVMAP generation retry loop with quality-based retries.
+    Create PVMAP generation pipeline with tiered correction.
 
-    The loop runs (without MCP):
-    1. StatePreparationAgent - Prepares state for generator
-    2. PVMAPGeneratorAgent - Generates PVMAP (structured JSON)
-    3. MetadataGenerationAgent - Auto-generates stat_var_processor config
-    4. ValidationAgent - Validates; sets validation_passed flag
-    5. QualityEvaluationAgent - Evaluates quality; ESCALATES if acceptable/stagnant
-    6. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
-    7. MaxRetriesCheckAgent - Checks if max retries exceeded
+    The pipeline runs as a SequentialAgent:
+    1. StatePreparationAgent - Prepares state for generator (attempt 0)
+    2. [StatVarDiscoveryAgent] - MCP-based StatVar discovery (if MCP enabled)
+    3. GeneratorWrapperAgent - Generates PVMAP (structured JSON)
+    4. MetadataGenerationAgent - Auto-generates stat_var_processor config
+    5. [MCPSpotCheckAgent] - Pre-validation via MCP (if MCP enabled)
+    6. ValidationAgent - Validates; sets validation_passed flag
+    7. [MCPErrorResolverAgent] - MCP error resolution (if MCP enabled)
+    8. QualityEvaluationAgent - Evaluates quality (does NOT escalate)
+    9. TieredCorrectionAgent - Runs Tier 1/2/3 correction if quality not acceptable
 
-    With MCP enabled, adds:
-    - StatVarDiscoveryAgent after StatePrep (loop-aware discovery)
-    - MCPErrorResolverAgent after Validator (error resolution)
-
-    The loop exits when:
-    - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
-    - MaxRetriesCheckAgent escalates (max retries), OR
-    - max_iterations reached (fallback)
+    Replaces the old LoopAgent-based retry loop with a deterministic
+    sequential pipeline that tries programmatic fixes first, then LLM
+    patch, then full regeneration.
 
     Args:
         model: Gemini model for generation (default: gemini-2.5-flash)
-        max_retries: Max retry attempts (default: 3, for 4 total attempts)
+        max_retries: DEPRECATED -- tiered correction uses fixed 3 validation runs.
+            Kept for backward compatibility.
         use_structured_output: Use output_schema for structured JSON (default: True)
-        name: Loop agent name (default: PVMAPRetryLoop)
+        name: Agent name (default: PVMAPRetryLoop)
         enable_mcp: Enable MCP integration (default: False)
         mcp_url: MCP server URL (required if enable_mcp=True)
         min_attempts: Minimum attempts before allowing quality exit (optional)
+        thinking_level: Thinking level for Gemini models (optional)
+        feedback_prompt_version: Feedback prompt version ('v1' or 'v2')
 
     Returns:
-        Configured LoopAgent
+        Configured SequentialAgent
 
-    State Inputs (must be set before loop):
+    State Inputs (must be set before pipeline):
         - current_dataset: DatasetInfo - Dataset being processed
 
-    State Outputs (after loop completes):
+    State Outputs (after pipeline completes):
         - generation_success: bool - Whether generation succeeded
         - pvmap_path: str - Path to generated PVMAP
         - pvmap_csv: str - PVMAP CSV content
         - validation_data_rows: int - Rows in processed output
         - retry_count: int - Number of attempts made
-        - exit_reason: str - "quality_met" | "stagnant" | "max_retries"
+        - exit_reason: str - "quality_met" | "stagnant" | "tiered_correction_complete" | "max_retries"
         - quality_metrics: dict - Final quality metrics
         - quality_metrics_history: List[dict] - All attempts' metrics
         - error: str - Error message if failed
-        - mcp_enrichment_context: dict - MCP discovery results (if MCP enabled)
-        - mcp_resolved_context: str - MCP error resolution (if MCP enabled)
     """
+    if max_retries != 3:
+        logger.warning(
+            "max_retries=%d is deprecated -- tiered correction pipeline uses fixed 3 validation runs",
+            max_retries,
+        )
+
     # Get model from environment override if available
     model = os.getenv("PVMAP_GENERATOR_MODEL", model)
 
-    # Create sub-agents
+    # Create agents for initial attempt (Attempt 0)
     state_prep = StatePreparationAgent(name="StatePrep")
 
     generator = GeneratorWrapperAgent(
@@ -2010,12 +2535,30 @@ def create_pvmap_retry_loop(
 
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
-    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator", min_attempts=min_attempts)
-    unified_feedback = ConditionalFeedbackAgent(
-        name="UnifiedFeedback", model=model, thinking_level=thinking_level,
+    quality_evaluator = QualityEvaluationAgent(
+        name="QualityEvaluator",
+        min_attempts=min_attempts,
+        escalate_on_quality=False,  # Don't escalate in SequentialAgent
+    )
+
+    # Create Tier 2 patch agent
+    from src.agents.pvmap_patch_agent import create_pvmap_patch_agent
+    patch_agent = create_pvmap_patch_agent(model=model, thinking_level=thinking_level)
+
+    # Create tiered correction (only runs if quality not acceptable after attempt 0)
+    tiered = TieredCorrectionAgent(
+        name="TieredCorrection",
+        patch_agent=patch_agent,
+        generator_wrapper=generator,
+        metadata_agent=metadata_generator,
+        validation_agent=validator,
+        model=model,
+        thinking_level=thinking_level,
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
+        use_structured_output=use_structured_output,
         feedback_prompt_version=feedback_prompt_version,
     )
-    max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
 
     # Build sub_agents list
     sub_agents = [state_prep]
@@ -2028,7 +2571,7 @@ def create_pvmap_retry_loop(
             model=model
         )
         sub_agents.append(statvar_discovery)
-        logger.info("StatVarDiscoveryAgent added to retry loop (MCP enabled)")
+        logger.info("StatVarDiscoveryAgent added to pipeline (MCP enabled)")
 
     sub_agents.append(generator)
     sub_agents.append(metadata_generator)
@@ -2038,7 +2581,7 @@ def create_pvmap_retry_loop(
         from src.agents.mcp_spot_check_agent import MCPSpotCheckAgent
         spot_check = MCPSpotCheckAgent(name="MCPSpotCheck")
         sub_agents.append(spot_check)
-        logger.info("MCPSpotCheckAgent added to retry loop (MCP enabled)")
+        logger.info("MCPSpotCheckAgent added to pipeline (MCP enabled)")
 
     sub_agents.append(validator)
 
@@ -2046,24 +2589,14 @@ def create_pvmap_retry_loop(
     if enable_mcp and mcp_url:
         error_resolver = MCPErrorResolverAgent(name="MCPErrorResolver")
         sub_agents.append(error_resolver)
-        logger.info("MCPErrorResolverAgent added to retry loop (MCP enabled)")
+        logger.info("MCPErrorResolverAgent added to pipeline (MCP enabled)")
 
     sub_agents.extend([
         quality_evaluator,
-        max_retries_check,
-        unified_feedback,
+        tiered,
     ])
 
-    # Create loop agent
-    # max_iterations = max_retries + 1 (for initial attempt)
-    # Exit via escalation in QualityEvaluator or MaxRetriesCheck
-    loop = LoopAgent(
-        name=name,
-        max_iterations=max_retries + 1,
-        sub_agents=sub_agents
-    )
-
-    return loop
+    return SequentialAgent(name=name, sub_agents=sub_agents)
 
 
 # ============================================================================
@@ -2072,6 +2605,7 @@ def create_pvmap_retry_loop(
 
 __all__ = [
     'create_pvmap_retry_loop',
+    'TieredCorrectionAgent',
     'GeneratorWrapperAgent',
     'StatePreparationAgent',
     'ConditionalFeedbackAgent',
