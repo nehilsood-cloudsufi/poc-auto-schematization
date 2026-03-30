@@ -30,6 +30,15 @@ Usage:
     patterns = detect_systematic_patterns(error_context_dict)
 """
 
+import warnings
+warnings.warn(
+    "counter_feedback is deprecated. Use log_filter.filter_counters() instead. "
+    "Key features have been merged into log_filter.py: ERROR_PRIORITY, ERROR_PATTERNS, "
+    "debug example extraction, systematic pattern detection, and ITERATION_ADVICE.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import csv
 import re
 from pathlib import Path

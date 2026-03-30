@@ -90,11 +90,36 @@ DC-only properties (age, race, naics, statType) are expected to NOT appear in sc
 
 ## Interpreting Processing Metrics
 
+The Processing Metrics section contains enriched diagnostics. Pay attention to these sections:
+
+### Error Priority
+Errors are ordered by IMPACT, not count. Fix them in order:
+1. PVMAP Key Mismatch -- blocks ALL output. Fix first.
+2. Place Resolution -- unlocks many rows once fixed.
+3. Missing StatVar/Observation properties -- completeness.
+4. Duplicate Observations -- need qualifier properties.
+
+### Failing Values
+When "Failing values:" appears under an error, these are the SPECIFIC values causing failures.
+Use them to write targeted fixes:
+- If failing places are single-digit numbers (6, 1, 9): add zero-padding (geoId/[val:0>2])
+- If failing places are names (Alabama, New York): switch to FIPS codes
+- If failing keys are wrong case: match exact column header from Key Match Report
+
+### Systematic Patterns
+When "Systematic Patterns Detected" appears, it means many errors share a root cause.
+A single fix (e.g., changing a format string) can resolve dozens of errors at once.
+Always check this section FIRST before writing individual fixes.
+
+### Iteration Guidance
+Follow the iteration-specific strategy at the bottom of the metrics.
+Early attempts: fix structure. Later attempts: preserve working rows.
+
 | Coverage | Diagnosis | Action |
 |----------|-----------|--------|
 | 0% (0 rows) | Keys don't match any data | Check exact column headers from Key Match Report |
 | < 50% | Major mapping gaps | Identify unmapped columns |
-| 50-90% | Partial — some types failing | Fix specific failing patterns |
+| 50-90% | Partial -- some types failing | Fix specific failing patterns |
 | 100% | All rows mapped | Focus on property/format/quality |
 
 Fragmentation ratio (unique_statvars / total_observations): < 0.05 compact (good for dimension-rich), 0.05-0.3 healthy, 0.3-0.8 moderate (check categoricals), > 0.8 nearly 1:1 (dimension treated as defining property).
