@@ -344,6 +344,10 @@ Missing any column from this skeleton causes data corruption. Treat this as a ma
 
 ---
 
+{{DIMENSION_VALUE_REFERENCE}}
+
+---
+
 ## Schema Examples
 
 {{SCHEMA_EXAMPLES}}
