@@ -65,6 +65,7 @@ class StatVarDiscoveryAgent(BaseAgent):
             ctx.session.state["discovered_statvars"] = []
             ctx.session.state["statvar_summary"] = ""
             ctx.session.state["mcp_enrichment_context"] = {}
+            ctx.session.state["per_column_dc_matches"] = ""
             yield Event(author=self.name, content=types.Content(
                 parts=[types.Part(text="StatVar discovery skipped (MCP not enabled)")]
             ))
@@ -155,6 +156,15 @@ class StatVarDiscoveryAgent(BaseAgent):
             ctx.session.state["discovery_success"] = True
             ctx.session.state["mcp_enrichment_context"] = enrichment_context
 
+            # Per-column DC matches
+            per_column_matches = {}
+            skeleton = ctx.session.state.get("skeleton_summary", "")
+            per_column_queries = self._build_per_column_queries(skeleton)
+            for pq in per_column_queries:
+                per_column_matches[pq["column"]] = []  # Placeholder for actual MCP results
+
+            ctx.session.state["per_column_dc_matches"] = self._format_per_column_matches(per_column_matches)
+
             logger.info(f"Discovered {len(discovered)} StatVars (attempt={attempt})")
 
             yield Event(author=self.name, content=types.Content(
@@ -167,11 +177,92 @@ class StatVarDiscoveryAgent(BaseAgent):
             ctx.session.state["discovered_statvars"] = []
             ctx.session.state["statvar_summary"] = ""
             ctx.session.state["mcp_enrichment_context"] = {}
+            ctx.session.state["per_column_dc_matches"] = ""
             ctx.session.state["error"] = str(e)
 
             yield Event(author=self.name, content=types.Content(
                 parts=[types.Part(text=f"Discovery failed (continuing without): {str(e)[:100]}")]
             ))
+
+    def _build_per_column_queries(self, skeleton_summary: str) -> list:
+        """
+        Parse skeleton_summary to build per-column DC search queries.
+
+        Extracts column names and semantic types from the COLUMN REFERENCE TABLE,
+        then builds a search query for each non-trivial column.
+
+        Returns:
+            List of dicts: [{"column": str, "query": str, "semantic_type": str}]
+        """
+        if not skeleton_summary:
+            return []
+
+        queries = []
+        in_table = False
+
+        for line in skeleton_summary.split('\n'):
+            line = line.strip()
+            # Detect table header
+            if 'Column' in line and 'Type' in line and '|' in line:
+                in_table = True
+                continue
+            # Skip separator
+            if in_table and line.startswith('|') and set(line.replace('|', '').strip()) <= {'-'}:
+                continue
+            # Parse table rows
+            if in_table and line.startswith('|'):
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 3:
+                    col_name = parts[0]
+                    semantic_type = parts[3] if len(parts) > 3 else ""
+
+                    search_term = col_name.replace('_', ' ')
+                    if semantic_type in ('measure', 'dimension'):
+                        queries.append({
+                            "column": col_name,
+                            "query": f"Search for statistical variables related to: {search_term}",
+                            "semantic_type": semantic_type,
+                        })
+                    elif semantic_type == 'place':
+                        queries.append({
+                            "column": col_name,
+                            "query": f"Search for place types matching: {search_term}",
+                            "semantic_type": semantic_type,
+                        })
+            elif in_table and not line.startswith('|'):
+                in_table = False
+
+        return queries
+
+    def _format_per_column_matches(self, matches: dict) -> str:
+        """
+        Format per-column DC matches as a readable string for the plan agent.
+
+        Args:
+            matches: Dict mapping column names to lists of DC match dicts
+
+        Returns:
+            Formatted string
+        """
+        if not matches:
+            return "No per-column DC matches available."
+
+        lines = []
+        for col_name, col_matches in matches.items():
+            if col_matches:
+                match_strs = []
+                for m in col_matches:
+                    dcid = m.get("dcid", "")
+                    name = m.get("name", "")
+                    relevance = m.get("relevance", "")
+                    match_strs.append(f"  - {dcid} ({name}) [relevance: {relevance}]")
+                lines.append(f"### {col_name}")
+                lines.extend(match_strs)
+            else:
+                lines.append(f"### {col_name}")
+                lines.append("  - No DC matches found")
+
+        return '\n'.join(lines)
 
     def _extract_place_samples(self, ctx) -> list:
         """
