@@ -20,9 +20,10 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 ```
 [0] ProgrammaticSamplingAgent
 [1] SchemaSelectionAgent
-[NEW] MappingPlanAgent          ← generates plan with reasoning
-[NEW] Approval Gate             ← user reviews/edits, approves
-[2] PVMAPRetryLoop              ← receives approved plan as constraint
+[NEW-1] StatVarDiscoveryAgent     ← MCP broad discovery (per-column DC lookup)
+[NEW-2] MappingPlanAgent          ← generates plan with reasoning + DC findings
+[NEW-3] Approval Gate             ← user reviews/edits, approves
+[2] PVMAPRetryLoop                ← receives approved plan as constraint
     [2.0] StatePreparationAgent (reads approved_mapping_plan)
     [2.1] PVMAPGeneratorAgent
     [2.2] MetadataGenerationAgent
@@ -33,6 +34,54 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 [3] EvaluationAgent
 [4] LLMJudgeAgent
 ```
+
+**Note:** The existing `StatVarDiscoveryAgent` inside the retry loop (attempt 1+ refinement) is **removed**. All MCP discovery now happens once, pre-plan. The retry loop still has access to `statvar_summary` from state for generation, but no longer re-queries MCP per attempt.
+
+## Component 0: Pre-Plan StatVar Discovery
+
+**File:** Reuses existing `src/agents/statvar_discovery_agent.py`  
+**Type:** ADK `BaseAgent`
+
+The existing `StatVarDiscoveryAgent` is **moved out of the retry loop** and placed before the MappingPlanAgent. It runs once in broad discovery mode (attempt=0) to find existing Data Commons StatVars relevant to the dataset.
+
+### Per-Column DC Queries
+
+The discovery agent is enhanced to run **per-column queries** in addition to the existing broad dataset query:
+
+1. **Broad query** (existing): Search terms from dataset name, population type, dimension domains
+2. **Per-column queries** (new): For each column identified as a measure or dimension by the profiler, query DC for matching StatVars or properties. Uses column name + sample values as search terms.
+
+Example: For a column named `ASTHMA_PREVALENCE` with values like `12.5, 8.3, 15.1`:
+- Query: "Search for statistical variables related to: asthma prevalence, percent"
+- Result: `Percent_Person_WithAsthma`, `Count_Person_Asthma`
+
+### Enhanced State Output
+
+| State Key | Content |
+|-----------|---------|
+| `statvar_summary` | Existing: text summary of all discovered StatVars |
+| `discovered_statvars` | Existing: list of StatVar dicts |
+| `per_column_dc_matches` | **New**: dict mapping column names → list of DC matches with relevance scores |
+| `mcp_enrichment_context` | Existing: structured discovery metadata |
+
+The `per_column_dc_matches` structure:
+```python
+{
+    "ASTHMA_PREV": [
+        {"dcid": "Percent_Person_WithAsthma", "name": "Asthma Prevalence", "relevance": "high",
+         "properties": ["measuredProperty: prevalence", "populationType: Person", "healthCondition: Asthma"]},
+    ],
+    "REF_AREA": [
+        {"dcid": "country/USA", "name": "United States", "relevance": "high",
+         "note": "Place identifier — use geoId or countryAlpha2Code"}
+    ],
+    "OBS_VALUE": []  # No DC match needed — this is a raw measure column
+}
+```
+
+### MCP-Disabled Behavior
+
+When `--enable-mcp` is not set, the discovery agent sets all outputs to empty. The plan agent still runs — it just omits the "DC Match" fields from the plan. No failure, just less information.
 
 ## Component 1: MappingPlanAgent
 
@@ -47,6 +96,9 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 | `schema_category` | SchemaSelectionAgent — selected category (Health, Economy, etc.) |
 | `schema_vocab_content` | SchemaSelectionAgent — compressed vocab JSON for the category |
 | `sampled_data` | ProgrammaticSamplingAgent — representative sample rows |
+| `statvar_summary` | StatVarDiscoveryAgent — broad DC discovery summary |
+| `per_column_dc_matches` | StatVarDiscoveryAgent — per-column DC StatVar/property matches |
+| `discovered_statvars` | StatVarDiscoveryAgent — full list of discovered StatVar dicts |
 
 ### Output
 
@@ -63,6 +115,11 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 - **Observation grain:** One row = one observation per [entity] per [time period]
 - **Key insight:** [1-2 sentences about what this data represents]
 
+## Data Commons Findings
+- **Existing StatVars found:** [list of relevant DCIDs with names]
+- **Reuse recommendation:** [which existing StatVar patterns to follow]
+- **Novel mappings needed:** [columns with no existing DC match — new StatVars required]
+
 ## Column Mappings
 
 ### Column: `{column_name}`
@@ -72,11 +129,14 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 - **Evidence:** [Data statistics: unique count, type, sample values, range]
 - **Alternatives rejected:** [Other roles considered and why they don't fit]
 - **Schema.org:** [Relevant schema.org type/property if applicable]
+- **DC Match:** [Closest existing StatVar or "None — novel mapping needed"]
+- **DC Properties:** [If match found: property decomposition from existing StatVar to reuse]
 
 [Repeated for each column]
 
 ## Properties to Generate
 - [Static properties like measurementMethod, unit, etc.]
+- [Properties inferred from DC matches]
 
 ## Global Notes
 - [Dataset-wide observations, warnings, special handling notes]
@@ -87,9 +147,10 @@ Insert a **MappingPlanAgent** and **Approval Gate** between schema selection and
 The agent instruction template lives at `src/resources/prompts/mapping_plan_prompt.txt`. It tells the LLM to:
 1. Classify the dataset archetype (wide, flat, dimension-row)
 2. Analyze each column systematically using profiler data
-3. Explain reasoning with evidence from the data
-4. Flag ambiguous columns where user input is especially valuable
-5. Use `[DATA]`, `[NUMBER]` placeholder syntax (not `{Data}`, `{Number}` — ADK resolves `{...}` as state variables)
+3. Incorporate DC discovery findings — reuse existing StatVar property patterns where matches are found
+4. Explain reasoning with evidence from the data
+5. Flag ambiguous columns where user input is especially valuable
+6. Use `[DATA]`, `[NUMBER]` placeholder syntax (not `[Data]`, `[Number]` — ADK resolves `{...}` as state variables)
 
 ## Component 2: Approval Gate (CLI)
 
@@ -191,8 +252,9 @@ tests/pipeline/test_approval_gate.py
 ### Modified Files
 
 ```
-src/run_pipeline.py                            — new flags, orchestrate plan→approve→generate
-src/agents/pvmap_retry_loop.py                 — StatePreparationAgent reads approved_mapping_plan
+src/run_pipeline.py                            — new flags, orchestrate plan→approve→generate, move discovery pre-loop
+src/agents/statvar_discovery_agent.py           — add per-column DC queries, new per_column_dc_matches output
+src/agents/pvmap_retry_loop.py                 — StatePreparationAgent reads approved_mapping_plan; remove in-loop discovery
 src/agents/feedback_agent.py                   — instruction updated to respect approved plan
 src/resources/prompts/improved_pvmap_prompt.txt — new APPROVED MAPPING PLAN section
 ```
@@ -217,3 +279,5 @@ src/resources/prompts/improved_pvmap_prompt.txt — new APPROVED MAPPING PLAN se
 3. **Approval gate outside ADK** — ADK agents can't do interactive stdin. A plain Python function between the agent graph sections is the simplest approach.
 4. **Plan as highest-priority context** — Placed before schema vocab in the prompt so the LLM treats user-approved decisions as constraints, not suggestions.
 5. **Full edit flexibility** — The plan file is the user's to reshape however they want. The LLM consumes whatever markdown it receives.
+6. **MCP discovery moved pre-loop** — Discovery runs once before planning instead of per-attempt inside the retry loop. This gives the plan agent DC context and avoids redundant MCP queries during retries. The retry loop still has `statvar_summary` in state for generation.
+7. **Per-column DC queries** — Instead of only a broad dataset-level query, we query DC for each column individually. This gives specific, actionable matches (e.g., "this column matches `Percent_Person_WithAsthma`") rather than generic discovery results.
