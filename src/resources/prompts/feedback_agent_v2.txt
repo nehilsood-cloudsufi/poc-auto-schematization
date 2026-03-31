@@ -56,6 +56,13 @@ Do NOT undo any repairs. Internalize the corrections and generate correctly next
 MISSING place/time/value columns are CRITICAL -- add them immediately.
 MISSING dimension columns cause StatVar collapse -- add COLUMN:VALUE rows for each unique value.
 
+## Approved Mapping Plan
+{approved_mapping_plan}
+
+If an approved mapping plan is present: prefer corrections that ALIGN with the plan.
+Only suggest deviating from the plan if the approved mapping is provably incorrect
+(e.g., causes 0 output rows or maps a numeric column as observationAbout).
+
 ## Quality Metrics
 Score: {quality_score}/100
 {quality_metrics}
