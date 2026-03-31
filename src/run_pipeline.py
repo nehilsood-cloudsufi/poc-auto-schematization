@@ -30,9 +30,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "util"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from google.adk import Runner
-from google.adk.agents import SequentialAgent
+from google.adk.agents import BaseAgent, SequentialAgent
+from google.adk.agents.invocation_context import InvocationContext
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
+from google.adk.events import Event, EventActions
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
 from src.agents.discovery_agent import DiscoveryAgent
@@ -41,12 +43,66 @@ from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
 from src.agents.llm_judge_agent import LLMJudgeAgent
-from typing import Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, Any
 import uuid
 import logging
 import asyncio
 
 logger = logging.getLogger(__name__)
+
+class PlanGateAgent(BaseAgent):
+    """Gate agent between MappingPlanAgent and PVMAPRetryLoop.
+
+    Handles plan_only exit, auto_approve, and from_plan loading.
+    For interactive mode, currently auto-approves (true interactive blocking is Phase 2).
+    """
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        from src.agents.template_utils import escape_pvmap_placeholders
+
+        plan_only = ctx.session.state.get("plan_only", False)
+        mapping_plan = ctx.session.state.get("mapping_plan", "")
+
+        if plan_only:
+            # Save plan and exit
+            output_dir = Path(ctx.session.state.get("output_dir", "."))
+            plan_path = output_dir / "mapping_plan.md"
+            logger.info("Plan-only mode: plan at %s. Exiting pipeline.", plan_path)
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text=f"Plan generated. Saved to {plan_path}. Use --from-plan to generate PVMAP.")]
+                ),
+            )
+            # Escalate to exit the pipeline
+            yield Event(
+                author=self.name,
+                actions=EventActions(escalate=True),
+                content=types.Content(parts=[types.Part(text="plan_only: exiting")]),
+            )
+            return
+
+        # Auto-approve or interactive (default auto-approve for now)
+        if mapping_plan:
+            escaped = escape_pvmap_placeholders(mapping_plan)
+            ctx.session.state["approved_mapping_plan"] = escaped
+            logger.info("Mapping plan approved (%d chars)", len(mapping_plan))
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text="Mapping plan approved. Proceeding to PVMAP generation.")]
+                ),
+            )
+        else:
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text="No mapping plan found. Proceeding without plan.")]
+                ),
+            )
+
 
 # Per-attempt timeout (seconds). The total pipeline timeout is calculated as
 # (max_retries + 1) * PER_ATTEMPT_TIMEOUT. This scales with retry count —
@@ -331,6 +387,9 @@ def run_dataset_pipeline(
     use_llm_judge: bool = False,
     prompt_version: str = "v3",
     feedback_prompt_version: str = "v2",
+    plan_only: bool = False,
+    from_plan: Optional[str] = None,
+    auto_approve: bool = False,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -425,6 +484,19 @@ def run_dataset_pipeline(
     # Note: StatVarDiscoveryAgent is now INSIDE the retry loop (loop-aware).
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
+
+    # Add MappingPlanAgent and PlanGateAgent (unless loading from existing plan)
+    if not from_plan:
+        from src.agents.mapping_plan_agent import MappingPlanAgent
+        plan_agent = MappingPlanAgent(name="MappingPlan", model=model)
+        sub_agents.append(plan_agent)
+        logger.info("MappingPlanAgent added to pipeline")
+
+        gate_agent = PlanGateAgent(name="PlanGate")
+        sub_agents.append(gate_agent)
+        logger.info("PlanGateAgent added to pipeline")
+    else:
+        logger.info("MappingPlanAgent skipped (--from-plan provided)")
 
     # Add generation, evaluation, and LLM judge
     sub_agents.extend([pvmap_agent, evaluation_agent, llm_judge_agent])
@@ -533,6 +605,19 @@ def run_dataset_pipeline(
         "prompt_version": prompt_version,
         "feedback_prompt_version": feedback_prompt_version,
     }
+
+    # Handle --from-plan: load plan from file into initial state
+    if from_plan:
+        from src.pipeline.approval_gate import read_plan_file
+        from src.agents.template_utils import escape_pvmap_placeholders
+        plan_content = read_plan_file(from_plan)
+        initial_state["approved_mapping_plan"] = escape_pvmap_placeholders(plan_content)
+        initial_state["mapping_plan"] = plan_content
+        logger.info("Loaded approved plan from %s (%d chars)", from_plan, len(plan_content))
+
+    # Add plan workflow flags to initial state
+    initial_state["plan_only"] = plan_only
+    initial_state["auto_approve"] = auto_approve
 
     # Inject human feedback if provided (for UI re-runs)
     if human_feedback:
@@ -666,6 +751,16 @@ def run_dataset_pipeline(
             user_id="pipeline_user",
             session_id=session_id
         )
+
+        # Handle plan_only: pipeline escalated after generating plan
+        if plan_only:
+            plan_path = str(current_dataset.output_dir / "mapping_plan.md")
+            logger.info("Plan-only mode complete. Plan at: %s", plan_path)
+            return {
+                "status": "plan_generated",
+                "plan_path": plan_path,
+                "dataset_name": dataset_name,
+            }
 
         # Determine success by checking actual artifacts
         pvmap_path = current_dataset.output_dir / "generated_pvmap.csv"
@@ -809,6 +904,14 @@ if __name__ == "__main__":
                         help="PVMAP prompt version to use (default: v3)")
     parser.add_argument("--feedback-prompt-version", choices=["v1", "v2"], default="v2",
                         help="Feedback agent prompt version (default: v1)")
+    # Mapping plan workflow flags
+    plan_group = parser.add_mutually_exclusive_group()
+    plan_group.add_argument("--plan-only", action="store_true", default=False,
+                            help="Generate mapping plan and exit without PVMAP generation")
+    plan_group.add_argument("--from-plan", type=str, default=None,
+                            help="Path to approved mapping plan file (skips plan generation)")
+    parser.add_argument("--auto-approve", action="store_true", default=False,
+                        help="Auto-approve mapping plan without interactive prompt")
     args = parser.parse_args()
 
     # Validation: --input-file and --dataset are mutually exclusive
@@ -826,6 +929,8 @@ if __name__ == "__main__":
         parser.error(f"Metadata file not found: {args.metadata_file_path}")
     if args.schema_file and not Path(args.schema_file).exists():
         parser.error(f"Schema file not found: {args.schema_file}")
+    if args.from_plan and not Path(args.from_plan).exists():
+        parser.error(f"Plan file not found: {args.from_plan}")
 
     # Setup paths
     base_dir = Path(__file__).parent.parent
@@ -951,6 +1056,9 @@ if __name__ == "__main__":
             use_llm_judge=getattr(args, 'use_llm_judge', False),
             prompt_version=getattr(args, 'prompt_version', 'v3'),
             feedback_prompt_version=getattr(args, 'feedback_prompt_version', 'v2'),
+            plan_only=args.plan_only,
+            from_plan=args.from_plan,
+            auto_approve=args.auto_approve,
         )
 
         print("\n" + "=" * 60)
