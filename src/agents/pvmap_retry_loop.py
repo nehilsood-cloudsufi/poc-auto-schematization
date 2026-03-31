@@ -741,6 +741,8 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["skeleton_summary"] = ""
         if "statvar_summary" not in ctx.session.state:
             ctx.session.state["statvar_summary"] = ""
+        if "approved_mapping_plan" not in ctx.session.state:
+            ctx.session.state["approved_mapping_plan"] = ""
         if "structure_warnings" not in ctx.session.state:
             ctx.session.state["structure_warnings"] = ""
         if "quality_diff_summary" not in ctx.session.state:
@@ -892,6 +894,7 @@ class StatePreparationAgent(BaseAgent):
             error_fb = ctx.session.state.get("error_feedback", "")
             metadata = ctx.session.state.get("metadata", "")
             statvar_summary = ctx.session.state.get("statvar_summary", "")
+            approved_plan = ctx.session.state.get("approved_mapping_plan", "")
             mcp_instruction = ctx.session.state.get("mcp_tools_instruction", "")
 
             # Reserve space for template text + smaller/fixed sections + error_feedback
@@ -936,6 +939,7 @@ class StatePreparationAgent(BaseAgent):
             populated = populated.replace("{{METADATA_CONFIG}}", metadata)
             populated = populated.replace("{{ERROR_FEEDBACK}}", error_fb)
             populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
+            populated = populated.replace("{{APPROVED_MAPPING_PLAN}}", approved_plan)
             populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
 
             # Inject dimension value reference (from MCP enrichment)
