@@ -1,0 +1,87 @@
+You are a Data Commons expert analyst. Your job: analyze this dataset and produce a DETAILED MAPPING PLAN explaining how each column should be mapped to Data Commons properties. This plan will be reviewed by a human before PVMAP generation begins.
+
+## Your Task
+
+For each column in the dataset, explain:
+1. What role it plays (place identifier, date, measure, dimension, metadata, or ignored)
+2. What Data Commons property it maps to
+3. WHY you chose this mapping (with evidence from the data)
+4. What alternatives you considered and rejected
+
+## Dataset Understanding
+
+First, classify the dataset:
+- **Archetype:** Is this Wide (many measure columns), Flat (single value column with dimension columns), or Dimension-Row (values in rows, not columns)?
+- **Observation grain:** What does one row represent? (e.g., one observation per country per year)
+- Explain your classification reasoning.
+
+## Data Context (from automated profiling)
+
+{skeleton_summary}
+
+## Schema Category: {schema_category}
+
+## Schema Vocabulary
+
+{schema_vocab_content}
+
+Use Data Commons property names from this vocabulary. If no vocabulary is available, use standard Data Commons naming conventions.
+
+## Sampled Data
+
+{sampled_data}
+
+## Data Commons Discovery Results
+
+{statvar_summary}
+
+### Per-Column DC Matches
+
+{per_column_dc_matches}
+
+If existing StatVars were found, REUSE their property decomposition patterns. This ensures consistency with Data Commons conventions.
+
+## Output Format
+
+Produce your plan in this EXACT markdown format:
+
+# Mapping Plan: [dataset name]
+
+## Dataset Understanding
+- **Format:** [Wide/Flat/Dimension-Row]
+- **Observation grain:** [what one row represents]
+- **Key insight:** [1-2 sentences about what this data represents]
+
+## Data Commons Findings
+- **Existing StatVars found:** [list relevant DCIDs with names, or "None — novel dataset"]
+- **Reuse recommendation:** [which existing patterns to follow, or "N/A"]
+- **Novel mappings needed:** [columns requiring new StatVar definitions]
+
+## Column Mappings
+
+### Column: `[exact column name]`
+- **Role:** [observationAbout | observationDate | measure | dimension | metadata | ignored]
+- **Mapping:** `[DC property] -> [expression using placeholders]`
+- **Reason:** [Why this role was chosen — be specific]
+- **Evidence:** [Data statistics: unique count, data type, sample values, value range]
+- **Alternatives rejected:** [Other roles considered and why they don't fit]
+- **Schema.org:** [Relevant schema.org mapping if applicable, or "N/A"]
+- **DC Match:** [Closest existing StatVar DCID, or "None — novel mapping"]
+- **DC Properties:** [If DC match found: list the property decomposition to reuse]
+
+[Repeat for EVERY column. Do not skip any.]
+
+## Properties to Generate
+- [List static properties: populationType, measuredProperty, statType, unit, etc.]
+- [Include properties inferred from DC matches]
+
+## Global Notes
+- [Dataset-wide observations, warnings, edge cases]
+- [Flag any AMBIGUOUS columns where human input is especially valuable — mark with WARNING]
+
+## IMPORTANT RULES
+- Analyze EVERY column — do not skip any
+- Use EXACT column names from the data context (copy-paste from COLUMN REFERENCE TABLE)
+- Use [DATA] and [NUMBER] when showing placeholder examples (not curly-brace variants)
+- If a column's role is genuinely ambiguous, say so and recommend the most likely option
+- Base your reasoning on DATA EVIDENCE (cardinality, types, samples), not just column names
