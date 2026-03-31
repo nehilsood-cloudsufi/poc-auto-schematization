@@ -183,6 +183,27 @@ def create_parser() -> argparse.ArgumentParser:
         help='Explicit schema file override'
     )
 
+    # Mapping plan workflow
+    plan_group = parser.add_mutually_exclusive_group()
+    plan_group.add_argument(
+        '--plan-only',
+        action='store_true',
+        default=False,
+        help='Generate mapping plan and exit without PVMAP generation'
+    )
+    plan_group.add_argument(
+        '--from-plan',
+        type=str,
+        default=None,
+        help='Path to approved mapping plan file (skips plan generation, goes straight to PVMAP generation)'
+    )
+    parser.add_argument(
+        '--auto-approve',
+        action='store_true',
+        default=False,
+        help='Auto-approve mapping plan without interactive prompt'
+    )
+
     # Structured output
     parser.add_argument(
         '--structured-output',

@@ -485,6 +485,7 @@ class TestHelperFunctions:
             "skip_column_discovery",
             "prompt_version",
             "feedback_prompt_version",
+            "plan_only", "from_plan", "auto_approve",
         }
         assert expected_keys == set(result.keys())
 
