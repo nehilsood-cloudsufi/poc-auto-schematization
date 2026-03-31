@@ -106,6 +106,14 @@ If feedback is present: read carefully, apply the specific fixes, ensure keys ma
 
 ---
 
+## Approved Mapping Plan
+
+{{APPROVED_MAPPING_PLAN}}
+
+If an approved mapping plan is present above, you MUST follow its column-role decisions. Only deviate if a mapping is structurally impossible (explain why in a comment row). The plan was reviewed and approved by a human.
+
+---
+
 ## Discovered StatVars (from Data Commons)
 
 {{STATVAR_SUMMARY}}
