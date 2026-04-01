@@ -481,6 +481,12 @@ def run_dataset_pipeline(
     else:
         logger.info("SchemaSelectionAgent skipped (--skip-schema-selection)")
 
+    # Add SchemaOrgEnrichmentAgent (programmatic Schema.org lookups per column)
+    from src.agents.schemaorg_enrichment_agent import SchemaOrgEnrichmentAgent
+    schemaorg_agent = SchemaOrgEnrichmentAgent(name="SchemaOrgEnrichment")
+    sub_agents.append(schemaorg_agent)
+    logger.info("SchemaOrgEnrichmentAgent added to pipeline")
+
     # Note: StatVarDiscoveryAgent is now INSIDE the retry loop (loop-aware).
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
