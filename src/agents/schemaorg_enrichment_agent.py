@@ -39,11 +39,20 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
             ))
             return
 
+        columns = self._parse_columns(skeleton)
+        logger.info("Schema.org enrichment: found %d columns in skeleton (%d chars)",
+                     len(columns), len(skeleton))
+        if columns:
+            logger.info("Schema.org enrichment columns: %s",
+                        [f"{c['name']}({c['semantic_type']})" for c in columns[:5]])
+
         result = self._enrich_columns(skeleton, schema_category)
         ctx.session.state["schemaorg_column_mappings"] = result
 
+        logger.info("Schema.org enrichment result: %d chars", len(result))
+
         yield Event(author=self.name, content=types.Content(
-            parts=[types.Part(text=f"Schema.org enrichment complete ({len(result)} chars)")]
+            parts=[types.Part(text=f"Schema.org enrichment complete ({len(columns)} columns, {len(result)} chars)")]
         ))
 
     def _enrich_columns(self, skeleton: str, schema_category: str) -> str:
@@ -78,9 +87,10 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
             if ('Column' in line) and ('Type' in line) and '|' in line:
                 in_table = True
                 # Find which column index has "Semantic"
-                header_parts = [p.strip().lower() for p in line.split('|') if p.strip()]
+                # Use _split_table_row to preserve empty cells for correct indexing
+                header_parts = self._split_table_row(line)
                 for i, h in enumerate(header_parts):
-                    if 'semantic' in h:
+                    if 'semantic' in h.lower():
                         semantic_col_idx = i
                         break
                 continue
@@ -89,17 +99,35 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
                 continue
             # Parse table rows
             if in_table and line.startswith('|'):
-                parts = [p.strip() for p in line.split('|') if p.strip()]
+                parts = self._split_table_row(line)
                 if len(parts) >= 1:
-                    col_name = parts[0]
+                    col_name = parts[0].strip('`')
                     semantic_type = ""
                     if semantic_col_idx is not None and len(parts) > semantic_col_idx:
-                        semantic_type = parts[semantic_col_idx]
+                        semantic_type = parts[semantic_col_idx].strip()
                     columns.append({"name": col_name, "semantic_type": semantic_type})
             elif in_table and not line.startswith('|'):
                 in_table = False
 
         return columns
+
+    @staticmethod
+    def _split_table_row(line: str) -> List[str]:
+        """Split a markdown table row preserving empty cells.
+
+        '| A | B | | D |' -> ['A', 'B', '', 'D']
+
+        Unlike [p for p in split('|') if p.strip()], this preserves
+        empty cells so column indices stay aligned with the header.
+        """
+        # Split on pipe, strip outer empty strings from leading/trailing pipes
+        parts = line.split('|')
+        # Remove first and last elements (empty strings from leading/trailing |)
+        if parts and not parts[0].strip():
+            parts = parts[1:]
+        if parts and not parts[-1].strip():
+            parts = parts[:-1]
+        return [p.strip() for p in parts]
 
     # Known semantic type → Schema.org property mappings
     # These are authoritative DC-to-Schema.org equivalences

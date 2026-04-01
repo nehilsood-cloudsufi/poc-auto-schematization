@@ -35,10 +35,10 @@ Use Data Commons property names from this vocabulary. If no vocabulary is availa
 
 {schemaorg_column_mappings}
 
-IMPORTANT: Copy the Schema.org data above DIRECTLY into each column's **Schema.org** field.
-- If a column has "DC property:" and "Schema.org equivalent:" above, copy BOTH into the Schema.org field
-- If a column shows "No direct Schema.org match", write "N/A"
-- Do NOT guess or invent Schema.org properties — use ONLY what is provided above
+CRITICAL INSTRUCTION: For EVERY column listed above, you MUST copy its Schema.org data into that column's **Schema.org** output field below. Format: "DC: [dc property] / Schema.org: [schema.org equivalent]".
+- Example: Column "REF_AREA" above says "DC property: observationAbout" + "Schema.org equivalent: about (from Observation)" → write **Schema.org:** DC: observationAbout / Schema.org: about (from Observation)
+- If a column says "No direct Schema.org match", THEN write "N/A"
+- Do NOT write "N/A" if Schema.org data IS provided above for that column
 
 ## Data Commons Discovery Results
 
@@ -74,7 +74,7 @@ Produce your plan in this EXACT markdown format:
 - **Reason:** [Why this role was chosen — be specific]
 - **Evidence:** [Data statistics: unique count, data type, sample values, value range]
 - **Alternatives rejected:** [Other roles considered and why they don't fit]
-- **Schema.org:** [COPY from Schema.org Property Mappings section above — include DC property + Schema.org equivalent. Write "N/A" only if the section says "No direct Schema.org match"]
+- **Schema.org:** [COPY from the "Schema.org Property Mappings" section above. Example: if the section says "DC property: observationAbout / Schema.org equivalent: about (from Observation)", write "DC: observationAbout / Schema.org: about (from Observation)". Write "N/A" ONLY if that column says "No direct Schema.org match" above]
 - **DC Match:** [Closest existing StatVar DCID, or "None — novel mapping"]
 - **DC Properties:** [If DC match found: list the property decomposition to reuse]
 
