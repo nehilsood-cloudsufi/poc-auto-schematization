@@ -688,3 +688,103 @@ Expected: All pass
 git add tests/integration/test_tool_consolidation.py
 git commit -m "test: add integration tests for tool consolidation"
 ```
+
+---
+
+### Task 7: A/B Test — Validate Quality with 5 Datasets
+
+Run the consolidated pipeline (with Schema.org enrichment + generator tool removal) against the same 5 datasets used in the previous A/B test. Compare against the existing "With Plan" baseline results.
+
+**Previous "With Plan" results (our baseline for comparison):**
+
+| Dataset | Validation | Data Rows | PVMAP Rows | PV Acc | Time |
+|---------|-----------|-----------|-----------|--------|------|
+| BIS | Passed | 31 | 19 | - | 5:00 |
+| FAO | Passed | 67 | 6 | 0.0% | 2:44 |
+| CRDC | Passed | 3106 | 4 | 0.0% | 3:04 |
+| BRFSS | Failed | 0 | 17 | 19.6% | 5:28 |
+| Census SAHIE | Failed | 0 | 32 | 29.5% | 10:14 |
+
+- [ ] **Step 1: Run all 5 datasets with consolidated pipeline**
+
+```bash
+# Create output directory
+mkdir -p output/ab_test_consolidated
+
+# Run all 5 in parallel
+for ds in bis_bis_central_bank_policy_rate brfss_nchs_asthma_prevalence census_v2_sahie fao_currency_and_exchange_rate crdc_import_crdc_harassment_or_bullying india_nfhs; do
+  PYTHONPATH="$(pwd):$(pwd)/src" python src/run_pipeline.py \
+    --dataset=$ds \
+    --output-dir=output/ab_test_consolidated \
+    --auto-approve &
+done
+wait
+```
+
+- [ ] **Step 2: Collect results**
+
+For each dataset, extract from the pipeline log:
+- Validation passed (True/False)
+- Data rows (line count of processed.csv minus 1)
+- PVMAP rows (line count of generated_pvmap.csv)
+- PV accuracy (from log)
+- Node accuracy (from log)
+- Total runtime (start timestamp → end timestamp)
+
+```bash
+for ds in bis_bis_central_bank_policy_rate brfss_nchs_asthma_prevalence census_v2_sahie fao_currency_and_exchange_rate crdc_import_crdc_harassment_or_bullying india_nfhs; do
+  log=$(ls -t output/ab_test_consolidated/logs/pipeline_${ds}_*.log | head -1)
+  echo "=== $ds ==="
+  grep -E "Validation passed|PV accuracy|Node accuracy|Starting PVMAP|Received" "$log"
+  wc -l output/ab_test_consolidated/$ds/generated_pvmap.csv output/ab_test_consolidated/$ds/processed.csv 2>/dev/null
+done
+```
+
+- [ ] **Step 3: Verify Schema.org fields in plans**
+
+For each dataset, check that the mapping plan now has real Schema.org data:
+
+```bash
+for ds in bis_bis_central_bank_policy_rate brfss_nchs_asthma_prevalence census_v2_sahie fao_currency_and_exchange_rate crdc_import_crdc_harassment_or_bullying india_nfhs; do
+  echo "=== $ds ==="
+  grep -c "Schema.org.*N/A" output/ab_test_consolidated/$ds/mapping_plan.md
+  grep -c "Schema.org property:" output/ab_test_consolidated/$ds/mapping_plan.md
+done
+```
+
+Expected: Significantly fewer "N/A" entries and more "Schema.org property:" entries compared to previous runs.
+
+- [ ] **Step 4: Compare against previous "With Plan" results**
+
+Build comparison table:
+
+| Dataset | Metric | Previous (Plan) | Consolidated | Delta |
+|---------|--------|-----------------|-------------|-------|
+| BIS | Validation | Passed | ? | |
+| BIS | Data rows | 31 | ? | |
+| BIS | PV accuracy | - | ? | |
+| FAO | Validation | Passed | ? | |
+| FAO | Data rows | 67 | ? | |
+| CRDC | Validation | Passed | ? | |
+| CRDC | Data rows | 3106 | ? | |
+| BRFSS | Validation | Failed | ? | |
+| BRFSS | PV accuracy | 19.6% | ? | |
+| Census | Validation | Failed | ? | |
+| Census | PV accuracy | 29.5% | ? | |
+
+**Pass criteria:**
+- No dataset that previously passed validation should now fail
+- PV accuracy should not decrease by more than 5% on any dataset
+- Runtime should not increase by more than 3 min on any dataset
+- Plans should have fewer "N/A" Schema.org fields
+
+**If quality drops:** Revert to keeping discovery tools in generator (approach B from brainstorming). Add the tools back to `pvmap_generator_agent.py` alongside the plan enrichment.
+
+- [ ] **Step 5: Document results and commit**
+
+Save comparison results to `docs/ab_test_results/2026-04-01-tool-consolidation.md` and commit:
+
+```bash
+git add docs/ab_test_results/2026-04-01-tool-consolidation.md
+git commit -m "docs: A/B test results for tool consolidation into plan phase"
+```
