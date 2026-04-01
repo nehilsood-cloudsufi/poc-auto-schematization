@@ -58,6 +58,7 @@ class MappingPlanAgent(BaseAgent):
         sampled_data = ctx.session.state.get("sampled_data", "")
         statvar_summary = ctx.session.state.get("statvar_summary", "")
         per_column_dc = ctx.session.state.get("per_column_dc_matches", "")
+        schemaorg_mappings = ctx.session.state.get("schemaorg_column_mappings", "")
 
         populated = template.replace("{skeleton_summary}", skeleton)
         populated = populated.replace("{schema_category}", schema_category)
@@ -65,6 +66,7 @@ class MappingPlanAgent(BaseAgent):
         populated = populated.replace("{sampled_data}", sampled_data)
         populated = populated.replace("{statvar_summary}", statvar_summary)
         populated = populated.replace("{per_column_dc_matches}", str(per_column_dc))
+        populated = populated.replace("{schemaorg_column_mappings}", schemaorg_mappings)
 
         # Generate plan via LLM
         plan_text = await self._generate_plan(populated)

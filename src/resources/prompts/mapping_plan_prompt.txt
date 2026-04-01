@@ -31,6 +31,14 @@ Use Data Commons property names from this vocabulary. If no vocabulary is availa
 
 {sampled_data}
 
+## Schema.org Property Mappings (from automated lookup)
+
+{schemaorg_column_mappings}
+
+Use these Schema.org mappings in your plan. For each column, if a Schema.org match
+was found above, include it in the **Schema.org** field. If no match, write "N/A".
+These lookups are authoritative — do not guess Schema.org properties.
+
 ## Data Commons Discovery Results
 
 {statvar_summary}
