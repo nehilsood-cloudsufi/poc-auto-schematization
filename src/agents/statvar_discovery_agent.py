@@ -243,12 +243,19 @@ class StatVarDiscoveryAgent(BaseAgent):
 
         queries = []
         in_table = False
+        semantic_col_idx = None
 
         for line in skeleton_summary.split('\n'):
             line = line.strip()
             # Detect table header
             if 'Column' in line and 'Type' in line and '|' in line:
                 in_table = True
+                # Find which column index has "Semantic"
+                header_parts = [p.strip().lower() for p in line.split('|') if p.strip()]
+                for i, h in enumerate(header_parts):
+                    if 'semantic' in h:
+                        semantic_col_idx = i
+                        break
                 continue
             # Skip separator
             if in_table and line.startswith('|') and set(line.replace('|', '').strip()) <= {'-'}:
@@ -258,7 +265,9 @@ class StatVarDiscoveryAgent(BaseAgent):
                 parts = [p.strip() for p in line.split('|') if p.strip()]
                 if len(parts) >= 3:
                     col_name = parts[0]
-                    semantic_type = parts[3] if len(parts) > 3 else ""
+                    semantic_type = ""
+                    if semantic_col_idx is not None and len(parts) > semantic_col_idx:
+                        semantic_type = parts[semantic_col_idx]
 
                     search_term = col_name.replace('_', ' ')
                     if semantic_type in ('measure', 'dimension'):

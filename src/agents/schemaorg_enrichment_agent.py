@@ -62,22 +62,39 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
         return self._format_results(column_results)
 
     def _parse_columns(self, skeleton: str) -> List[Dict[str, str]]:
-        """Parse column names and semantic types from COLUMN REFERENCE TABLE."""
+        """Parse column names and semantic types from COLUMN REFERENCE TABLE.
+
+        Handles both formats:
+        - | Column | Type | Unique | Semantic Type |  (test format)
+        - | Column Header (EXACT) | Type | Unique Values | Semantic | Sample Values |  (production format)
+        """
         columns = []
         in_table = False
+        semantic_col_idx = None
 
         for line in skeleton.split('\n'):
             line = line.strip()
-            if 'Column' in line and 'Type' in line and '|' in line:
+            # Detect table header — look for Column + Type in same row
+            if ('Column' in line) and ('Type' in line) and '|' in line:
                 in_table = True
+                # Find which column index has "Semantic"
+                header_parts = [p.strip().lower() for p in line.split('|') if p.strip()]
+                for i, h in enumerate(header_parts):
+                    if 'semantic' in h:
+                        semantic_col_idx = i
+                        break
                 continue
+            # Skip separator
             if in_table and line.startswith('|') and set(line.replace('|', '').strip()) <= {'-'}:
                 continue
+            # Parse table rows
             if in_table and line.startswith('|'):
                 parts = [p.strip() for p in line.split('|') if p.strip()]
                 if len(parts) >= 1:
                     col_name = parts[0]
-                    semantic_type = parts[3] if len(parts) > 3 else ""
+                    semantic_type = ""
+                    if semantic_col_idx is not None and len(parts) > semantic_col_idx:
+                        semantic_type = parts[semantic_col_idx]
                     columns.append({"name": col_name, "semantic_type": semantic_type})
             elif in_table and not line.startswith('|'):
                 in_table = False
