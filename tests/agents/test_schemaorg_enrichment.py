@@ -49,13 +49,25 @@ def test_lookup_schemaorg_for_column():
     assert "Country" in result
 
 
-def test_lookup_no_match():
+def test_lookup_no_match_unknown_type():
+    """Columns with unknown semantic type and no search results get 'No direct match'."""
     agent = SchemaOrgEnrichmentAgent(name="TestEnrich")
     mock_vocab = MagicMock()
     mock_vocab.search_properties.return_value = []
 
-    result = agent._lookup_column("WEIRD_COLUMN_XYZ", "dimension", mock_vocab)
+    result = agent._lookup_column("WEIRD_COLUMN_XYZ", "", mock_vocab)
     assert "No direct Schema.org match" in result
+
+
+def test_lookup_known_semantic_type():
+    """Columns with known semantic types (place/date/measure/dimension) get mappings."""
+    agent = SchemaOrgEnrichmentAgent(name="TestEnrich")
+    mock_vocab = MagicMock()
+    mock_vocab.search_properties.return_value = []
+
+    result = agent._lookup_column("COUNTRY", "place", mock_vocab)
+    assert "observationAbout" in result
+    assert "Schema.org equivalent" in result
 
 
 def test_format_all_columns():

@@ -35,9 +35,10 @@ Use Data Commons property names from this vocabulary. If no vocabulary is availa
 
 {schemaorg_column_mappings}
 
-Use these Schema.org mappings in your plan. For each column, if a Schema.org match
-was found above, include it in the **Schema.org** field. If no match, write "N/A".
-These lookups are authoritative — do not guess Schema.org properties.
+IMPORTANT: Copy the Schema.org data above DIRECTLY into each column's **Schema.org** field.
+- If a column has "DC property:" and "Schema.org equivalent:" above, copy BOTH into the Schema.org field
+- If a column shows "No direct Schema.org match", write "N/A"
+- Do NOT guess or invent Schema.org properties — use ONLY what is provided above
 
 ## Data Commons Discovery Results
 
@@ -73,7 +74,7 @@ Produce your plan in this EXACT markdown format:
 - **Reason:** [Why this role was chosen — be specific]
 - **Evidence:** [Data statistics: unique count, data type, sample values, value range]
 - **Alternatives rejected:** [Other roles considered and why they don't fit]
-- **Schema.org:** [Relevant schema.org mapping if applicable, or "N/A"]
+- **Schema.org:** [COPY from Schema.org Property Mappings section above — include DC property + Schema.org equivalent. Write "N/A" only if the section says "No direct Schema.org match"]
 - **DC Match:** [Closest existing StatVar DCID, or "None — novel mapping"]
 - **DC Properties:** [If DC match found: list the property decomposition to reuse]
 

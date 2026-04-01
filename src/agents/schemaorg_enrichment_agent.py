@@ -13,7 +13,7 @@ ADK State Outputs:
 """
 
 import logging
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, ClassVar, Dict, List, Optional
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -84,19 +84,60 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
 
         return columns
 
+    # Known semantic type → Schema.org property mappings
+    # These are authoritative DC-to-Schema.org equivalences
+    SEMANTIC_TYPE_MAPPINGS: ClassVar[Dict] = {
+        "place": {
+            "property": "observationAbout",
+            "schemaorg": "about (from Observation) — maps to Place entities",
+            "related": ["addressCountry", "containedInPlace", "geo"],
+        },
+        "date": {
+            "property": "observationDate",
+            "schemaorg": "dateCreated (from CreativeWork) — temporal observation axis",
+            "related": ["datePublished", "startDate", "endDate"],
+        },
+        "measure": {
+            "property": "value",
+            "schemaorg": "value (from PropertyValue, QuantitativeValue)",
+            "related": ["maxValue", "minValue", "unitText"],
+        },
+        "dimension": {
+            "property": "variableMeasured (auto-built from dimension properties)",
+            "schemaorg": "variableMeasured (from Dataset, Observation)",
+            "related": ["measuredProperty", "statType"],
+        },
+    }
+
     def _lookup_column(self, column_name: str, semantic_type: str, vocab: SchemaOrgVocab) -> str:
         """Look up Schema.org property for a single column."""
+        # First: use known semantic type mappings (most reliable)
+        if semantic_type in self.SEMANTIC_TYPE_MAPPINGS:
+            mapping = self.SEMANTIC_TYPE_MAPPINGS[semantic_type]
+            lines = [
+                f"- DC property: {mapping['property']}",
+                f"- Schema.org equivalent: {mapping['schemaorg']}",
+            ]
+            # Try column-name-specific search for additional context
+            search_term = column_name.replace('_', ' ').lower()
+            col_results = vocab.search_properties(search_term, limit=2)
+            if col_results:
+                best = col_results[0]
+                prop_name = best.get("name", "")
+                # Only include if it's a reasonable match (not a random property)
+                if any(kw in prop_name.lower() for kw in [
+                    'country', 'place', 'location', 'address', 'date', 'time',
+                    'value', 'number', 'amount', 'price', 'rate', 'percent',
+                    'frequency', 'period', 'status', 'type', 'name', 'area',
+                ]):
+                    domain = best.get("domain", [])
+                    domain_str = f" (from {', '.join(domain[:2])})" if domain else ""
+                    lines.append(f"- Column-specific match: {prop_name}{domain_str}")
+            return '\n'.join(lines)
+
+        # Fallback: search by column name for unknown semantic types
         search_term = column_name.replace('_', ' ').lower()
         results = vocab.search_properties(search_term, limit=3)
-
-        if not results:
-            # Try semantic type as fallback
-            if semantic_type == "place":
-                results = vocab.search_properties("address country location", limit=3)
-            elif semantic_type == "date":
-                results = vocab.search_properties("date observation", limit=3)
-            elif semantic_type == "measure":
-                results = vocab.search_properties("value number amount", limit=3)
 
         if not results:
             return "- No direct Schema.org match"
@@ -106,7 +147,6 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
         domain = best.get("domain", [])
         domain_str = f" (from {', '.join(domain[:2])})" if domain else ""
 
-        # Get range info
         prop_detail = vocab.get_property(prop_name)
         range_types = []
         if prop_detail:
