@@ -32,6 +32,11 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
         skeleton = ctx.session.state.get("skeleton_summary", "")
         schema_category = ctx.session.state.get("schema_category", "")
 
+        # column_roles from data_context provides semantic types when the
+        # skeleton table doesn't have a Semantic column (older sampling path)
+        data_context = ctx.session.state.get("data_context", {})
+        column_roles = data_context.get("column_roles", {})
+
         if not skeleton:
             ctx.session.state["schemaorg_column_mappings"] = ""
             yield Event(author=self.name, content=types.Content(
@@ -40,14 +45,35 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
             return
 
         columns = self._parse_columns(skeleton)
+
+        # Backfill semantic types from column_roles if skeleton table lacks them
+        if column_roles:
+            role_map = {
+                "place": "place", "time": "date", "value": "measure",
+                "dimension": "dimension", "metadata": "metadata",
+            }
+            for col in columns:
+                if not col["semantic_type"]:
+                    raw_role = column_roles.get(col["name"], "")
+                    col["semantic_type"] = role_map.get(raw_role, raw_role)
+
         logger.info("Schema.org enrichment: found %d columns in skeleton (%d chars)",
                      len(columns), len(skeleton))
         if columns:
             logger.info("Schema.org enrichment columns: %s",
                         [f"{c['name']}({c['semantic_type']})" for c in columns[:5]])
 
-        result = self._enrich_columns(skeleton, schema_category)
+        result = self._enrich_columns_from_parsed(columns, schema_category)
         ctx.session.state["schemaorg_column_mappings"] = result
+
+        # Also save to disk for debugging state propagation
+        output_dir = ctx.session.state.get("output_dir", "")
+        if output_dir:
+            from pathlib import Path
+            debug_path = Path(output_dir) / "schemaorg_enrichment.md"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(result)
+            logger.info("Schema.org enrichment saved to %s (%d chars)", debug_path, len(result))
 
         logger.info("Schema.org enrichment result: %d chars", len(result))
 
@@ -58,6 +84,10 @@ class SchemaOrgEnrichmentAgent(BaseAgent):
     def _enrich_columns(self, skeleton: str, schema_category: str) -> str:
         """Run Schema.org lookups for all columns in skeleton."""
         columns = self._parse_columns(skeleton)
+        return self._enrich_columns_from_parsed(columns, schema_category)
+
+    def _enrich_columns_from_parsed(self, columns: List[Dict[str, str]], schema_category: str) -> str:
+        """Run Schema.org lookups for pre-parsed columns."""
         if not columns:
             return ""
 
