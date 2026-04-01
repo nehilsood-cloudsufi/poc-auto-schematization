@@ -156,12 +156,15 @@ class StatVarDiscoveryAgent(BaseAgent):
             ctx.session.state["discovery_success"] = True
             ctx.session.state["mcp_enrichment_context"] = enrichment_context
 
-            # Per-column DC matches
-            per_column_matches = {}
+            # Per-column DC matches — execute real queries if MCP enabled
             skeleton = ctx.session.state.get("skeleton_summary", "")
             per_column_queries = self._build_per_column_queries(skeleton)
-            for pq in per_column_queries:
-                per_column_matches[pq["column"]] = []  # Placeholder for actual MCP results
+            if per_column_queries and mcp_url:
+                per_column_matches = await self._execute_per_column_queries(
+                    per_column_queries, mcp_url=mcp_url, max_queries=3
+                )
+            else:
+                per_column_matches = {pq["column"]: [] for pq in per_column_queries}
 
             ctx.session.state["per_column_dc_matches"] = self._format_per_column_matches(per_column_matches)
 
@@ -183,6 +186,47 @@ class StatVarDiscoveryAgent(BaseAgent):
             yield Event(author=self.name, content=types.Content(
                 parts=[types.Part(text=f"Discovery failed (continuing without): {str(e)[:100]}")]
             ))
+
+    async def _execute_per_column_queries(
+        self, queries: list, mcp_url: str, max_queries: int = 3
+    ) -> dict:
+        """
+        Execute actual MCP queries for top N columns.
+
+        Prioritizes: measure > dimension > place columns.
+        Returns dict mapping column names to lists of DC match dicts.
+        """
+        from src.agents.dc_query_agent import (
+            create_enrichment_agent,
+            run_mcp_query,
+            parse_statvars,
+        )
+
+        priority = {"measure": 0, "dimension": 1, "place": 2}
+        sorted_queries = sorted(queries, key=lambda q: priority.get(q["semantic_type"], 9))
+        top_queries = sorted_queries[:max_queries]
+
+        matches = {q["column"]: [] for q in queries}
+
+        for pq in top_queries:
+            try:
+                enrichment_agent = create_enrichment_agent(
+                    mcp_url=mcp_url,
+                    model=self._model,
+                    data_context={},
+                    attempt=0,
+                    error_feedback="",
+                    validation_error="",
+                )
+                result_text = await run_mcp_query(mcp_url, enrichment_agent, pq["query"])
+                discovered = parse_statvars(result_text)
+                matches[pq["column"]] = discovered
+                logger.info("Per-column DC query for %s: found %d matches", pq["column"], len(discovered))
+            except Exception as e:
+                logger.warning("Per-column DC query failed for %s: %s", pq["column"], e)
+                matches[pq["column"]] = []
+
+        return matches
 
     def _build_per_column_queries(self, skeleton_summary: str) -> list:
         """

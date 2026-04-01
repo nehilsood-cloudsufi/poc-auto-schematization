@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, patch
 from src.agents.statvar_discovery_agent import StatVarDiscoveryAgent
 
 
@@ -65,3 +66,58 @@ def test_query_semantic_types():
     measure_q = [q for q in queries if q["column"] == "GDP"][0]
     assert measure_q["semantic_type"] == "measure"
     assert "statistical variables" in measure_q["query"]
+
+
+@pytest.mark.asyncio
+async def test_execute_per_column_queries():
+    """Verify per-column queries are actually executed (not just built)."""
+    agent = StatVarDiscoveryAgent(name="TestDiscovery")
+
+    queries = [
+        {"column": "GDP", "query": "Search for statistical variables related to: GDP", "semantic_type": "measure"},
+        {"column": "Population", "query": "Search for statistical variables related to: Population", "semantic_type": "measure"},
+    ]
+
+    mock_result = "Found: Count_Person (Population count)"
+
+    with patch('src.agents.dc_query_agent.create_enrichment_agent', return_value=None):
+        with patch('src.agents.dc_query_agent.run_mcp_query', new_callable=AsyncMock, return_value=mock_result):
+            with patch('src.agents.dc_query_agent.parse_statvars', return_value=[{"dcid": "Count_Person", "name": "Population"}]):
+                matches = await agent._execute_per_column_queries(queries, mcp_url="http://localhost:3000/mcp", max_queries=3)
+
+    assert "GDP" in matches
+    assert "Population" in matches
+    assert len(matches["Population"]) > 0
+    assert matches["Population"][0]["dcid"] == "Count_Person"
+
+
+@pytest.mark.asyncio
+async def test_execute_per_column_queries_priority_order():
+    """Measure columns should be queried before dimension columns."""
+    agent = StatVarDiscoveryAgent(name="TestDiscovery")
+
+    queries = [
+        {"column": "Region", "query": "q1", "semantic_type": "place"},
+        {"column": "GDP", "query": "q2", "semantic_type": "measure"},
+        {"column": "Sector", "query": "q3", "semantic_type": "dimension"},
+        {"column": "Revenue", "query": "q4", "semantic_type": "measure"},
+    ]
+
+    queried_columns = []
+
+    async def mock_query(url, agent, query):
+        # Track which queries were actually executed
+        for q in queries:
+            if q["query"] == query:
+                queried_columns.append(q["column"])
+        return "No results"
+
+    with patch('src.agents.dc_query_agent.create_enrichment_agent', return_value=None):
+        with patch('src.agents.dc_query_agent.run_mcp_query', side_effect=mock_query):
+            with patch('src.agents.dc_query_agent.parse_statvars', return_value=[]):
+                await agent._execute_per_column_queries(queries, mcp_url="http://localhost:3000/mcp", max_queries=2)
+
+    # With max_queries=2, should query the 2 measure columns (highest priority)
+    assert len(queried_columns) == 2
+    assert "GDP" in queried_columns
+    assert "Revenue" in queried_columns
