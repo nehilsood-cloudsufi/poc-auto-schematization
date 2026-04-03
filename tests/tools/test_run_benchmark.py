@@ -72,3 +72,52 @@ def test_collect_metrics_zero_ground_truth():
         assert result["node_accuracy"] == 0.0
         assert result["node_coverage"] == 0.0
         assert result["pv_accuracy"] == 0.0
+
+
+def test_parse_comparison_md():
+    """parse_comparison_md extracts baseline metrics from the existing comparison doc."""
+    from tools.run_benchmark import parse_comparison_md
+
+    md_content = """# Auto-Schematization Evaluation Benchmark Comparison
+
+## Node Accuracy Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| bis_bis_central_bank_policy_rate | 0.0 | **14.3** | 14.3 |
+| brfss_nchs_asthma_prevalence | 0.0 | 21.1 | **26.1** |
+
+---
+
+## Node Coverage Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| bis_bis_central_bank_policy_rate | 100.0 | 100.0 | **114.3** |
+| brfss_nchs_asthma_prevalence | 20.0 | 63.2 | **269.6** |
+
+---
+
+## PV Accuracy Comparison
+
+| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
+|---------|---------------|--------------|----------------|
+| bis_bis_central_bank_policy_rate | 0.0 | 18.2 | **36.4** |
+| brfss_nchs_asthma_prevalence | 1.5 | **23.3** | 19.1 |
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        f.write(md_content)
+        f.flush()
+        try:
+            baseline = parse_comparison_md(f.name)
+        finally:
+            os.unlink(f.name)
+
+    assert "bis_bis_central_bank_policy_rate" in baseline
+    bis = baseline["bis_bis_central_bank_policy_rate"]
+    assert bis["gemini_base"]["node_accuracy"] == 0.0
+    assert bis["claude_cli"]["node_accuracy"] == 14.3
+    assert bis["gemini_3_pro"]["node_accuracy"] == 14.3
+    assert bis["gemini_base"]["pv_accuracy"] == 0.0
+    assert bis["claude_cli"]["pv_accuracy"] == 18.2
+    assert bis["gemini_3_pro"]["pv_accuracy"] == 36.4
