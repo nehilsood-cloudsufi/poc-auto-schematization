@@ -231,3 +231,26 @@ def test_run_single_dataset_timeout():
 
     assert result.exit_code == -1
     assert "timeout" in result.error_message.lower()
+
+
+def test_run_batch_categorizes_results():
+    """run_batch categorizes results into successes, failures, and quota_failures."""
+    from tools.run_benchmark import run_batch, DatasetResult
+
+    results = [
+        DatasetResult(dataset="d1", exit_code=0, elapsed_seconds=10.0),
+        DatasetResult(dataset="d2", exit_code=1, error_message="Pipeline failed (exit 1): some error"),
+        DatasetResult(dataset="d3", exit_code=1, error_message="Quota/rate limit error (exit 1)"),
+    ]
+
+    with patch("tools.run_benchmark.run_single_dataset", side_effect=results):
+        successes, failures, quota_failures = run_batch(
+            ["d1", "d2", "d3"], "/tmp/output", max_parallel=3
+        )
+
+    assert len(successes) == 1
+    assert successes[0].dataset == "d1"
+    assert len(failures) == 1
+    assert failures[0].dataset == "d2"
+    assert len(quota_failures) == 1
+    assert quota_failures[0].dataset == "d3"

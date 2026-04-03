@@ -299,3 +299,44 @@ def run_single_dataset(dataset: str, output_dir: str) -> DatasetResult:
             elapsed_seconds=round(elapsed, 1),
             error_message=f"Timeout after {SUBPROCESS_TIMEOUT}s",
         )
+
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def _is_quota_error(result: DatasetResult) -> bool:
+    """Check if a result represents a quota/rate limit error."""
+    if result.error_message and ("quota" in result.error_message.lower() or "429" in result.error_message):
+        return True
+    return False
+
+
+def run_batch(
+    datasets: list[str],
+    output_dir: str,
+    max_parallel: int = 3,
+) -> tuple[list[DatasetResult], list[DatasetResult], list[DatasetResult]]:
+    """Run a batch of datasets in parallel.
+
+    Returns: (successes, failures, quota_failures)
+    """
+    successes = []
+    failures = []
+    quota_failures = []
+
+    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+        future_to_dataset = {
+            executor.submit(run_single_dataset, ds, output_dir): ds
+            for ds in datasets
+        }
+
+        for future in as_completed(future_to_dataset):
+            result = future.result()
+            if result.exit_code == 0:
+                successes.append(result)
+            elif _is_quota_error(result):
+                quota_failures.append(result)
+            else:
+                failures.append(result)
+
+    return successes, failures, quota_failures
