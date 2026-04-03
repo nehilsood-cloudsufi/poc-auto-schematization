@@ -254,3 +254,34 @@ def test_run_batch_categorizes_results():
     assert failures[0].dataset == "d2"
     assert len(quota_failures) == 1
     assert quota_failures[0].dataset == "d3"
+
+
+def test_save_and_load_manifest():
+    """Manifest is saved incrementally and can be loaded for resume."""
+    from tools.run_benchmark import save_manifest, load_manifest
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manifest_path = os.path.join(tmpdir, "benchmark_results.json")
+        run_config = {"branch": "test", "commit": "abc", "timestamp": "now", "flags": []}
+
+        results_1 = {"dataset_a": {"node_accuracy": 10.0, "node_coverage": 50.0, "pv_accuracy": 5.0, "elapsed_seconds": 100.0}}
+        save_manifest(manifest_path, run_config, results_1)
+
+        loaded = load_manifest(manifest_path)
+        assert loaded["run_config"]["branch"] == "test"
+        assert "dataset_a" in loaded["results"]
+
+        results_2 = {"dataset_b": {"node_accuracy": 20.0, "node_coverage": 60.0, "pv_accuracy": 15.0, "elapsed_seconds": 200.0}}
+        save_manifest(manifest_path, run_config, results_2)
+
+        loaded = load_manifest(manifest_path)
+        assert "dataset_a" in loaded["results"]
+        assert "dataset_b" in loaded["results"]
+
+
+def test_load_manifest_missing_file():
+    """load_manifest returns None for non-existent file."""
+    from tools.run_benchmark import load_manifest
+
+    result = load_manifest("/tmp/nonexistent_benchmark_results.json")
+    assert result is None

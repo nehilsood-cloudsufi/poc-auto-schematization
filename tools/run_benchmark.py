@@ -340,3 +340,27 @@ def run_batch(
                 failures.append(result)
 
     return successes, failures, quota_failures
+
+
+def load_manifest(path: str) -> dict | None:
+    """Load an existing benchmark manifest. Returns None if file doesn't exist."""
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def save_manifest(path: str, run_config: dict, new_results: dict[str, dict]) -> None:
+    """Save results to the manifest, merging with any existing results."""
+    existing = load_manifest(path)
+    if existing:
+        existing["results"].update(new_results)
+        existing["run_config"] = run_config
+    else:
+        existing = {"run_config": run_config, "results": new_results}
+
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(existing, f, indent=2)
