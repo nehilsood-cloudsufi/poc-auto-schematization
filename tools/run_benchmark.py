@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 
@@ -66,6 +65,15 @@ def collect_metrics(dataset: str, output_dir: str) -> dict | None:
     }
 
 
+def _parse_val(s: str) -> float:
+    """Parse a markdown table cell value, stripping bold markers."""
+    s = s.replace("**", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
 def parse_comparison_md(filepath: str) -> dict[str, dict]:
     """Parse the existing Gemini_vs_Claude_Comparison.md to extract baseline metrics.
 
@@ -108,16 +116,9 @@ def parse_comparison_md(filepath: str) -> dict[str, dict]:
             if dataset == "Dataset" or dataset.startswith("--"):
                 continue
 
-            def parse_val(s: str) -> float:
-                s = s.replace("**", "").strip()
-                try:
-                    return float(s)
-                except ValueError:
-                    return 0.0
-
-            gemini_base = parse_val(cells[1])
-            claude_cli = parse_val(cells[2])
-            gemini_3_pro = parse_val(cells[3])
+            gemini_base = _parse_val(cells[1])
+            claude_cli = _parse_val(cells[2])
+            gemini_3_pro = _parse_val(cells[3])
 
             if dataset not in baseline:
                 baseline[dataset] = {
@@ -497,11 +498,14 @@ def main():
     input_dir = os.path.join(BASE_DIR, "input")
     datasets_to_run = [d for d in datasets_to_run if os.path.isdir(os.path.join(input_dir, d))]
 
-    # Resume: skip already-completed datasets
+    # Resume: skip successfully-completed datasets (retry failures)
     if args.resume:
         existing = load_manifest(manifest_path)
         if existing:
-            completed = set(existing["results"].keys())
+            completed = {
+                k for k, v in existing["results"].items()
+                if "error" not in v
+            }
             skipped = [d for d in datasets_to_run if d in completed]
             datasets_to_run = [d for d in datasets_to_run if d not in completed]
             print(f"Resuming: skipping {len(skipped)} already-completed datasets")
@@ -547,14 +551,27 @@ def main():
             if metrics:
                 metrics["elapsed_seconds"] = result.elapsed_seconds
                 batch_metrics[result.dataset] = metrics
+        for result in failures:
+            batch_metrics[result.dataset] = {
+                "error": result.error_message,
+                "elapsed_seconds": result.elapsed_seconds,
+            }
 
         if batch_metrics:
             save_manifest(manifest_path, run_config, batch_metrics)
 
+        success_names = [r.dataset for r in successes]
+        fail_names = [r.dataset for r in failures]
+        quota_names = [r.dataset for r in quota_failures]
+
         print(f"[Batch {batch_idx}/{total_batches}] Completed: "
-              f"{len(successes)} success, {len(failures)} fail, "
-              f"{len(quota_failures)} quota-fail "
+              f"{', '.join(success_names + fail_names + quota_names)} "
+              f"({len(successes)} success, {len(failures)} fail, "
+              f"{len(quota_failures)} quota-fail) "
               f"[batch: {batch_elapsed:.0f}s, total: {total_elapsed:.0f}s]")
+        print(f"  Running totals: {len(all_successes)} success / "
+              f"{len(all_failures)} fail / {len(all_quota_failures)} quota-fail / "
+              f"{len(datasets_to_run) - len(all_successes) - len(all_failures) - len(all_quota_failures)} remaining")
 
         for r in failures:
             print(f"  FAIL: {r.dataset} - {r.error_message}")
@@ -584,6 +601,11 @@ def main():
             if metrics:
                 metrics["elapsed_seconds"] = result.elapsed_seconds
                 retry_metrics[result.dataset] = metrics
+        for result in failures + still_quota:
+            retry_metrics[result.dataset] = {
+                "error": result.error_message,
+                "elapsed_seconds": result.elapsed_seconds,
+            }
 
         if retry_metrics:
             save_manifest(manifest_path, run_config, retry_metrics)
@@ -599,12 +621,16 @@ def main():
     print(f"  Failed:  {len(all_failures)}")
     print(f"{'=' * 60}")
 
-    # Generate comparison markdown
+    # Generate comparison markdown (exclude failed datasets from enhanced results)
     manifest = load_manifest(manifest_path)
     if manifest:
         baseline = parse_comparison_md(COMPARISON_SOURCE)
+        successful_results = {
+            k: v for k, v in manifest["results"].items()
+            if "error" not in v
+        }
         comparison_path = os.path.join(BASE_DIR, "analysis", "Enhanced_Pipeline_Comparison.md")
-        generate_comparison_md(baseline, manifest["results"], run_config, comparison_path)
+        generate_comparison_md(baseline, successful_results, run_config, comparison_path)
         print(f"\nComparison report: {comparison_path}")
     else:
         print("\nNo results to generate comparison report.")
