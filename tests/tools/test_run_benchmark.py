@@ -2,6 +2,7 @@
 import json
 import os
 import tempfile
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -182,3 +183,51 @@ def test_generate_comparison_md():
         assert "**40.2**" in content  # Best PV accuracy for bis
     finally:
         os.unlink(output_path)
+
+
+def test_run_single_dataset_success():
+    """run_single_dataset returns a DatasetResult with timing and exit code."""
+    from tools.run_benchmark import run_single_dataset, DatasetResult
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "Pipeline completed"
+    mock_result.stderr = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = run_single_dataset("test_dataset", "/tmp/output")
+
+    assert isinstance(result, DatasetResult)
+    assert result.dataset == "test_dataset"
+    assert result.exit_code == 0
+    assert result.elapsed_seconds >= 0
+    assert result.error_message is None
+
+
+def test_run_single_dataset_quota_error():
+    """run_single_dataset detects quota errors from stderr."""
+    from tools.run_benchmark import run_single_dataset
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+    mock_result.stderr = "google.api_core.exceptions.ResourceExhausted: 429 Quota exceeded"
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = run_single_dataset("test_dataset", "/tmp/output")
+
+    assert result.exit_code == 1
+    assert result.error_message is not None
+    assert "quota" in result.error_message.lower() or "429" in result.error_message
+
+
+def test_run_single_dataset_timeout():
+    """run_single_dataset handles subprocess timeout."""
+    import subprocess as sp
+    from tools.run_benchmark import run_single_dataset
+
+    with patch("subprocess.run", side_effect=sp.TimeoutExpired(cmd="test", timeout=900)):
+        result = run_single_dataset("test_dataset", "/tmp/output")
+
+    assert result.exit_code == -1
+    assert "timeout" in result.error_message.lower()

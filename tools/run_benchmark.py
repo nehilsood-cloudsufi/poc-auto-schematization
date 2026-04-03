@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import sys
+import time
 from dataclasses import dataclass, field
 
 
@@ -228,3 +231,71 @@ def generate_comparison_md(
 
     with open(output_path, "w") as f:
         f.write("\n".join(lines))
+
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+PIPELINE_FLAGS = [
+    "--prompt-version", "v3",
+    "--feedback-prompt-version", "v2",
+    "--use-llm-judge",
+    "--enable-mcp",
+    "--auto-approve",
+    "--force-resample",
+    "--force-schema-selection",
+]
+
+SUBPROCESS_TIMEOUT = 900  # 15 minutes
+
+QUOTA_PATTERNS = re.compile(r"429|resourceexhausted|quota", re.IGNORECASE)
+
+
+def run_single_dataset(dataset: str, output_dir: str) -> DatasetResult:
+    """Run the pipeline for a single dataset and return the result with timing."""
+    cmd = [
+        sys.executable,
+        os.path.join(BASE_DIR, "src", "run_pipeline.py"),
+        f"--dataset={dataset}",
+        f"--output-dir={output_dir}",
+        *PIPELINE_FLAGS,
+    ]
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{BASE_DIR}:{os.path.join(BASE_DIR, 'src')}"
+
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT,
+            env=env,
+            cwd=BASE_DIR,
+        )
+        elapsed = time.monotonic() - start
+
+        error_msg = None
+        if proc.returncode != 0:
+            combined = proc.stdout + proc.stderr
+            if QUOTA_PATTERNS.search(combined):
+                error_msg = f"Quota/rate limit error (exit {proc.returncode})"
+            else:
+                error_msg = f"Pipeline failed (exit {proc.returncode}): {proc.stderr[-500:]}"
+
+        return DatasetResult(
+            dataset=dataset,
+            exit_code=proc.returncode,
+            elapsed_seconds=round(elapsed, 1),
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            error_message=error_msg,
+        )
+    except subprocess.TimeoutExpired:
+        elapsed = time.monotonic() - start
+        return DatasetResult(
+            dataset=dataset,
+            exit_code=-1,
+            elapsed_seconds=round(elapsed, 1),
+            error_message=f"Timeout after {SUBPROCESS_TIMEOUT}s",
+        )
