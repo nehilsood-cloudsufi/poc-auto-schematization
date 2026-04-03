@@ -81,6 +81,17 @@ def test_parse_comparison_md():
 
     md_content = """# Auto-Schematization Evaluation Benchmark Comparison
 
+## Summary Statistics
+
+| Metric | Gemini (Base) | Claude CLI | Gemini 3 Pro |
+|--------|---------------|------------|--------------|
+| Total Datasets Evaluated | 2 | 2 | 2 |
+| Average Node Accuracy | 0.0% | 17.7% | 20.2% |
+| Average Node Coverage | 60.0% | 81.6% | 191.9% |
+| Average PV Accuracy | 0.8% | 20.8% | 27.8% |
+
+---
+
 ## Node Accuracy Comparison
 
 | Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % |
@@ -138,6 +149,11 @@ def test_generate_comparison_md():
             "gemini_base": {"node_accuracy": 0.0, "node_coverage": 20.0, "pv_accuracy": 1.5},
             "claude_cli": {"node_accuracy": 21.1, "node_coverage": 63.2, "pv_accuracy": 23.3},
             "gemini_3_pro": {"node_accuracy": 26.1, "node_coverage": 269.6, "pv_accuracy": 19.1},
+        },
+        "__summary__": {
+            "gemini_base": {"node_accuracy": 0.0, "node_coverage": 60.0, "pv_accuracy": 0.8, "total": 2},
+            "claude_cli": {"node_accuracy": 17.7, "node_coverage": 81.6, "pv_accuracy": 20.8, "total": 2},
+            "gemini_3_pro": {"node_accuracy": 20.2, "node_coverage": 191.9, "pv_accuracy": 27.8, "total": 2},
         },
     }
 

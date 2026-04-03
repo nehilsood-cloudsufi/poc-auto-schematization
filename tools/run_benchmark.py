@@ -78,7 +78,8 @@ def parse_comparison_md(filepath: str) -> dict[str, dict]:
     """Parse the existing Gemini_vs_Claude_Comparison.md to extract baseline metrics.
 
     Returns: {dataset_name: {gemini_base: {node_accuracy, node_coverage, pv_accuracy},
-                             claude_cli: {...}, gemini_3_pro: {...}}}
+                             claude_cli: {...}, gemini_3_pro: {...}},
+              "__summary__": {gemini_base: {...}, claude_cli: {...}, gemini_3_pro: {...}, total: N}}
     """
     with open(filepath) as f:
         content = f.read()
@@ -91,9 +92,41 @@ def parse_comparison_md(filepath: str) -> dict[str, dict]:
         "PV Accuracy": "pv_accuracy",
     }
 
+    # Parse summary statistics from the original doc
+    summary_metric_map = {
+        "Average Node Accuracy": "node_accuracy",
+        "Average Node Coverage": "node_coverage",
+        "Average PV Accuracy": "pv_accuracy",
+        "Total Datasets Evaluated": "total",
+    }
+
     baseline: dict[str, dict] = {}
+    summary: dict[str, dict] = {"gemini_base": {}, "claude_cli": {}, "gemini_3_pro": {}}
 
     for section in sections:
+        # Parse Summary Statistics table
+        if section.startswith("Summary Statistics"):
+            for line in section.split("\n"):
+                line = line.strip()
+                if not line.startswith("|"):
+                    continue
+                cells = [c.strip() for c in line.split("|")]
+                cells = [c for c in cells if c]
+                if len(cells) < 4:
+                    continue
+                label = cells[0].strip()
+                for summary_label, key in summary_metric_map.items():
+                    if label == summary_label:
+                        val_gb = _parse_val(cells[1].replace("%", ""))
+                        val_cc = _parse_val(cells[2].replace("%", ""))
+                        val_gp = _parse_val(cells[3].replace("%", ""))
+                        summary["gemini_base"][key] = val_gb
+                        summary["claude_cli"][key] = val_cc
+                        summary["gemini_3_pro"][key] = val_gp
+                        break
+            continue
+
+        # Parse per-metric tables
         metric_key = None
         for heading, key in metric_map.items():
             if section.startswith(heading):
@@ -131,6 +164,7 @@ def parse_comparison_md(filepath: str) -> dict[str, dict]:
             baseline[dataset]["claude_cli"][metric_key] = claude_cli
             baseline[dataset]["gemini_3_pro"][metric_key] = gemini_3_pro
 
+    baseline["__summary__"] = summary
     return baseline
 
 
@@ -141,7 +175,11 @@ def generate_comparison_md(
     output_path: str,
 ) -> None:
     """Generate the Enhanced_Pipeline_Comparison.md file."""
-    all_datasets = sorted(set(list(baseline.keys()) + list(enhanced_results.keys())))
+    # Extract and remove summary metadata from baseline
+    summary = baseline.pop("__summary__", {})
+
+    all_datasets = sorted(d for d in set(list(baseline.keys()) + list(enhanced_results.keys()))
+                          if not d.startswith("__"))
 
     lines = [
         "# Enhanced Pipeline Benchmark Comparison",
@@ -155,34 +193,35 @@ def generate_comparison_md(
         "",
     ]
 
-    # Summary Statistics
+    # Summary Statistics — use original doc's pre-computed averages for baselines
     metrics = ["node_accuracy", "node_coverage", "pv_accuracy"]
     metric_labels = {
         "node_accuracy": "Average Node Accuracy",
         "node_coverage": "Average Node Coverage",
         "pv_accuracy": "Average PV Accuracy",
     }
-    models = ["gemini_base", "claude_cli", "gemini_3_pro", "enhanced"]
     model_headers = ["Gemini (Base)", "Claude CLI", "Gemini 3 Pro", "Enhanced Pipeline"]
 
     lines.append("## Summary Statistics")
     lines.append("")
     lines.append(f"| Metric | {' | '.join(model_headers)} |")
-    lines.append(f"|{'|'.join(['--------'] * (len(models) + 1))}|")
+    lines.append(f"|{'|'.join(['--------'] * 5)}|")
 
-    total_datasets = len(all_datasets)
-    lines.append(f"| Total Datasets Evaluated | {total_datasets} | {total_datasets} | {total_datasets} | {len(enhanced_results)} |")
+    # Total datasets from original summary
+    baseline_total = int(summary.get("gemini_base", {}).get("total", len(all_datasets)))
+    lines.append(f"| Total Datasets Evaluated | {baseline_total} | {baseline_total} | {baseline_total} | {len(enhanced_results)} |")
 
     for metric in metrics:
-        avgs = []
-        for model in models:
-            if model == "enhanced":
-                vals = [r[metric] for r in enhanced_results.values() if metric in r]
-            else:
-                vals = [baseline[d][model].get(metric, 0.0) for d in all_datasets if d in baseline and model in baseline[d]]
-            avg = sum(vals) / len(vals) if vals else 0.0
-            avgs.append(f"{avg:.1f}%")
-        lines.append(f"| {metric_labels[metric]} | {' | '.join(avgs)} |")
+        # Use pre-computed baseline averages from original doc
+        gb_avg = summary.get("gemini_base", {}).get(metric, 0.0)
+        cc_avg = summary.get("claude_cli", {}).get(metric, 0.0)
+        gp_avg = summary.get("gemini_3_pro", {}).get(metric, 0.0)
+
+        # Compute enhanced average
+        enh_vals = [r[metric] for r in enhanced_results.values() if metric in r]
+        enh_avg = sum(enh_vals) / len(enh_vals) if enh_vals else 0.0
+
+        lines.append(f"| {metric_labels[metric]} | {gb_avg:.1f}% | {cc_avg:.1f}% | {gp_avg:.1f}% | {enh_avg:.1f}% |")
 
     lines.extend(["", "---", ""])
 
