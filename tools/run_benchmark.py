@@ -125,3 +125,106 @@ def parse_comparison_md(filepath: str) -> dict[str, dict]:
             baseline[dataset]["gemini_3_pro"][metric_key] = gemini_3_pro
 
     return baseline
+
+
+def generate_comparison_md(
+    baseline: dict[str, dict],
+    enhanced_results: dict[str, dict],
+    run_config: dict,
+    output_path: str,
+) -> None:
+    """Generate the Enhanced_Pipeline_Comparison.md file."""
+    all_datasets = sorted(set(list(baseline.keys()) + list(enhanced_results.keys())))
+
+    lines = [
+        "# Enhanced Pipeline Benchmark Comparison",
+        "",
+        f"**Generated**: {run_config.get('timestamp', 'unknown')}",
+        f"**Branch**: `{run_config.get('branch', 'unknown')}`",
+        f"**Commit**: `{run_config.get('commit', 'unknown')}`",
+        f"**Flags**: `{' '.join(run_config.get('flags', []))}`",
+        "",
+        "---",
+        "",
+    ]
+
+    # Summary Statistics
+    metrics = ["node_accuracy", "node_coverage", "pv_accuracy"]
+    metric_labels = {
+        "node_accuracy": "Average Node Accuracy",
+        "node_coverage": "Average Node Coverage",
+        "pv_accuracy": "Average PV Accuracy",
+    }
+    models = ["gemini_base", "claude_cli", "gemini_3_pro", "enhanced"]
+    model_headers = ["Gemini (Base)", "Claude CLI", "Gemini 3 Pro", "Enhanced Pipeline"]
+
+    lines.append("## Summary Statistics")
+    lines.append("")
+    lines.append(f"| Metric | {' | '.join(model_headers)} |")
+    lines.append(f"|{'|'.join(['--------'] * (len(models) + 1))}|")
+
+    total_datasets = len(all_datasets)
+    lines.append(f"| Total Datasets Evaluated | {total_datasets} | {total_datasets} | {total_datasets} | {len(enhanced_results)} |")
+
+    for metric in metrics:
+        avgs = []
+        for model in models:
+            if model == "enhanced":
+                vals = [r[metric] for r in enhanced_results.values() if metric in r]
+            else:
+                vals = [baseline[d][model].get(metric, 0.0) for d in all_datasets if d in baseline and model in baseline[d]]
+            avg = sum(vals) / len(vals) if vals else 0.0
+            avgs.append(f"{avg:.1f}%")
+        lines.append(f"| {metric_labels[metric]} | {' | '.join(avgs)} |")
+
+    lines.extend(["", "---", ""])
+
+    # Per-metric tables
+    table_configs = [
+        ("Node Accuracy Comparison", "node_accuracy"),
+        ("Node Coverage Comparison", "node_coverage"),
+        ("PV Accuracy Comparison", "pv_accuracy"),
+    ]
+
+    for table_title, metric in table_configs:
+        lines.append(f"## {table_title}")
+        lines.append("")
+        lines.append("| Dataset | Gemini Base % | Claude CLI % | Gemini 3 Pro % | Enhanced Pipeline % | Time (s) |")
+        lines.append("|---------|---------------|--------------|----------------|---------------------|----------|")
+
+        for dataset in all_datasets:
+            vals = []
+
+            for model in ["gemini_base", "claude_cli", "gemini_3_pro"]:
+                if dataset in baseline and model in baseline[dataset]:
+                    vals.append(baseline[dataset][model].get(metric, 0.0))
+                else:
+                    vals.append(0.0)
+
+            if dataset in enhanced_results and metric in enhanced_results[dataset]:
+                enhanced_val = enhanced_results[dataset][metric]
+                vals.append(enhanced_val)
+            else:
+                enhanced_val = None
+                vals.append(None)
+
+            elapsed = enhanced_results.get(dataset, {}).get("elapsed_seconds")
+
+            numeric_vals = [v for v in vals if v is not None]
+            best = max(numeric_vals) if numeric_vals else None
+
+            def fmt(v, is_best):
+                if v is None:
+                    return "\u2014"
+                s = f"{v:.1f}" if isinstance(v, float) else str(v)
+                return f"**{s}**" if is_best and v == best and v > 0 else s
+
+            cells = [fmt(v, True) for v in vals]
+            time_cell = f"{elapsed:.1f}" if elapsed is not None else "\u2014"
+
+            lines.append(f"| {dataset} | {' | '.join(cells)} | {time_cell} |")
+
+        lines.extend(["", "---", ""])
+
+    with open(output_path, "w") as f:
+        f.write("\n".join(lines))

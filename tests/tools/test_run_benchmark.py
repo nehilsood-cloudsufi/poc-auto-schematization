@@ -121,3 +121,64 @@ def test_parse_comparison_md():
     assert bis["gemini_base"]["pv_accuracy"] == 0.0
     assert bis["claude_cli"]["pv_accuracy"] == 18.2
     assert bis["gemini_3_pro"]["pv_accuracy"] == 36.4
+
+
+def test_generate_comparison_md():
+    """generate_comparison_md produces a markdown file with 4 model columns + time."""
+    from tools.run_benchmark import generate_comparison_md
+
+    baseline = {
+        "bis_bis_central_bank_policy_rate": {
+            "gemini_base": {"node_accuracy": 0.0, "node_coverage": 100.0, "pv_accuracy": 0.0},
+            "claude_cli": {"node_accuracy": 14.3, "node_coverage": 100.0, "pv_accuracy": 18.2},
+            "gemini_3_pro": {"node_accuracy": 14.3, "node_coverage": 114.3, "pv_accuracy": 36.4},
+        },
+        "brfss_nchs_asthma_prevalence": {
+            "gemini_base": {"node_accuracy": 0.0, "node_coverage": 20.0, "pv_accuracy": 1.5},
+            "claude_cli": {"node_accuracy": 21.1, "node_coverage": 63.2, "pv_accuracy": 23.3},
+            "gemini_3_pro": {"node_accuracy": 26.1, "node_coverage": 269.6, "pv_accuracy": 19.1},
+        },
+    }
+
+    enhanced_results = {
+        "bis_bis_central_bank_policy_rate": {
+            "node_accuracy": 25.0,
+            "node_coverage": 85.7,
+            "pv_accuracy": 40.2,
+            "elapsed_seconds": 187.3,
+        },
+        "brfss_nchs_asthma_prevalence": {
+            "node_accuracy": 30.0,
+            "node_coverage": 80.0,
+            "pv_accuracy": 28.0,
+            "elapsed_seconds": 220.1,
+        },
+    }
+
+    run_config = {
+        "branch": "test-branch",
+        "commit": "abc1234",
+        "timestamp": "2026-04-03T12:00:00",
+        "flags": ["--prompt-version v3"],
+    }
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        output_path = f.name
+
+    try:
+        generate_comparison_md(baseline, enhanced_results, run_config, output_path)
+
+        with open(output_path) as f:
+            content = f.read()
+
+        assert "Enhanced Pipeline" in content
+        assert "Time (s)" in content
+        assert "Node Accuracy" in content
+        assert "Node Coverage" in content
+        assert "PV Accuracy" in content
+        assert "bis_bis_central_bank_policy_rate" in content
+        assert "25.0" in content
+        assert "187.3" in content
+        assert "**40.2**" in content  # Best PV accuracy for bis
+    finally:
+        os.unlink(output_path)
