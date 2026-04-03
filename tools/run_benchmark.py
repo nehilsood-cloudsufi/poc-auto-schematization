@@ -251,11 +251,22 @@ PIPELINE_FLAGS = [
 
 SUBPROCESS_TIMEOUT = 900  # 15 minutes
 
-QUOTA_PATTERNS = re.compile(r"429|resourceexhausted|quota", re.IGNORECASE)
+# Match quota errors only in error-specific lines, not general log output.
+# Use word boundary to avoid matching "429" as part of timestamps or IDs.
+QUOTA_PATTERNS = re.compile(
+    r"ResourceExhausted|rate.?limit|quota.?exceed|HTTP\s+429\b",
+    re.IGNORECASE,
+)
 
 
 def run_single_dataset(dataset: str, output_dir: str) -> DatasetResult:
-    """Run the pipeline for a single dataset and return the result with timing."""
+    """Run the pipeline for a single dataset and return the result with timing.
+
+    Exit codes:
+      0 = success (validation passed)
+      2 = pipeline completed but validation failed (still has eval results)
+      1 = crash / unrecoverable error
+    """
     cmd = [
         sys.executable,
         os.path.join(BASE_DIR, "src", "run_pipeline.py"),
@@ -280,7 +291,12 @@ def run_single_dataset(dataset: str, output_dir: str) -> DatasetResult:
         elapsed = time.monotonic() - start
 
         error_msg = None
-        if proc.returncode != 0:
+        # Exit code 0 = validation passed, exit code 2 = completed but validation failed
+        # Both are "success" for metrics collection purposes
+        if proc.returncode == 0 or proc.returncode == 2:
+            pass  # No error — metrics should be available
+        elif proc.returncode != 0:
+            # Exit code 1 or other = crash, check if it's a quota error
             combined = proc.stdout + proc.stderr
             if QUOTA_PATTERNS.search(combined):
                 error_msg = f"Quota/rate limit error (exit {proc.returncode})"
@@ -336,7 +352,7 @@ def run_batch(
 
         for future in as_completed(future_to_dataset):
             result = future.result()
-            if result.exit_code == 0:
+            if result.exit_code in (0, 2):
                 successes.append(result)
             elif _is_quota_error(result):
                 quota_failures.append(result)
