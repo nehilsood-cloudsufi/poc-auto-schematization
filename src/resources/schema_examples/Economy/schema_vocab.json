@@ -246,5 +246,128 @@
       "povertyStatus",
       "race"
     ]
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "Exports_EconomicActivity_ExportToCountryFJI_Unspecified_AsAFractionOf_Exports_EconomicActivity_Unspecified",
+      "populationType": "dcs:EconomicActivity",
+      "measuredProperty": "dcs:exports",
+      "measurementDenominator": "dcs:Exports_EconomicActivity_Unspecified",
+      "product": "dcs:Unspecified",
+      "exportDestination": "dcs:country/FJI"
+    },
+    {
+      "dcid": "Consumption_FarmInventory_Fertilizer_AsAFractionOf_Area_Farm",
+      "populationType": "dcs:FarmInventory",
+      "measuredProperty": "dcs:consumption",
+      "measurementDenominator": "dcs:Area_Farm",
+      "farmInventoryType": "dcs:Fertilizer"
+    },
+    {
+      "dcid": "Imports_EconomicActivity_ImportFromCountryTLS_OtherTextileProducts_AsAFractionOf_Imports_EconomicActivity_OtherTextileProducts",
+      "populationType": "dcs:EconomicActivity",
+      "measuredProperty": "dcs:imports",
+      "measurementDenominator": "dcs:Imports_EconomicActivity_OtherTextileProducts",
+      "product": "dcs:OtherTextileProducts",
+      "importSource": "dcs:country/TLS"
+    },
+    {
+      "dcid": "Victim_Count_CriminalIncidents_BiasMotivationReligion_FalsePretenseOrSwindleOrConfidenceGame_IsHateCrime_Sikhism",
+      "populationType": "dcs:HateCrimeIncidents",
+      "measuredProperty": "dcs:count",
+      "measurementQualifier": "dcs:Victim",
+      "crimeType": "dcs:FalsePretenseOrSwindleOrConfidenceGame",
+      "biasMotivation": "dcs:religion",
+      "targetedReligion": "dcs:Sikhism"
+    },
+    {
+      "dcid": "Imports_EconomicActivity_ImportFromCountryBRN_OtherChemicalProducts_AsAFractionOf_Imports_EconomicActivity_OtherChemicalProducts",
+      "populationType": "dcs:EconomicActivity",
+      "measuredProperty": "dcs:imports",
+      "measurementDenominator": "dcs:Imports_EconomicActivity_OtherChemicalProducts",
+      "product": "dcs:OtherChemicalProducts",
+      "importSource": "dcs:country/BRN"
+    },
+    {
+      "dcid": "Exports_EconomicActivity_ExportToCountrySTP_AnimalFats_AsAFractionOf_Exports_EconomicActivity_AnimalFats",
+      "populationType": "dcs:EconomicActivity",
+      "measuredProperty": "dcs:exports",
+      "measurementDenominator": "dcs:Exports_EconomicActivity_AnimalFats",
+      "product": "dcs:AnimalFats",
+      "exportDestination": "dcs:country/STP"
+    },
+    {
+      "dcid": "Count_CriminalIncidents_BiasMotivationRace_IsHateCrime_OffenderEthnicityUnknownEthnicity_Arab",
+      "populationType": "dcs:HateCrimeIncidents",
+      "measuredProperty": "dcs:count",
+      "biasMotivation": "dcs:race",
+      "targetedRace": "dcs:Arab",
+      "offenderEthnicity": "dcs:UCR_UnknownEthnicity"
+    },
+    {
+      "dcid": "Count_MortalityEvent_AllOtherFormsOfChronicIschemicHeartDisease_BlackOrAfricanAmericanAlone_AsAFractionOf_Count_Person_BlackOrAfricanAmericanAlone",
+      "populationType": "dcs:MortalityEvent",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person_BlackOrAfricanAmericanAlone",
+      "race": "dcs:BlackOrAfricanAmericanAlone",
+      "causeOfDeath": "dcs:AllOtherFormsOfChronicIschemicHeartDisease"
+    },
+    {
+      "dcid": "MarginOfError_Count_HousingUnit_ForeignBorn_0.3OrLessRatioToHouseholdIncome_PlaceOfBirthEasternAsia",
+      "populationType": "dcs:HousingUnit",
+      "measuredProperty": "dcs:count",
+      "occupancyStatus": "dcs:OccupiedHousingUnit",
+      "occupancyTenure": "dcs:OwnerOccupied",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:EasternAsia",
+      "ownerCost": "dcs:RatioToHouseholdIncomeUpto0.3"
+    },
+    {
+      "dcid": "Exports_EconomicActivity_ExportToCountryTJK_PowerGeneratingEquipment_AsAFractionOf_Exports_EconomicActivity_PowerGeneratingEquipment",
+      "populationType": "dcs:EconomicActivity",
+      "measuredProperty": "dcs:exports",
+      "measurementDenominator": "dcs:Exports_EconomicActivity_PowerGeneratingEquipment",
+      "product": "dcs:PowerGeneratingEquipment",
+      "exportDestination": "dcs:country/TJK"
+    },
+    {
+      "dcid": "Annual_Generation_Electricity_WoodAndWoodDerivedFuels_IndustrialNonCogen",
+      "populationType": "dcs:Electricity",
+      "measuredProperty": "dcs:generation",
+      "measurementQualifier": "dcs:Annual",
+      "energySource": "dcs:WoodAndWoodDerivedFuels",
+      "producingSector": "dcs:IndustrialNonCogen"
+    },
+    {
+      "dcid": "Offense_Count_CriminalIncidents_BiasMotivationGender_IsHateCrime_Transgender",
+      "populationType": "dcs:HateCrimeIncidents",
+      "measuredProperty": "dcs:count",
+      "measurementQualifier": "dcs:Offense",
+      "biasMotivation": "dcs:gender",
+      "targetedGender": "dcs:Transgender"
+    },
+    {
+      "dcid": "Count_MortalityEvent_Suicide",
+      "populationType": "dcs:MortalityEvent",
+      "measuredProperty": "dcs:count",
+      "causeOfDeath": "dcs:Suicide"
+    },
+    {
+      "dcid": "Victim_Count_CriminalIncidents_BiasMotivationRace_WeaponLawViolations_IsHateCrime_TwoOrMoreRaces",
+      "populationType": "dcs:HateCrimeIncidents",
+      "measuredProperty": "dcs:count",
+      "measurementQualifier": "dcs:Victim",
+      "crimeType": "dcs:WeaponLawViolations",
+      "biasMotivation": "dcs:race",
+      "targetedRace": "dcs:TwoOrMoreRaces"
+    },
+    {
+      "dcid": "Annual_Emissions_NitrousOxide_EntericFermentation",
+      "populationType": "dcs:Emissions",
+      "measuredProperty": "dcs:amount",
+      "measurementQualifier": "dcs:Annual",
+      "emissionSource": "dcs:EntericFermentation",
+      "emittedThing": "dcs:NitrousOxide"
+    }
+  ]
 }

@@ -128,5 +128,15 @@
     "dc_only_properties": [
       "energySource"
     ]
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "DifferenceRelativeToObservationalData_Max_Temperature_CMCC-CM2-SR5",
+      "populationType": "dcs:Place",
+      "measuredProperty": "dcs:temperature",
+      "measurementQualifier": "dcs:DifferenceRelativeToObservedData",
+      "climateModel": "dcs:CMCC-CM2-SR5",
+      "climateModelExperimentType": "dcs:CMIP6_HistorcialRun"
+    }
+  ]
 }
