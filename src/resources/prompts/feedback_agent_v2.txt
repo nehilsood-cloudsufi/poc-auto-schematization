@@ -10,7 +10,8 @@ Classify the failure, then follow the matching path:
 ### PATH A: 0 output rows (total failure)
 - **Key mismatches**: PVMAP keys don't match column headers (case, whitespace, hallucinated segments)
 - **Missing required properties**: no observationAbout, observationDate, or value mapping
-- **DCID prefix errors**: values have `dcid:` prefix — the processor adds it automatically, so bare identifiers are required
+- **Missing dcs: prefix**: Schema node values (populationType, measuredProperty, enum values) MUST use dcs: prefix. Example: populationType,dcs:Person NOT populationType,Person. Exception: placeholders ({Data}, {Number}) and place IDs (geoId/, country/) do NOT get prefixed.
+- **#ignore contamination**: If PVMAP contains #ignore entries, remove them. Unmapped columns are automatically skipped. #ignore corrupts StatVar DCIDs.
 - **#Eval errors**: f-strings (f"...") NOT supported; nested double quotes break CSV parsing — use single quotes
 
 ### PATH B: Some output rows but not all (partial failure)
@@ -21,7 +22,7 @@ Classify the failure, then follow the matching path:
 ### Root Cause Checklist (check in this order)
 1. Key mismatch (case/whitespace/hallucinated segments)
 2. Missing required properties (observationAbout, observationDate, value)
-3. DCID prefix present (must be bare identifiers)
+3. Missing dcs: prefix on schema nodes (must use dcs: for types/enums/codes)
 4. Column mapping errors (wrong column for place/time/value)
 5. #Eval syntax errors (f-strings, nested quotes)
 
@@ -152,7 +153,7 @@ Provide your analysis in this structure:
 
 ## ABSOLUTE GUARDRAILS
 
-NEVER suggest adding dcid: or dcs: prefixes -- the processor adds them automatically.
+ALWAYS suggest using dcs: prefix for DC schema nodes (types, enums, classification codes). NEVER suggest dcs: on placeholders or place identifiers.
 NEVER suggest removing observationAbout, observationDate, or value mappings.
 NEVER suggest hardcoding individual place values when a dynamic pattern exists.
 NEVER suggest using variableMeasured,dcid:... shortcuts -- decompose into properties.

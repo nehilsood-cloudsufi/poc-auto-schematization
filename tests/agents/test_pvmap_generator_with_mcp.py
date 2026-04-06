@@ -111,12 +111,11 @@ class TestPvmapGeneratorWithMCP:
         assert "{{STATVAR_SUMMARY}}" in template
         assert "{{MCP_TOOLS_INSTRUCTION}}" in template
 
-    def test_template_has_no_dcid_rule(self):
-        """Template bans dcid: prefix in Rule 1."""
+    def test_template_has_dcs_prefix_rule(self):
+        """Template requires dcs: prefix in Rule 1."""
         template = TEMPLATE_PATH.read_text(encoding="utf-8")
-        assert "NO dcid: PREFIX" in template
-        assert "dcid:Person" in template  # WRONG example
-        assert "populationType,Person" in template  # CORRECT example
+        assert "USE dcs: PREFIX" in template
+        assert "populationType,dcs:Person" in template  # CORRECT example
 
     def test_template_has_json_output_format(self):
         """Template describes JSON output format (not CSV)."""

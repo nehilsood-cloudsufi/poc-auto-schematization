@@ -25,9 +25,16 @@ Concrete trace — input row [USA, 2020, 330000000]:
 
 ## Critical Rules
 
-**Rule 1: BARE IDENTIFIERS** — no dcid: prefix on any value.
-WRONG: populationType,dcid:Person  CORRECT: populationType,Person
-Exception: pre-formatted passthrough data where the source already contains dcid: values.
+**Rule 1: USE dcs: PREFIX** for Data Commons schema types, properties, and enum values.
+CORRECT: populationType,dcs:Person
+CORRECT: measuredProperty,dcs:count
+CORRECT: isic,dcs:ISIC/05
+CORRECT: gender,dcs:Male
+DO NOT prefix placeholders: observationDate,{Number} (not dcs:{Number})
+DO NOT prefix raw data: observationAbout,country/{Data} (not dcs:country/{Data})
+DO NOT prefix place DCIDs: observationAbout,geoId/06 (not dcs:geoId/06)
+
+**Column Omission:** Only map columns that contribute to StatVarObservations. Columns NOT in the PVMAP are automatically skipped by the processor. Do NOT use #ignore.
 
 **Rule 2: KEY FIDELITY** — matching is case-insensitive but ambiguous keys cause wrong mappings. Copy column names EXACTLY from the COLUMN REFERENCE TABLE in the Data Context. Never append suffixes or normalize. If a header contains commas, quote the key: "GDP, current prices".
 
@@ -136,7 +143,6 @@ If an approved mapping plan is present above, you MUST follow its column-role de
 | {Number} | Cell parsed as numeric | value,{Number} |
 | COLUMN:VALUE | Cell value in specific column | GENDER:Male,gender,Male |
 | #Format | Zero-pad / composite IDs | #Format,"observationAbout=geoId/{Data:0>5}" |
-| #ignore | Drop entire column | #ignore,skip |
 | Year,{Number} | Named intermediate variable | For composition: {Year}-{Month} |
 
 ### Place Prefixes
@@ -188,32 +194,82 @@ Output:
   {"key": "Year", "mappings": [{"property": "observationDate", "value": "{Number}"}]},
   {"key": "GDP (millions USD)", "mappings": [
     {"property": "value", "value": "{Number}"},
-    {"property": "populationType", "value": "EconomicActivity"},
-    {"property": "measuredProperty", "value": "amount"},
-    {"property": "statType", "value": "measuredValue"},
-    {"property": "unit", "value": "USDollar"},
+    {"property": "populationType", "value": "dcs:EconomicActivity"},
+    {"property": "measuredProperty", "value": "dcs:amount"},
+    {"property": "statType", "value": "dcs:measuredValue"},
+    {"property": "unit", "value": "dcs:USDollar"},
     {"property": "scalingFactor", "value": "1000000"}
   ]},
   {"key": "Unemployment Rate (%)", "mappings": [
     {"property": "value", "value": "{Number}"},
-    {"property": "populationType", "value": "Person"},
-    {"property": "measuredProperty", "value": "unemploymentRate"},
-    {"property": "statType", "value": "measuredValue"},
-    {"property": "unit", "value": "Percent"},
+    {"property": "populationType", "value": "dcs:Person"},
+    {"property": "measuredProperty", "value": "dcs:unemploymentRate"},
+    {"property": "statType", "value": "dcs:measuredValue"},
+    {"property": "unit", "value": "dcs:Percent"},
     {"property": "scalingFactor", "value": "100"}
   ]}
 ], "validation_notes": "Wide format with 2 value columns. Units extracted from headers.", "confidence": "high"}
 ```
 
+### Example 2: Tidy/Long with Named Captures and NA Filtering
+
+Input:
+```csv
+Year, Country, CountryCode, Variable, Value, ValueUSD, Activity, ActivityCode
+2013,India,356,Employees,3979.0,NA,Mining and quarrying,B
+2013,India,356,Output,NA,1250000,Mining and quarrying,B
+```
+
+Key pattern: Value and ValueUSD columns contain NA values that must be filtered.
+Use NAMED CAPTURES to store intermediate values, then reference + filter in dimension mappings.
+
+```json
+{
+  "format_detected": "tidy_long",
+  "pvmap_rows": [
+    {"key": "Year", "mappings": [{"property": "observationDate", "value": "{Number}"}]},
+    {"key": "CountryCode", "mappings": [{"property": "observationAbout", "value": "country/{Data}"}]},
+    {"key": "Value", "mappings": [{"property": "Value_Attr", "value": "{Number}"}]},
+    {"key": "ValueUSD", "mappings": [{"property": "ValueUSD_Attr", "value": "{Number}"}]},
+    {"key": "Variable:Employees", "mappings": [
+      {"property": "populationType", "value": "dcs:Person"},
+      {"property": "measuredProperty", "value": "dcs:count"},
+      {"property": "workStatus", "value": "dcs:PaidEmployee"},
+      {"property": "value", "value": "{Value_Attr}"},
+      {"property": "#Filter", "value": "'{Value_Attr}' != 'NA'"}
+    ]},
+    {"key": "Variable:Output", "mappings": [
+      {"property": "populationType", "value": "dcs:EconomicActivity"},
+      {"property": "measuredProperty", "value": "dcs:amount"},
+      {"property": "value", "value": "{ValueUSD_Attr}"},
+      {"property": "unit", "value": "dcs:USDollar"},
+      {"property": "#Filter", "value": "'{ValueUSD_Attr}' != 'NA'"}
+    ]},
+    {"key": "ActivityCode:B", "mappings": [{"property": "isic", "value": "dcs:ISIC/B"}]},
+    {"key": "ActivityCode:C", "mappings": [{"property": "isic", "value": "dcs:ISIC/C"}]}
+  ],
+  "validation_notes": "Named captures Value_Attr/ValueUSD_Attr store intermediate values. #Filter skips NA rows. Country column omitted (not mapped). ActivityCode mapped with dcs:ISIC/ prefix.",
+  "confidence": "high"
+}
+```
+
+Key points:
+- Value_Attr and ValueUSD_Attr are NAMED CAPTURES (Capitalized) — not emitted to output
+- Variable mappings REFERENCE captures via {Value_Attr} and add #Filter for NA
+- Country column is OMITTED entirely — unmapped columns auto-skipped
+- ActivityCode uses dcs:ISIC/ prefix for ISIC classification codes
+
 ## Guardrails
 
-- NEVER add dcid: or dcs: prefix to any value
+- ALWAYS use dcs: prefix for DC schema nodes (types, enums, classification codes)
+- NEVER use dcs: on placeholders ({Data}, {Number}) or place identifiers (geoId/, country/)
 - NEVER use variableMeasured,dcid:... shortcut — decompose into properties
 - NEVER invent column names — copy from COLUMN REFERENCE TABLE
 - NEVER enumerate individual places when dynamic {Data} works
 - NEVER generate a "representative sample" — map ALL columns and ALL dimension values
 - NEVER hardcode dates or places that vary across rows
 - NEVER remove observationAbout, observationDate, or value mappings
+- NEVER use #ignore — simply omit columns you don't need
 
 ## Output Format
 

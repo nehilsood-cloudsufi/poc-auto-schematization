@@ -477,15 +477,14 @@ class TestPromptV2Template:
         for val in ["Person", "Household", "EconomicActivity", "measuredProperty", "statType"]:
             assert val in tree, f"Decision tree missing: {val}"
 
-    def test_no_dcid_in_rules(self, v2_template):
-        """Rules section should not suggest using dcid: prefix."""
+    def test_dcs_prefix_in_rules(self, v2_template):
+        """Rules section should require dcs: prefix for schema nodes."""
         # Find rules section
         rules_start = v2_template.find("<rules>")
         rules_end = v2_template.find("</rules>")
         rules = v2_template[rules_start:rules_end]
-        # The rule ABOUT dcid: is fine, but examples should show WRONG/CORRECT
-        assert "dcid:Person" in rules  # In the WRONG column
-        assert "populationType,Person" in rules  # In the CORRECT column
+        assert "USE dcs: PREFIX" in rules
+        assert "populationType,dcs:Person" in rules  # CORRECT example
 
     def test_shorter_than_v1(self, v2_template):
         v1_path = Path(__file__).parent.parent.parent / "src" / "resources" / "prompts" / "improved_pvmap_prompt.txt"
@@ -494,10 +493,10 @@ class TestPromptV2Template:
         v1 = v1_path.read_text(encoding="utf-8")
         assert len(v2_template) < len(v1), "v2 should be shorter than v1"
 
-    def test_has_three_examples(self, v2_template):
-        """v2 should have exactly 3 examples (down from 5)."""
+    def test_has_four_examples(self, v2_template):
+        """v2 should have exactly 4 examples (3 original + named captures)."""
         count = v2_template.count("## Example")
-        assert count == 3, f"Expected 3 examples, found {count}"
+        assert count == 4, f"Expected 4 examples, found {count}"
 
 
 # =============================================================================
