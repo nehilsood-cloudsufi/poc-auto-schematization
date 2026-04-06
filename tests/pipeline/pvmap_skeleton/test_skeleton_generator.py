@@ -205,7 +205,7 @@ class TestGeneratePvmapSkeleton:
         reader = csv.reader(io.StringIO(skeleton))
         rows = list(reader)
         place_row = next(r for r in rows if r[0] == "City")
-        assert place_row[2] == "{Data}"
+        assert place_row[2] == "country/{Data}"
 
     def test_skeleton_time_yyyy(self, basic_data_context):
         manifest = build_column_manifest(basic_data_context)
@@ -238,7 +238,7 @@ class TestGeneratePvmapSkeleton:
         assert value_row[2] == "{Number}"
         # Should have populationType and measuredProperty
         assert "populationType" in value_row
-        assert "Person" in value_row
+        assert "dcs:Person" in value_row
 
     def test_skeleton_value_column_todo_when_no_population(self):
         ctx = {
@@ -287,14 +287,16 @@ class TestGeneratePvmapSkeleton:
         big_dim_rows = [r for r in rows if r[0].startswith("BigDim:")]
         assert len(big_dim_rows) == MAX_DIMENSION_VALUES
 
-    def test_skeleton_metadata_ignore(self, basic_data_context):
+    def test_skeleton_metadata_omitted(self, basic_data_context):
+        """can-ignore columns should NOT appear in skeleton (no #ignore rows)."""
         manifest = build_column_manifest(basic_data_context)
         skeleton = generate_pvmap_skeleton(manifest, basic_data_context)
 
         reader = csv.reader(io.StringIO(skeleton))
         rows = list(reader)
-        source_row = next(r for r in rows if r[0] == "Source")
-        assert source_row[1] == "#ignore"
+        source_keys = [r[0] for r in rows if r[0] == "Source"]
+        assert len(source_keys) == 0, "can-ignore columns should be omitted from skeleton"
+        assert "#ignore" not in skeleton
 
     def test_skeleton_empty_manifest(self):
         manifest = {"must_map": [], "can_ignore": [], "all_columns": []}

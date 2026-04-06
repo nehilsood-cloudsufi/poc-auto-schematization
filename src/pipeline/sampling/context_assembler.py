@@ -231,7 +231,7 @@ def _generate_place_hints(
         'ISO_2': ('country/{val}', 'country/'),
         'ISO_3': ('country/{val}', 'country/'),
         'DC_DCID': ('{val}', ''),
-        'NAME': ('wikidataId/{val}', 'wikidataId/'),
+        'NAME': ('{val}', ''),  # NAME needs per-value resolution, not wikidataId/ prefix
         'NUMERIC_CODE': ('geoId/{val}', 'geoId/'),
     }
 
@@ -255,6 +255,10 @@ def _generate_place_hints(
                 suggested = f"geoId/{raw_str}"
         elif geo_format == 'DC_DCID':
             suggested = raw_str
+        elif geo_format == 'NAME':
+            # NAME format: suggest country/ prefix as a hint, but mark as
+            # needing resolution (wikidataId/{name} is NOT a valid DCID)
+            suggested = f"country/TODO_RESOLVE_{raw_str.replace(' ', '_')}"
         elif prefix:
             suggested = f"{prefix}{raw_str}"
         else:
@@ -298,6 +302,8 @@ def _generate_one_shot(
     if geo_info:
         geo_col = geo_info.get("column", "")
         geo_format = geo_info.get("format", "NAME")
+        geo_unique = geo_info.get("unique_values", 0)
+        geo_samples = geo_info.get("sample_values", [])
         format_info = GEO_FORMAT_MAP.get(geo_format)
         if format_info:
             _, prefix = format_info
@@ -307,6 +313,16 @@ def _generate_one_shot(
                 lines.append(f'{geo_col},#Format,observationAbout=geoId/{{Number:0>5}}')
             elif geo_format == 'DC_DCID':
                 lines.append(f'{geo_col},observationAbout,{{Data}}')
+            elif geo_format == 'NAME' and 0 < geo_unique <= 10 and geo_samples:
+                # For NAME format with low cardinality, enumerate per-value
+                # rows so the LLM sees it must resolve each name to a DCID.
+                # wikidataId/{name} is NOT valid — the LLM must find real DCIDs.
+                for val in geo_samples:
+                    val_str = str(val).strip()
+                    lines.append(
+                        f'{geo_col}:{val_str},observationAbout,'
+                        f'TODO_RESOLVE_DCID_FOR_{val_str.replace(" ", "_")}'
+                    )
             elif prefix:
                 lines.append(f'{geo_col},observationAbout,{prefix}{{Data}}')
             else:
@@ -314,10 +330,15 @@ def _generate_one_shot(
         else:
             lines.append(f'{geo_col},observationAbout,{{Data}}')
 
-    # Time anchor
+    # Time anchor — use {Number} for numeric year formats, {Data} otherwise
     if time_info:
         time_col = time_info.get("column", "")
-        lines.append(f'{time_col},observationDate,{{Data}}')
+        time_format = time_info.get("format", "")
+        NUMERIC_TIME_FORMATS = {"YYYY", "YEAR", "year", "yyyy"}
+        if time_format in NUMERIC_TIME_FORMATS:
+            lines.append(f'{time_col},observationDate,{{Number}}')
+        else:
+            lines.append(f'{time_col},observationDate,{{Data}}')
 
     # Dimension values (enumerate for dims with <=10 values)
     for dim in skeleton.dimension_columns:

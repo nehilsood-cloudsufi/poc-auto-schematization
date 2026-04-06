@@ -31,7 +31,7 @@ GEO_DCID_TEMPLATES = {
     "ISO_2": "country/{Data}",
     "ISO_3": "country/{Data}",
     "DC_DCID": "{Data}",
-    "NAME": "{Data}",
+    "NAME": "country/{Data}",
     "NUMERIC_CODE": "geoId/{Data}",
 }
 
@@ -156,13 +156,21 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
 
         elif role == "value":
             # Value columns need measuredProperty and populationType
-            row = [col, "value", "{Number}"]
+            # Task 8: Use named capture if sentinel values present
+            sentinel_values = entry.get("sentinel_values", [])
+            if sentinel_values:
+                capture_name = col.replace(" ", "_") + "_Attr"
+                row = [col, capture_name, "{Number}"]
+            else:
+                row = [col, "value", "{Number}"]
+            # Task 6: Add dcs: prefix to populationType and measuredProperty values
             if population_type:
-                row.extend(["populationType", population_type])
+                row.extend(["populationType", f"dcs:{population_type}"])
             else:
                 row.extend(["populationType", "TODO"])
             if measurement_type:
-                row.extend(["measuredProperty", _measurement_to_property(measurement_type)])
+                prop = _measurement_to_property(measurement_type)
+                row.extend(["measuredProperty", f"dcs:{prop}" if prop else "TODO"])
             else:
                 row.extend(["measuredProperty", "TODO"])
             rows.append(row)
@@ -185,10 +193,8 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
             # Unknown role — placeholder row, empty property for LLM to fill
             rows.append([col, "", "{Data}"])
 
-    # Process can-ignore columns
-    for entry in manifest.get("can_ignore", []):
-        col = entry["column_name"]
-        rows.append([col, "#ignore", ""])
+    # can-ignore columns are simply omitted from the skeleton.
+    # Columns absent from the PVMAP are automatically skipped by stat_var_processor.
 
     if not rows:
         return ""

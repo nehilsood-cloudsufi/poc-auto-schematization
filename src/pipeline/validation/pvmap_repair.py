@@ -439,6 +439,68 @@ def _resolve_ignore_conflicts(pvmap_csv: str, headers: List[str]) -> Tuple[str, 
     return '\n'.join(resolved_lines), changes
 
 
+def strip_ignore_rows(pvmap_csv: str) -> Tuple[str, List[str]]:
+    """Remove all #ignore rows from PVMAP CSV.
+    Columns not in the PVMAP are automatically skipped by stat_var_processor.
+    """
+    changes = []
+    lines = pvmap_csv.strip().splitlines()
+    kept = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.split(",")
+        if len(parts) >= 2 and parts[1].strip().lower() == "#ignore":
+            changes.append(f"Removed #ignore for column '{parts[0].strip()}'")
+            continue
+        kept.append(line)
+    return "\n".join(kept), changes
+
+
+def _fix_date_placeholder(pvmap_csv: str) -> Tuple[str, List[str]]:
+    """Fix observationDate rows that incorrectly use {Data} instead of {Number}.
+
+    The stat_var_processor requires {Number} for numeric date values (years).
+    LLMs frequently emit {Data} for date columns, which causes validation failures.
+
+    Args:
+        pvmap_csv: The PVMAP CSV string.
+
+    Returns:
+        Tuple of (fixed_csv, changes_list).
+    """
+    changes: List[str] = []
+    lines = pvmap_csv.splitlines()
+    fixed_lines = []
+    for line in lines:
+        try:
+            reader = csv.reader(io.StringIO(line))
+            row = next(reader, [])
+        except Exception:
+            fixed_lines.append(line)
+            continue
+
+        if len(row) >= 3:
+            prop = row[1].strip()
+            val = row[2].strip()
+            if prop == "observationDate" and val == "{Data}":
+                row[2] = "{Number}"
+                changes.append(
+                    f"Fixed observationDate placeholder: {{Data}} -> {{Number}} "
+                    f"for key '{row[0].strip()}'"
+                )
+                output = io.StringIO()
+                writer = csv.writer(output, lineterminator='')
+                writer.writerow(row)
+                fixed_lines.append(output.getvalue())
+                continue
+
+        fixed_lines.append(line)
+
+    return "\n".join(fixed_lines), changes
+
+
 def repair_pvmap(
     pvmap_csv: str,
     input_data_path: Path,
@@ -461,9 +523,19 @@ def repair_pvmap(
     if not pvmap_csv or not pvmap_csv.strip():
         return pvmap_csv, []
 
+    # Strip #ignore rows first — they are harmful and unnecessary
+    pvmap_csv, ignore_changes = strip_ignore_rows(pvmap_csv)
+    all_changes: List[str] = list(ignore_changes)
+
+    # Fix date placeholder: observationDate should use {Number} not {Data}
+    # (numeric year values like 2020 need {Number} for stat_var_processor)
+    pvmap_csv, date_changes = _fix_date_placeholder(pvmap_csv)
+    all_changes.extend(date_changes)
+
     headers = load_input_headers(input_data_path)
     if not headers:
-        return pvmap_csv, ["WARNING: Could not read input headers for repair"]
+        all_changes.append("WARNING: Could not read input headers for repair")
+        return pvmap_csv, all_changes
 
     headers_set = set(headers)
     key_index = build_key_index(headers)
@@ -564,12 +636,14 @@ def repair_pvmap(
     repaired_csv, ignore_changes = _resolve_ignore_conflicts(repaired_csv, headers)
     changes.extend(ignore_changes)
 
-    if changes:
-        logger.info(f"PVMAP repair applied {len(changes)} fixes")
-        for c in changes[:10]:
+    all_changes.extend(changes)
+
+    if all_changes:
+        logger.info(f"PVMAP repair applied {len(all_changes)} fixes")
+        for c in all_changes[:10]:
             logger.info(f"  {c}")
 
-    return repaired_csv, changes
+    return repaired_csv, all_changes
 
 
 def generate_key_match_report(
