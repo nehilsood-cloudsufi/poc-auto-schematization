@@ -246,3 +246,8 @@ docs/superpowers/
 .worktrees/
 output_test_cleanup/
 feedback/
+.superpowers
+
+# Frontend (React + Vite)
+frontend/node_modules/
+frontend/dist/

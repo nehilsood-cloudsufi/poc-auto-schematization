@@ -132,8 +132,11 @@ dependencies = [
     "aiohappyeyeballs>=2.6.1",
     "aiosignal>=1.4.0",
 
-    # UI
-    "streamlit>=1.44.0",
+    # API Server (replaces Streamlit)
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.18",
+    "websockets>=14.0",
 ]
 
 [project.optional-dependencies]
