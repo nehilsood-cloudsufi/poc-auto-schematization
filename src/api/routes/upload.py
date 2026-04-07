@@ -64,5 +64,5 @@ async def upload_files(
         "rows": len(df),
         "columns": len(df.columns),
         "column_names": list(df.columns),
-        "preview": df.head(10).to_dict(orient="records"),
+        "preview": df.head(10).fillna("").to_dict(orient="records"),
     }

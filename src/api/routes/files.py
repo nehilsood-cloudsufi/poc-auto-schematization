@@ -41,7 +41,7 @@ async def get_file(run_id: str, filename: str, request: Request):
 
     if filename.endswith(".csv"):
         try:
-            df = pd.read_csv(fpath)
+            df = pd.read_csv(fpath).fillna("")
             return {
                 "type": "csv",
                 "filename": filename,
