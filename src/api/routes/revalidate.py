@@ -2,9 +2,9 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from src.api.services.run_state import get_run
+from src.api.services.run_state import get_or_load_run
 from src.api.services.revalidation_service import revalidate as revalidate_pvmap
 
 logger = logging.getLogger(__name__)
@@ -12,9 +12,9 @@ router = APIRouter()
 
 
 @router.post("/runs/{run_id}/revalidate")
-async def revalidate(run_id: str):
+async def revalidate(run_id: str, request: Request):
     """Run stat_var_processor validation on the current PVMAP."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 

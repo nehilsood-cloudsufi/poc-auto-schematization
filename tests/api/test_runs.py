@@ -42,6 +42,34 @@ class TestGetRun:
         assert response.status_code == 404
 
 
+class TestGetHistoricalRun:
+    def test_get_historical_run_from_disk(self, tmp_path):
+        """GET /api/runs/{id} loads a historical run from disk when not in memory."""
+        run_state._runs.clear()
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+
+        # Create on-disk structure without registering in memory
+        run_dir = tmp_path / "hist123"
+        (run_dir / "output" / "old_dataset").mkdir(parents=True)
+
+        response = client.get("/api/runs/hist123")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["run_id"] == "hist123"
+        assert data["dataset_name"] == "old_dataset"
+        assert data["status"] == "complete"
+
+    def test_get_historical_run_not_on_disk(self, tmp_path):
+        """GET /api/runs/{id} returns 404 when run doesn't exist in memory or on disk."""
+        run_state._runs.clear()
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+
+        response = client.get("/api/runs/ghost_run")
+        assert response.status_code == 404
+
+
 class TestStartRun:
     def test_start_run_missing_run_id(self, client):
         response = client.post("/api/runs", json={

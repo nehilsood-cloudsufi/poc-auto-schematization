@@ -85,3 +85,38 @@ class TestDownload:
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/zip"
         assert len(response.content) > 0
+
+
+class TestHistoricalRunFiles:
+    def test_list_files_for_historical_run(self, tmp_path):
+        """File listing works for runs loaded from disk (never in memory)."""
+        run_state._runs.clear()
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+
+        # Create on-disk structure without registering in memory
+        run_dir = tmp_path / "hist_run"
+        output_dir = run_dir / "output" / "hist_ds"
+        output_dir.mkdir(parents=True)
+        (output_dir / "generated_pvmap.csv").write_text("col1,col2\nA,B\n")
+
+        response = client.get("/api/runs/hist_run/files")
+        assert response.status_code == 200
+        assert "generated_pvmap.csv" in response.json()["files"]
+
+    def test_get_file_for_historical_run(self, tmp_path):
+        """File content retrieval works for runs loaded from disk."""
+        run_state._runs.clear()
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+
+        run_dir = tmp_path / "hist_run2"
+        output_dir = run_dir / "output" / "hist_ds2"
+        output_dir.mkdir(parents=True)
+        (output_dir / "generated_pvmap.csv").write_text("a,b\n1,2\n")
+
+        response = client.get("/api/runs/hist_run2/files/generated_pvmap.csv")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["type"] == "csv"
+        assert data["rows"][0]["a"] == 1

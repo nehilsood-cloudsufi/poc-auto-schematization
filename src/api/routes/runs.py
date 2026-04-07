@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.api.services.run_state import create_run, get_run, list_runs
+from src.api.services.run_state import create_run, get_run, get_or_load_run, list_runs
 from src.api.services.file_manager import discover_historical_runs
 from src.api.services.pipeline_runner import PipelineConfig, launch_pipeline
 from src.api.services.mcp_lifecycle import get_or_start_mcp, get_mcp_url
@@ -49,9 +49,10 @@ async def list_all_runs(request: Request):
 
 
 @router.get("/runs/{run_id}")
-async def get_run_status(run_id: str):
+async def get_run_status(run_id: str, request: Request):
     """Get current status and result of a run."""
-    run = get_run(run_id)
+    output_dir = request.app.state.output_dir
+    run = get_or_load_run(run_id, output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return {

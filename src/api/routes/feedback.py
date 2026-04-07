@@ -3,10 +3,10 @@ import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.api.services.run_state import get_run, create_run
+from src.api.services.run_state import get_or_load_run, create_run
 from src.api.services.file_manager import (
     get_latest_version,
     snapshot_version,
@@ -34,13 +34,13 @@ class DevFeedbackRequest(BaseModel):
 
 
 @router.post("/runs/{run_id}/feedback")
-async def submit_feedback(run_id: str, req: FeedbackRequest):
+async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
     """Submit feedback and prepare for re-run.
 
     Creates a version snapshot, saves feedback, and returns a new run_id
     that the frontend can use to start a re-run via POST /api/runs.
     """
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -95,9 +95,9 @@ async def submit_feedback(run_id: str, req: FeedbackRequest):
 
 
 @router.post("/runs/{run_id}/dev-feedback")
-async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest):
+async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest, request: Request):
     """Submit developer feedback (bug reports, suggestions)."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 

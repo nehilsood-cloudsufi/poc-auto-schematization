@@ -5,19 +5,19 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from src.api.services.run_state import get_run
+from src.api.services.run_state import get_or_load_run
 from src.api.services.file_manager import get_output_files
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_output_dir(run_id: str) -> Path:
+def _resolve_output_dir(run_id: str, base_dir: Path) -> Path:
     """Get the output directory for a run, or raise 404."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, base_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
@@ -25,15 +25,15 @@ def _resolve_output_dir(run_id: str) -> Path:
 
 
 @router.get("/runs/{run_id}/files")
-async def list_files(run_id: str):
-    output_dir = _resolve_output_dir(run_id)
+async def list_files(run_id: str, request: Request):
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
     files = get_output_files(output_dir)
     return {"files": list(files.keys())}
 
 
 @router.get("/runs/{run_id}/files/{filename}")
-async def get_file(run_id: str, filename: str):
-    output_dir = _resolve_output_dir(run_id)
+async def get_file(run_id: str, filename: str, request: Request):
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
     fpath = output_dir / filename
 
     if not fpath.exists():
@@ -60,9 +60,9 @@ async def get_file(run_id: str, filename: str):
 
 
 @router.put("/runs/{run_id}/files/{filename}")
-async def update_file(run_id: str, filename: str, body: dict):
+async def update_file(run_id: str, filename: str, body: dict, request: Request):
     """Save edited file. Body: {"rows": [...]} for CSV, {"content": "..."} for text."""
-    output_dir = _resolve_output_dir(run_id)
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
     fpath = output_dir / filename
 
     if not fpath.exists():
@@ -80,8 +80,8 @@ async def update_file(run_id: str, filename: str, body: dict):
 
 
 @router.get("/runs/{run_id}/download")
-async def download_zip(run_id: str):
-    output_dir = _resolve_output_dir(run_id)
+async def download_zip(run_id: str, request: Request):
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Output directory not found")
 
@@ -92,7 +92,7 @@ async def download_zip(run_id: str):
                 arcname = fpath.relative_to(output_dir)
                 zf.write(fpath, arcname)
 
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     zip_filename = f"{run.dataset_name}_outputs.zip" if run else f"{run_id}_outputs.zip"
 
     return Response(
