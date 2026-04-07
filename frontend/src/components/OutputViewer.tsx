@@ -1,5 +1,6 @@
 /**
  * Tabbed output file viewer. Renders CSVs in CsvEditor, text in CodeViewer.
+ * Auto-loads the first tab's content on mount.
  */
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,20 +35,51 @@ function isTextResponse(f: FileResponse): f is TextFileResponse {
   return f.type === "text";
 }
 
+function tabLabel(tab: { key: string; label: string }, fileData: Record<string, FileResponse>): string {
+  const fd = fileData[tab.key];
+  if (!fd) return tab.label;
+  if (isCsvResponse(fd)) {
+    return `${tab.label} (${fd.row_count}r × ${fd.columns.length}c)`;
+  }
+  return tab.label;
+}
+
 export function OutputViewer({ runId, result }: OutputViewerProps) {
   const [availableFiles, setAvailableFiles] = useState<string[]>([]);
   const [fileData, setFileData] = useState<Record<string, FileResponse>>({});
   const [editedRows, setEditedRows] = useState<Record<string, unknown>[] | null>(null);
   const [revalidating, setRevalidating] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("");
 
   useEffect(() => {
-    listFiles(runId).then((resp) => setAvailableFiles(resp.files));
+    listFiles(runId).then((resp) => {
+      setAvailableFiles(resp.files);
+    });
   }, [runId]);
+
+  // Auto-load first available tab when file list arrives
+  useEffect(() => {
+    const tabs = TAB_ORDER.filter((t) => availableFiles.includes(t.key));
+    if (tabs.length === 0) return;
+    const firstKey = tabs[0].key;
+    if (!fileData[firstKey]) {
+      void loadFile(firstKey);
+    }
+    if (!activeTab) {
+      setActiveTab(firstKey);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableFiles]);
 
   const loadFile = async (filename: string) => {
     if (fileData[filename]) return;
     const data = await getFile(runId, filename);
     setFileData((prev) => ({ ...prev, [filename]: data }));
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    void loadFile(value);
   };
 
   const tabs = TAB_ORDER.filter((t) => availableFiles.includes(t.key));
@@ -73,7 +105,11 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
     <div>
       {/* Result banner */}
       {result && (
-        <div className={`mb-4 p-3 rounded-md text-sm ${result.validation_passed ? "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200" : "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200"}`}>
+        <div className={`mb-4 p-3 rounded-md text-sm border ${
+          result.validation_passed
+            ? "bg-green-50 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800"
+            : "bg-red-50 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-200 dark:border-red-800"
+        }`}>
           <strong>{(result.retry_count ?? 0) + 1} attempt(s)</strong> — {result.exit_reason}
           {result.quality_metrics?.heuristic_score != null && (
             <Badge variant="outline" className="ml-2">
@@ -83,40 +119,48 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
         </div>
       )}
 
-      <Tabs defaultValue={tabs[0]?.key} onValueChange={(v) => { void loadFile(v); }}>
-        <TabsList>
-          {tabs.map((tab) => (
-            <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>
-          ))}
-        </TabsList>
+      {tabs.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">No output files found.</p>
+      ) : (
+        <Tabs value={activeTab || tabs[0]?.key} onValueChange={handleTabChange}>
+          <TabsList className="flex-wrap h-auto gap-1">
+            {tabs.map((tab) => (
+              <TabsTrigger key={tab.key} value={tab.key} className="text-xs">
+                {tabLabel(tab, fileData)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {tabs.map((tab) => {
-          const fd = fileData[tab.key];
-          return (
-            <TabsContent key={tab.key} value={tab.key}>
-              {fd ? (
-                isCsvResponse(fd) ? (
-                  <CsvEditor
-                    columns={fd.columns}
-                    rows={editedRows && tab.key === "generated_pvmap.csv" ? editedRows : fd.rows}
-                    editable={tab.key === "generated_pvmap.csv"}
-                    onChange={tab.key === "generated_pvmap.csv" ? setEditedRows : undefined}
-                  />
-                ) : tab.key.endsWith(".md") && isTextResponse(fd) ? (
-                  <div
-                    className="prose dark:prose-invert max-w-none p-4"
-                    dangerouslySetInnerHTML={{ __html: fd.content }}
-                  />
-                ) : isTextResponse(fd) ? (
-                  <CodeViewer content={fd.content} />
-                ) : null
-              ) : (
-                <p className="text-sm text-muted-foreground p-4">Loading...</p>
-              )}
-            </TabsContent>
-          );
-        })}
-      </Tabs>
+          {tabs.map((tab) => {
+            const fd = fileData[tab.key];
+            return (
+              <TabsContent key={tab.key} value={tab.key}>
+                {fd ? (
+                  isCsvResponse(fd) ? (
+                    <CsvEditor
+                      columns={fd.columns}
+                      rows={editedRows && tab.key === "generated_pvmap.csv" ? editedRows : fd.rows}
+                      editable={tab.key === "generated_pvmap.csv"}
+                      onChange={tab.key === "generated_pvmap.csv" ? setEditedRows : undefined}
+                    />
+                  ) : tab.key.endsWith(".md") && isTextResponse(fd) ? (
+                    <div
+                      className="prose dark:prose-invert max-w-none p-4"
+                      dangerouslySetInnerHTML={{ __html: fd.content }}
+                    />
+                  ) : isTextResponse(fd) ? (
+                    <CodeViewer content={fd.content} />
+                  ) : null
+                ) : (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    <span className="animate-pulse text-sm">Loading file...</span>
+                  </div>
+                )}
+              </TabsContent>
+            );
+          })}
+        </Tabs>
+      )}
 
       {/* Actions */}
       {availableFiles.includes("generated_pvmap.csv") && (

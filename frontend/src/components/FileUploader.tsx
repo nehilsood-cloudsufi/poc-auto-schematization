@@ -2,7 +2,6 @@
  * Drag-and-drop file upload component.
  */
 import { useCallback, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 interface FileUploaderProps {
@@ -41,16 +40,7 @@ export function FileUploader({
   const handleDragLeave = useCallback(() => setIsDragging(false), []);
 
   return (
-    <Card
-      className={`
-        p-6 border-2 border-dashed cursor-pointer transition-colors text-center
-        ${isDragging ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : "border-border hover:border-muted-foreground"}
-      `}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onClick={() => inputRef.current?.click()}
-    >
+    <>
       <input
         ref={inputRef}
         type="file"
@@ -61,34 +51,45 @@ export function FileUploader({
           if (file) onFileSelect(file);
         }}
       />
-
-      {selectedFile ? (
-        <div>
-          <p className="font-medium">{selectedFile.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {(selectedFile.size / 1024).toFixed(1)} KB
-          </p>
-        </div>
-      ) : (
-        <div>
-          <p className="text-muted-foreground">
-            Drop {label} here or click to browse
-          </p>
-          {required && (
-            <p className="text-xs text-muted-foreground mt-1">Required</p>
-          )}
-        </div>
-      )}
-      {/* Hidden button to prevent Card click propagation issues */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="mt-2 text-xs pointer-events-none"
-        tabIndex={-1}
+      <Card
+        className={`
+          border-2 border-dashed cursor-pointer transition-all text-center
+          min-h-[120px] flex items-center justify-center
+          ${isDragging
+            ? "border-blue-500 bg-blue-50 dark:bg-blue-950 scale-[1.01]"
+            : selectedFile
+              ? "border-green-400 bg-green-50/50 dark:bg-green-950/30 hover:border-green-500"
+              : "border-border hover:border-muted-foreground hover:bg-muted/30"
+          }
+        `}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onClick={() => inputRef.current?.click()}
       >
-        Browse
-      </Button>
-    </Card>
+        {selectedFile ? (
+          <div className="px-4 py-4">
+            <div className="text-2xl mb-1">✅</div>
+            <p className="font-medium text-sm text-green-700 dark:text-green-300 truncate max-w-[180px]">
+              {selectedFile.name}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {(selectedFile.size / 1024).toFixed(1)} KB · click to change
+            </p>
+          </div>
+        ) : (
+          <div className="px-4 py-5">
+            <div className="text-3xl mb-2">📤</div>
+            <p className="text-sm font-medium text-muted-foreground">
+              Drop {label} here
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+            {required && (
+              <p className="text-xs text-destructive mt-1 font-medium">Required</p>
+            )}
+          </div>
+        )}
+      </Card>
+    </>
   );
 }

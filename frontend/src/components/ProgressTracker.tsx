@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { Progress } from "@/components/ui/progress";
+import { Card, CardContent } from "@/components/ui/card";
 import { PIPELINE_PHASES, PHASE_LABELS } from "@/types";
 import type { ProgressEvent } from "@/types";
 
@@ -39,56 +40,62 @@ export function ProgressTracker({ events, startTime }: ProgressTrackerProps) {
   const elapsedStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium">
-          {currentAttempt > 0 ? `Attempt ${currentAttempt + 1}` : "Pipeline running..."}
-        </h2>
-        <span className="text-sm text-muted-foreground">Elapsed: {elapsedStr}</span>
-      </div>
+    <Card className="shadow-sm">
+      <CardContent className="pt-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold">
+            {currentAttempt > 0 ? `Attempt ${currentAttempt + 1}` : "Pipeline running..."}
+          </h2>
+          <span className="text-sm text-muted-foreground tabular-nums">⏱ {elapsedStr}</span>
+        </div>
 
-      {/* Progress bar */}
-      <Progress value={progressPct} />
-      <p className="text-xs text-muted-foreground">
-        {completedCount}/{allPhases.length} phases
-      </p>
+        {/* Progress bar */}
+        <Progress value={progressPct} className="mb-1" />
+        <p className="text-xs text-muted-foreground mb-5">
+          {completedCount}/{allPhases.length} phases complete
+        </p>
 
-      {/* Phase checklist */}
-      <ul className="space-y-1">
-        {allPhases.map((phase) => {
-          const label = PHASE_LABELS[phase] || phase;
-          const isCompleted = completedAgents.has(phase);
-          const isNext =
-            !isCompleted &&
-            completedCount > 0 &&
-            allPhases.indexOf(phase) ===
-              allPhases.findIndex((p) => !completedAgents.has(p));
+        {/* Phase checklist */}
+        <ul className="space-y-2">
+          {allPhases.map((phase) => {
+            const label = PHASE_LABELS[phase] || phase;
+            const isCompleted = completedAgents.has(phase);
+            const isNext =
+              !isCompleted &&
+              completedCount > 0 &&
+              allPhases.indexOf(phase) ===
+                allPhases.findIndex((p) => !completedAgents.has(p));
 
-          return (
-            <li key={phase} className="flex items-center gap-2 text-sm">
-              {isCompleted ? (
-                <span className="text-green-600">✓</span>
-              ) : isNext ? (
-                <span className="text-blue-500 animate-pulse">⟳</span>
-              ) : (
-                <span className="text-muted-foreground">○</span>
-              )}
-              <span
-                className={
-                  isCompleted
-                    ? "text-foreground"
+            return (
+              <li key={phase} className="flex items-center gap-3">
+                <span className={`
+                  w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0
+                  ${isCompleted
+                    ? "bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300"
                     : isNext
-                      ? "text-blue-600 font-medium"
-                      : "text-muted-foreground"
-                }
-              >
-                {label}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+                      ? "bg-blue-100 dark:bg-blue-900 text-blue-500 animate-pulse"
+                      : "bg-muted text-muted-foreground"
+                  }
+                `}>
+                  {isCompleted ? "✓" : isNext ? "⟳" : "○"}
+                </span>
+                <span
+                  className={`text-sm ${
+                    isCompleted
+                      ? "text-foreground"
+                      : isNext
+                        ? "text-blue-600 dark:text-blue-400 font-medium"
+                        : "text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
