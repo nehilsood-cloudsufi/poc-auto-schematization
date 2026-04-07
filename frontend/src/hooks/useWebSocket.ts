@@ -1,25 +1,44 @@
 /**
- * Custom React hook for WebSocket connections with auto-reconnect.
+ * Custom React hook for WebSocket connections.
+ *
+ * REACT CONCEPT: Callbacks passed as props change identity on every render
+ * (unless memoized with useCallback). If we put them in useEffect's dependency
+ * array, the effect re-runs every render → infinite reconnect loop.
+ * Solution: store callbacks in refs so the effect only depends on runId.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { ProgressEvent } from "@/types";
 
 interface UseWebSocketOptions {
   runId: string | null;
+  enabled?: boolean;
   onEvent?: (event: ProgressEvent) => void;
   onComplete?: (event: ProgressEvent) => void;
   onError?: (event: ProgressEvent) => void;
 }
 
-export function useWebSocket({ runId, onEvent, onComplete, onError }: UseWebSocketOptions) {
+export function useWebSocket({
+  runId,
+  enabled = true,
+  onEvent,
+  onComplete,
+  onError,
+}: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const connect = useCallback(() => {
-    if (!runId) return;
+  // Store callbacks in refs to avoid re-triggering the effect
+  const onEventRef = useRef(onEvent);
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+  onEventRef.current = onEvent;
+  onCompleteRef.current = onComplete;
+  onErrorRef.current = onError;
 
-    // Build WebSocket URL relative to current host
+  useEffect(() => {
+    if (!runId || !enabled) return;
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//${window.location.host}/ws/progress/${runId}`;
 
@@ -33,12 +52,12 @@ export function useWebSocket({ runId, onEvent, onComplete, onError }: UseWebSock
     ws.onmessage = (messageEvent) => {
       const event = JSON.parse(messageEvent.data as string) as ProgressEvent;
       setEvents((prev) => [...prev, event]);
-      onEvent?.(event);
+      onEventRef.current?.(event);
 
       if (event.type === "complete") {
-        onComplete?.(event);
+        onCompleteRef.current?.(event);
       } else if (event.type === "error") {
-        onError?.(event);
+        onErrorRef.current?.(event);
       }
     };
 
@@ -49,16 +68,12 @@ export function useWebSocket({ runId, onEvent, onComplete, onError }: UseWebSock
     ws.onerror = () => {
       setConnected(false);
     };
-  }, [runId, onEvent, onComplete, onError]);
 
-  // Connect when runId changes
-  useEffect(() => {
-    connect();
     return () => {
-      wsRef.current?.close();
+      ws.close();
       wsRef.current = null;
     };
-  }, [connect]);
+  }, [runId, enabled]); // Only reconnect when runId or enabled changes
 
   const clearEvents = useCallback(() => setEvents([]), []);
 
