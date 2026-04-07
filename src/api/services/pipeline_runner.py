@@ -4,6 +4,7 @@ import queue
 import threading
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from src.api.adapters.progress_plugin import ProgressEvent, ProgressTrackingPlugin
@@ -73,8 +74,8 @@ def _run_in_thread(config: PipelineConfig, progress_queue: queue.Queue):
 
         result = run_dataset_pipeline(
             dataset_name=config.dataset_name,
-            input_dir=config.input_dir,
-            output_dir=config.output_dir,
+            input_dir=Path(config.input_dir),
+            output_dir=Path(config.output_dir),
             model=config.model,
             enable_mcp=config.enable_mcp,
             mcp_url=config.mcp_url,
