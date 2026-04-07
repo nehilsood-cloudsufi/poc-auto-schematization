@@ -251,3 +251,6 @@ feedback/
 # Frontend (React + Vite)
 frontend/node_modules/
 frontend/dist/
+# Un-ignore frontend/src/lib/ (root .gitignore has lib/ pattern for Python venvs)
+!frontend/src/lib/
+!frontend/src/lib/**
