@@ -37,6 +37,9 @@ def create_app(output_dir: Optional[Path] = None) -> FastAPI:
     from src.api.routes.upload import router as upload_router
     app.include_router(upload_router, prefix="/api")
 
+    from src.api.routes.runs import router as runs_router
+    app.include_router(runs_router, prefix="/api")
+
     # Serve React static files in production
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if frontend_dist.is_dir():
