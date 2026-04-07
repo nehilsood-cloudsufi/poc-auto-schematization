@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Properties that are always valid (DC built-ins, not in Schema.org)
 ALWAYS_VALID_PROPERTIES = {
-    "observationabout", "observationdate", "value", "#ignore",
+    "observationabout", "observationdate", "value",
     "#regex", "#format", "#eval", "#filter", "#aggregate", "#multiply",
     "populationtype", "measuredproperty", "stattype", "unit",
     "measurementdenominator", "measurementqualifier", "observationperiod",
@@ -225,6 +225,14 @@ def _verify_via_schemaorg(
             info["property_verified"] = False
             info["verification_source"] = "unverified"
             info["confidence"] = "low"
+            result["columns"][col_name] = info
+            continue
+
+        # Recognize named captures (Capitalized_Attr pattern) as valid
+        if prop[0].isupper() and "_" in prop:
+            info["property_verified"] = True
+            info["verification_source"] = "named_capture"
+            info["confidence"] = "high"
             result["columns"][col_name] = info
             continue
 

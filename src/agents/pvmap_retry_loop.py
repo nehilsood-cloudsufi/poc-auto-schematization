@@ -156,6 +156,27 @@ def _compact_dimension_section(section_text: str, max_values: int = 5) -> str:
     return '\n'.join(result)
 
 
+def format_statvar_examples_for_prompt(examples, max_chars=3000):
+    """Format StatVar examples as compact reference for the LLM prompt."""
+    if not examples:
+        return ""
+    lines = [
+        "## Real Data Commons StatVar Decompositions",
+        "Use these as reference for property names and dcs: prefix usage.",
+        "Every StatVar MUST decompose into: populationType + measuredProperty + constraint properties.",
+        "",
+    ]
+    for sv in examples:
+        dcid = sv.get("dcid", "")
+        props = [f"{k}: {v}" for k, v in sv.items() if k != "dcid"]
+        line = f"  {dcid}: {', '.join(props)}"
+        candidate = "\n".join(lines + [line])
+        if len(candidate) > max_chars:
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _compact_skeleton_for_feedback(skeleton: str) -> str:
     """Compact skeleton_summary for feedback agent token budget.
 
@@ -890,6 +911,21 @@ class StatePreparationAgent(BaseAgent):
 
             skeleton = ctx.session.state.get("skeleton_summary", "")
             schema_ex = ctx.session.state.get("schema_examples", "")
+
+            # Append StatVar examples to schema context
+            schema_vocab_raw = ctx.session.state.get("schema_vocab_content", "")
+            if schema_vocab_raw:
+                try:
+                    import json as _json
+                    vocab_data = _json.loads(schema_vocab_raw) if isinstance(schema_vocab_raw, str) and schema_vocab_raw.startswith("{") else {}
+                    statvar_examples = vocab_data.get("statvar_examples", [])
+                    if statvar_examples:
+                        sv_text = format_statvar_examples_for_prompt(statvar_examples)
+                        if sv_text:
+                            schema_ex = schema_ex + "\n\n" + sv_text if schema_ex else sv_text
+                except Exception:
+                    pass  # Non-fatal: schema_vocab_content may not be JSON
+
             sampled = ctx.session.state.get("sampled_data", "")
             error_fb = ctx.session.state.get("error_feedback", "")
             metadata = ctx.session.state.get("metadata", "")
@@ -2149,6 +2185,9 @@ class TieredCorrectionAgent(BaseAgent):
             try:
                 # Start from best known PVMAP
                 ctx.session.state["pvmap_csv"] = best_pvmap
+                # Ensure state vars referenced by patch agent template exist
+                ctx.session.state.setdefault("key_match_report", "")
+                ctx.session.state.setdefault("validation_counter_summary", "")
                 if filtered_logs:
                     ctx.session.state["validation_counter_summary"] = filtered_logs.to_summary()
 

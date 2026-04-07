@@ -1,7 +1,6 @@
 """Parse Data Commons StatVar MCF files into structured dicts."""
-import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 _SKIP_PROPERTIES = {"typeOf", "name", "nameWithLanguage", "alternateName",
                      "description", "descriptionUrl"}
