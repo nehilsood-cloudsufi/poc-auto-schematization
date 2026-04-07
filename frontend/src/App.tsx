@@ -1,121 +1,138 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+/**
+ * Root application component with routing and shared state.
+ *
+ * App-level state lifted here:
+ * - currentRunId — set on upload, used by all pages
+ * - datasetName — set on upload
+ * - config — PipelineConfig, modified by ConfigurePage
+ * - status — tracks wizard progress
+ * - result — pipeline result from WebSocket terminal event
+ * - startTime — for elapsed time tracking
+ */
+import { useState, useCallback } from "react";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { Sidebar } from "@/components/Sidebar";
+import { UploadPage } from "@/pages/UploadPage";
+import { ConfigurePage } from "@/pages/ConfigurePage";
+import { ProgressPage } from "@/pages/ProgressPage";
+import { ResultsPage } from "@/pages/ResultsPage";
+import { HistoryPage } from "@/pages/HistoryPage";
+import type { UploadResponse, PipelineConfig, PipelineResult, ProgressEvent } from "@/types";
 
-function App() {
-  const [count, setCount] = useState(0)
+const DEFAULT_CONFIG: PipelineConfig = {
+  dataset_name: "",
+  model: "gemini-2.5-pro-preview-05-06",
+  max_retries: 1,
+  enable_mcp: true,
+  use_schema_examples: true,
+  human_feedback: null,
+};
+
+function AppLayout() {
+  const navigate = useNavigate();
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [datasetName, setDatasetName] = useState("");
+  const [config, setConfig] = useState<PipelineConfig>(DEFAULT_CONFIG);
+  const [status, setStatus] = useState("pending");
+  const [result, setResult] = useState<PipelineResult | undefined>(undefined);
+  const [startTime, setStartTime] = useState(Date.now());
+
+  const handleUploadComplete = useCallback((response: UploadResponse) => {
+    setCurrentRunId(response.run_id);
+    setDatasetName(response.dataset_name);
+    setConfig((prev) => ({ ...prev, dataset_name: response.dataset_name }));
+    setStatus("uploaded");
+  }, []);
+
+  const handleRunStarted = useCallback(() => {
+    setStatus("running");
+    setStartTime(Date.now());
+    setResult(undefined);
+  }, []);
+
+  const handleComplete = useCallback((event: ProgressEvent) => {
+    setStatus("complete");
+    if (event.result) setResult(event.result);
+  }, []);
+
+  const handleError = useCallback((event: ProgressEvent) => {
+    setStatus("error");
+    if (event.result) setResult(event.result);
+  }, []);
+
+  const handleNewRun = useCallback(() => {
+    setCurrentRunId(null);
+    setDatasetName("");
+    setConfig(DEFAULT_CONFIG);
+    setStatus("pending");
+    setResult(undefined);
+    navigate("/");
+  }, [navigate]);
+
+  const handleRerunStarted = useCallback((newRunId: string) => {
+    setCurrentRunId(newRunId);
+    setStatus("running");
+    setStartTime(Date.now());
+    setResult(undefined);
+    navigate(`/runs/${newRunId}`);
+  }, [navigate]);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    <div className="flex h-screen bg-background text-foreground">
+      <Sidebar
+        currentRunId={currentRunId}
+        status={status}
+        onNewRun={handleNewRun}
+      />
+      <main className="flex-1 overflow-auto">
+        <Routes>
+          <Route
+            path="/"
+            element={<UploadPage onUploadComplete={handleUploadComplete} />}
+          />
+          <Route
+            path="/configure"
+            element={
+              <ConfigurePage
+                runId={currentRunId ?? ""}
+                datasetName={datasetName}
+                config={config}
+                onConfigChange={setConfig}
+                onRunStarted={handleRunStarted}
+              />
+            }
+          />
+          <Route
+            path="/runs/:runId"
+            element={
+              <ProgressPage
+                startTime={startTime}
+                onComplete={handleComplete}
+                onError={handleError}
+              />
+            }
+          />
+          <Route
+            path="/runs/:runId/results"
+            element={
+              <ResultsPage
+                datasetName={datasetName}
+                result={result}
+                onRerunStarted={handleRerunStarted}
+              />
+            }
+          />
+          <Route path="/history" element={<HistoryPage />} />
+        </Routes>
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppLayout />
+    </BrowserRouter>
+  );
+}
