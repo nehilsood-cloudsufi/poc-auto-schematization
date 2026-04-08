@@ -4,6 +4,7 @@ Tracks active pipeline runs. Completed run data lives on disk (output dirs,
 manifests, feedback JSONs). This module only tracks in-flight state for
 WebSocket broadcasting and API responses.
 """
+import json
 import queue
 import threading
 import time
@@ -22,12 +23,14 @@ class RunState:
     dataset_name: str
     run_dir: str
     config: dict
-    status: str = "pending"  # pending | running | complete | error
+    status: str = "pending"  # pending | running | complete | error | stopped
     result: dict = field(default_factory=dict)
     error: Optional[str] = None
     progress_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=200))
     thread: Optional[threading.Thread] = None
     created_at: float = field(default_factory=time.time)
+    # Cancellation (checked between pipeline phases)
+    cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
 def create_run(
@@ -73,23 +76,68 @@ def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
     if not output_dir.exists():
         return None
 
-    # Find dataset name from the output subdirectory (skip 'logs')
+    # Try to read custom name from run_info.json
     dataset_name = ""
-    for item in output_dir.iterdir():
-        if item.is_dir() and item.name != "logs":
-            dataset_name = item.name
-            break
+    run_info_path = run_dir / "run_info.json"
+    if run_info_path.exists():
+        try:
+            info = json.loads(run_info_path.read_text())
+            dataset_name = info.get("dataset_name", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if not dataset_name:
+        # Fallback: find from output subdirectory (skip 'logs')
+        for item in output_dir.iterdir():
+            if item.is_dir() and item.name != "logs":
+                dataset_name = item.name
+                break
 
     if not dataset_name:
         return None
 
-    # Load into memory as a completed run
+    # Detect run status
+    dataset_dir = output_dir / dataset_name if dataset_name else None
+    phase1_exists = (run_dir / "phase1_state.json").exists()
+    has_pvmap = (dataset_dir / "generated_pvmap.csv").exists() if dataset_dir else False
+    checkpoint_exists = (run_dir / "checkpoint.json").exists()
+
+    if phase1_exists and not has_pvmap:
+        status = "plan_ready"
+    elif checkpoint_exists:
+        status = "stopped"
+    else:
+        status = "complete"
+
+    # Read validation result from attempt JSONs on disk
+    result = {}
+    if dataset_dir:
+        response_dir = dataset_dir / "generated_response"
+        if response_dir.exists():
+            attempt_files = sorted(response_dir.glob("attempt_*.json"))
+            if attempt_files:
+                try:
+                    last = json.loads(attempt_files[-1].read_text())
+                    validation_passed = last.get(
+                        "validation_passed",
+                        last.get("validation_success", False),
+                    )
+                    result = {
+                        "validation_passed": validation_passed,
+                        "exit_reason": "max_retries" if len(attempt_files) > 1 else "complete",
+                        "retry_count": max(0, len(attempt_files) - 1),
+                    }
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+    # Load into memory
     run = RunState(
         run_id=run_id,
         dataset_name=dataset_name,
         run_dir=str(run_dir),
         config={},
-        status="complete",
+        status=status,
+        result=result,
     )
     _runs[run_id] = run
     return run
