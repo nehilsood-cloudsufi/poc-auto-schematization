@@ -34,7 +34,11 @@ async def list_files(run_id: str, request: Request):
 @router.get("/runs/{run_id}/files/{filename}")
 async def get_file(run_id: str, filename: str, request: Request):
     output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
-    fpath = output_dir / filename
+    fpath = (output_dir / filename).resolve()
+
+    # Prevent path traversal (e.g., ../../etc/passwd)
+    if not str(fpath).startswith(str(output_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
     if not fpath.exists():
         raise HTTPException(status_code=404, detail=f"File {filename} not found")
@@ -75,7 +79,13 @@ async def get_file(run_id: str, filename: str, request: Request):
                 "row_count": len(df),
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to parse CSV: {e}")
+            # Fallback: serve CSV as raw text if JSON serialization fails
+            logger.warning("CSV JSON serialization failed for %s: %s — falling back to text", filename, e)
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                return {"type": "text", "filename": filename, "content": content}
+            except Exception:
+                raise HTTPException(status_code=500, detail=f"Failed to parse CSV: {e}")
     else:
         try:
             content = fpath.read_text(encoding="utf-8")
@@ -88,7 +98,11 @@ async def get_file(run_id: str, filename: str, request: Request):
 async def update_file(run_id: str, filename: str, body: dict, request: Request):
     """Save edited file. Body: {"rows": [...]} for CSV, {"content": "..."} for text."""
     output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
-    fpath = output_dir / filename
+    fpath = (output_dir / filename).resolve()
+
+    # Prevent path traversal
+    if not str(fpath).startswith(str(output_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
     if not fpath.exists():
         raise HTTPException(status_code=404, detail=f"File {filename} not found")
