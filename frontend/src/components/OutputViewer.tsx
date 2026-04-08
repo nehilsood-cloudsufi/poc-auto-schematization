@@ -111,8 +111,16 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
 
   const loadFile = async (filename: string) => {
     if (fileData[filename]) return;
-    const data = await getFile(runId, filename);
-    setFileData((prev) => ({ ...prev, [filename]: data }));
+    try {
+      const data = await getFile(runId, filename);
+      setFileData((prev) => ({ ...prev, [filename]: data }));
+    } catch {
+      // Store a placeholder so the UI shows an error instead of infinite spinner
+      setFileData((prev) => ({
+        ...prev,
+        [filename]: { type: "text", filename, content: "Failed to load file." } as TextFileResponse,
+      }));
+    }
   };
 
   const handleTabChange = (value: string) => {
