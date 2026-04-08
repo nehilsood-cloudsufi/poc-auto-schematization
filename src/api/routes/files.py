@@ -42,7 +42,24 @@ async def get_file(run_id: str, filename: str, request: Request):
     if filename.endswith(".csv"):
         try:
             import numpy as np
+            # Handle empty or near-empty CSV files gracefully
+            if fpath.stat().st_size <= 1:
+                return {
+                    "type": "csv",
+                    "filename": filename,
+                    "rows": [],
+                    "columns": [],
+                    "row_count": 0,
+                }
             df = pd.read_csv(fpath)
+            if df.empty:
+                return {
+                    "type": "csv",
+                    "filename": filename,
+                    "rows": [],
+                    "columns": list(df.columns),
+                    "row_count": 0,
+                }
             df = df.replace([np.inf, -np.inf], "").fillna("")
             # Convert all values to strings to avoid JSON serialization issues
             # with mixed types, NaN remnants, or numpy scalars
