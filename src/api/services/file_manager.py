@@ -171,12 +171,24 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
         if not output_dir.exists():
             continue
 
-        # Find the dataset subdirectory (skip "logs")
+        # Check for run_info.json with custom name
         dataset_name = None
+        run_info_path = run_dir / "run_info.json"
+        if run_info_path.exists():
+            try:
+                info = json.loads(run_info_path.read_text())
+                custom_name = info.get("dataset_name", "")
+                if custom_name:
+                    dataset_name = custom_name
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Find the dataset subdirectory (skip "logs")
         dataset_dir = None
         for item in output_dir.iterdir():
             if item.is_dir() and item.name != "logs":
-                dataset_name = item.name
+                if not dataset_name:
+                    dataset_name = item.name
                 dataset_dir = item
                 break
 
@@ -200,7 +212,8 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
             timestamp = datetime.fromtimestamp(run_dir.stat().st_mtime).isoformat()
 
         last_attempt = attempts[-1] if attempts else {}
-        validation_passed = last_attempt.get("validation_success", False)
+        validation_passed = last_attempt.get("validation_passed",
+                                          last_attempt.get("validation_success", False))
         has_pvmap = (dataset_dir / "generated_pvmap.csv").exists()
 
         result = {
@@ -208,6 +221,17 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
             "exit_reason": "max_retries" if len(attempts) > 1 else "complete",
             "retry_count": max(0, len(attempts) - 1),
         }
+
+        # Detect run status
+        phase1_exists = (run_dir / "phase1_state.json").exists()
+        checkpoint_exists = (run_dir / "checkpoint.json").exists()
+
+        if phase1_exists and not has_pvmap:
+            status = "plan_ready"
+        elif checkpoint_exists:
+            status = "stopped"
+        else:
+            status = "complete"
 
         runs.append({
             "run_id": run_id,
@@ -218,6 +242,7 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
             "has_pvmap": has_pvmap,
             "run_dir": str(run_dir),
             "result": result,
+            "status": status,
         })
 
     runs.sort(key=lambda r: r["timestamp"], reverse=True)

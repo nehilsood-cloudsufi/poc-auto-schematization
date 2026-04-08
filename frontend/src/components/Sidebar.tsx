@@ -43,24 +43,29 @@ function formatTimestamp(ts: string): string {
 }
 
 function StatusIcon({ run }: { run: Run }) {
-  const passed = run.validation_passed;
   const stopped = run.status === "stopped";
   const planReady = run.status === "plan_ready";
   const running = run.status === "running";
+  const passed = run.validation_passed === true ||
+    (run.status === "complete" && run.validation_passed !== false);
+  const failed = run.status === "error" || run.validation_passed === false;
 
   if (running) return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
   if (planReady) return <FileText className="w-4 h-4 text-blue-500" />;
   if (stopped) return <Pause className="w-4 h-4 text-amber-500" />;
   if (passed) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-  return <XCircle className="w-4 h-4 text-red-400" />;
+  if (failed) return <XCircle className="w-4 h-4 text-red-400" />;
+  return <CheckCircle2 className="w-4 h-4 text-muted-foreground" />;
 }
 
 function statusLabel(run: Run): string {
   if (run.status === "running") return "Running";
   if (run.status === "plan_ready") return "Plan Ready";
   if (run.status === "stopped") return "Stopped";
-  if (run.validation_passed) return "Passed";
-  return "Failed";
+  if (run.validation_passed === true ||
+    (run.status === "complete" && run.validation_passed !== false)) return "Passed";
+  if (run.status === "error" || run.validation_passed === false) return "Failed";
+  return "Complete";
 }
 
 export function Sidebar({ currentRunId, status, onNewRun }: SidebarProps) {
