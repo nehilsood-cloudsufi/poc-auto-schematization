@@ -4,11 +4,19 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { listRuns } from "@/lib/api";
 import type { Run } from "@/types";
+import {
+  Plus,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Pause,
+  FileText,
+  Database,
+} from "lucide-react";
 
 interface SidebarProps {
   currentRunId: string | null;
@@ -21,66 +29,74 @@ function formatTimestamp(ts: string): string {
   try {
     const d = new Date(ts);
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   } catch {
     return "";
   }
+}
+
+function StatusIcon({ run }: { run: Run }) {
+  const passed = run.validation_passed;
+  const stopped = run.status === "stopped";
+  const planReady = run.status === "plan_ready";
+  const running = run.status === "running";
+
+  if (running) return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+  if (planReady) return <FileText className="w-4 h-4 text-blue-500" />;
+  if (stopped) return <Pause className="w-4 h-4 text-amber-500" />;
+  if (passed) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+  return <XCircle className="w-4 h-4 text-red-400" />;
+}
+
+function statusLabel(run: Run): string {
+  if (run.status === "running") return "Running";
+  if (run.status === "plan_ready") return "Plan Ready";
+  if (run.status === "stopped") return "Stopped";
+  if (run.validation_passed) return "Passed";
+  return "Failed";
 }
 
 export function Sidebar({ currentRunId, status, onNewRun }: SidebarProps) {
   const navigate = useNavigate();
   const [history, setHistory] = useState<Run[]>([]);
 
-  // Fetch run history on mount and whenever status changes
   useEffect(() => {
     listRuns()
       .then(setHistory)
       .catch(() => setHistory([]));
   }, [status]);
 
-  const statusVariant = (
-    status === "error" ? "destructive" :
-    status === "running" ? "default" :
-    status === "complete" ? "default" :
-    "secondary"
-  ) as "secondary" | "default" | "destructive";
-
-  const isActive = status !== "pending";
-
   return (
-    <aside className="w-64 border-r flex flex-col h-screen bg-background">
-      {/* Branded header */}
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 px-4 py-5">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-2xl">🤖</span>
-          <h2 className="text-lg font-bold text-white tracking-tight">Agent B</h2>
-        </div>
-        <p className="text-xs text-slate-400">Auto Schematization</p>
-        {isActive && (
-          <div className="flex items-center gap-2 mt-3">
-            <Badge variant={statusVariant} className="text-xs">
-              {status}
-            </Badge>
-            {currentRunId && (
-              <span className="text-xs text-slate-400 font-mono">
-                {currentRunId.slice(0, 8)}
-              </span>
-            )}
+    <aside className="w-64 border-r flex flex-col h-screen bg-card">
+      {/* Header */}
+      <div className="px-4 py-4 border-b">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+            <Database className="w-4 h-4 text-primary-foreground" />
           </div>
-        )}
+          <div>
+            <h2 className="text-sm font-semibold leading-tight">Agent B</h2>
+            <p className="text-xs text-muted-foreground leading-tight">Auto Schematization</p>
+          </div>
+        </div>
       </div>
 
-      {/* New Run button — always visible */}
-      <div className="px-4 py-3 border-b">
-        <Button
-          onClick={onNewRun}
-          variant="outline"
-          size="sm"
-          className="w-full text-sm"
-        >
-          + New Run
+      {/* New Run button */}
+      <div className="px-3 py-3">
+        <Button onClick={onNewRun} className="w-full gap-2" size="sm">
+          <Plus className="w-4 h-4" />
+          New Run
         </Button>
       </div>
+
+      <Separator />
 
       {/* History */}
       <div className="flex-1 min-h-0 flex flex-col px-3 py-3">
@@ -89,38 +105,52 @@ export function Sidebar({ currentRunId, status, onNewRun }: SidebarProps) {
         </h3>
         <ScrollArea className="flex-1">
           {history.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-1 py-2">No previous runs.</p>
+            <div className="text-center py-8 px-2">
+              <Database className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+              <p className="text-xs text-muted-foreground">No runs yet</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Upload a CSV to get started</p>
+            </div>
           ) : (
             <div className="space-y-0.5">
               {history.slice(0, 20).map((run) => {
                 const isSelected = run.run_id === currentRunId;
-                const passed = run.validation_passed;
                 const ts = formatTimestamp(run.timestamp ?? "");
                 return (
                   <button
                     key={run.run_id}
-                    onClick={() => navigate(`/runs/${run.run_id}/results`)}
+                    onClick={() => {
+                      if (run.status === "plan_ready") {
+                        navigate(`/runs/${run.run_id}/plan`);
+                      } else {
+                        navigate(`/runs/${run.run_id}/results`);
+                      }
+                    }}
+                    title={run.dataset_name}
                     className={`
-                      w-full text-left px-2 py-2 rounded-md transition-colors group
+                      w-full text-left px-2.5 py-2 rounded-md transition-colors cursor-pointer
                       ${isSelected
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted text-foreground"
+                        ? "bg-secondary text-secondary-foreground"
+                        : "hover:bg-muted/50 text-foreground"
                       }
                     `}
                   >
-                    <div className="flex items-start gap-2">
-                      <span className={`text-sm mt-0.5 flex-shrink-0 ${passed ? "text-green-500" : "text-red-400"}`}>
-                        {passed ? "✓" : "✗"}
-                      </span>
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 flex-shrink-0">
+                        <StatusIcon run={run} />
+                      </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate leading-tight">
+                        <p className="text-sm font-medium truncate leading-tight">
                           {run.dataset_name}
                         </p>
-                        {ts && (
-                          <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                            {ts}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground">{statusLabel(run)}</span>
+                          {ts && (
+                            <>
+                              <span className="text-xs text-muted-foreground/50">·</span>
+                              <span className="text-xs text-muted-foreground">{ts}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </button>
