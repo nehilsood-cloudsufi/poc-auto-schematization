@@ -16,14 +16,16 @@ import { UploadPage } from "@/pages/UploadPage";
 import { ConfigurePage } from "@/pages/ConfigurePage";
 import { ProgressPage } from "@/pages/ProgressPage";
 import { ResultsPage } from "@/pages/ResultsPage";
+import { ReviewPlanPage } from "@/pages/ReviewPlanPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import type { UploadResponse, PipelineConfig, PipelineResult, ProgressEvent } from "@/types";
+import { Toaster } from "sonner";
 
 const DEFAULT_CONFIG: PipelineConfig = {
   dataset_name: "",
-  model: "gemini-2.5-pro-preview-05-06",
+  model: "gemini-3.1-pro-preview",
   max_retries: 1,
-  enable_mcp: true,
+  enable_mcp: false,
   use_schema_examples: true,
   human_feedback: null,
 };
@@ -51,7 +53,11 @@ function AppLayout() {
   }, []);
 
   const handleComplete = useCallback((event: ProgressEvent) => {
-    setStatus("complete");
+    if (event.result?.phase === "plan") {
+      setStatus("plan_ready");
+    } else {
+      setStatus("complete");
+    }
     if (event.result) setResult(event.result);
   }, []);
 
@@ -103,6 +109,17 @@ function AppLayout() {
             }
           />
           <Route
+            path="/runs/:runId/plan"
+            element={
+              <ReviewPlanPage
+                datasetName={datasetName}
+                startTime={startTime}
+                onGenerateStarted={handleRunStarted}
+                onError={handleError}
+              />
+            }
+          />
+          <Route
             path="/runs/:runId"
             element={
               <ProgressPage
@@ -133,6 +150,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppLayout />
+      <Toaster position="bottom-right" richColors closeButton />
     </BrowserRouter>
   );
 }
