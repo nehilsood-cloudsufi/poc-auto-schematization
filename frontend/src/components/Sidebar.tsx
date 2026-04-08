@@ -10,6 +10,7 @@ import { listRuns } from "@/lib/api";
 import type { Run } from "@/types";
 import {
   Plus,
+  Circle,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -43,29 +44,26 @@ function formatTimestamp(ts: string): string {
 }
 
 function StatusIcon({ run }: { run: Run }) {
-  const stopped = run.status === "stopped";
-  const planReady = run.status === "plan_ready";
-  const running = run.status === "running";
-  const passed = run.validation_passed === true ||
-    (run.status === "complete" && run.validation_passed !== false);
-  const failed = run.status === "error" || run.validation_passed === false;
+  // Only trust validation_passed for terminal states (complete/error)
+  const isTerminal = run.status === "complete" || run.status === "error";
 
-  if (running) return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
-  if (planReady) return <FileText className="w-4 h-4 text-blue-500" />;
-  if (stopped) return <Pause className="w-4 h-4 text-amber-500" />;
-  if (passed) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-  if (failed) return <XCircle className="w-4 h-4 text-red-400" />;
-  return <CheckCircle2 className="w-4 h-4 text-muted-foreground" />;
+  if (run.status === "running") return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+  if (run.status === "plan_ready") return <FileText className="w-4 h-4 text-blue-500" />;
+  if (run.status === "stopped") return <Pause className="w-4 h-4 text-amber-500" />;
+  if (isTerminal && run.validation_passed) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+  if (isTerminal && !run.validation_passed) return <XCircle className="w-4 h-4 text-red-400" />;
+  // Non-terminal, non-special status (e.g., "pending")
+  return <Circle className="w-4 h-4 text-muted-foreground" />;
 }
 
 function statusLabel(run: Run): string {
+  const isTerminal = run.status === "complete" || run.status === "error";
   if (run.status === "running") return "Running";
   if (run.status === "plan_ready") return "Plan Ready";
   if (run.status === "stopped") return "Stopped";
-  if (run.validation_passed === true ||
-    (run.status === "complete" && run.validation_passed !== false)) return "Passed";
-  if (run.status === "error" || run.validation_passed === false) return "Failed";
-  return "Complete";
+  if (isTerminal && run.validation_passed) return "Passed";
+  if (isTerminal && !run.validation_passed) return "Failed";
+  return run.status;
 }
 
 export function Sidebar({ currentRunId, status, onNewRun }: SidebarProps) {
