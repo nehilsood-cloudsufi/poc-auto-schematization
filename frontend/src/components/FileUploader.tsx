@@ -3,6 +3,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { Upload, CheckCircle2 } from "lucide-react";
 
 interface FileUploaderProps {
   label: string;
@@ -69,7 +70,7 @@ export function FileUploader({
       >
         {selectedFile ? (
           <div className="px-4 py-4">
-            <div className="text-2xl mb-1">✅</div>
+            <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400 mx-auto mb-1" />
             <p className="font-medium text-sm text-green-700 dark:text-green-300 truncate max-w-[180px]">
               {selectedFile.name}
             </p>
@@ -79,7 +80,7 @@ export function FileUploader({
           </div>
         ) : (
           <div className="px-4 py-5">
-            <div className="text-3xl mb-2">📤</div>
+            <Upload className="w-8 h-8 text-muted-foreground/60 mx-auto mb-2" />
             <p className="text-sm font-medium text-muted-foreground">
               Drop {label} here
             </p>

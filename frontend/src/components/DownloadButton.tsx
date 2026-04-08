@@ -2,6 +2,7 @@
  * ZIP download button for pipeline outputs.
  */
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { downloadZip } from "@/lib/api";
 
 interface DownloadButtonProps {
@@ -21,7 +22,8 @@ export function DownloadButton({ runId, datasetName }: DownloadButtonProps) {
   };
 
   return (
-    <Button variant="outline" onClick={handleDownload}>
+    <Button variant="outline" onClick={handleDownload} className="gap-2">
+      <Download className="w-4 h-4" />
       Download ZIP
     </Button>
   );

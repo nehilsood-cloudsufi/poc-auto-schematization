@@ -2,12 +2,7 @@
  * Read-only table preview of uploaded CSV data.
  */
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 
 interface DataPreviewProps {
@@ -20,15 +15,16 @@ interface DataPreviewProps {
 export function DataPreview({ columns, rows, totalRows, totalColumns }: DataPreviewProps) {
   return (
     <div className="rounded-md border">
-      <div className="p-2 bg-muted/50 text-xs text-muted-foreground">
-        {totalRows} rows x {totalColumns} columns (showing first {rows.length})
+      <div className="px-3 py-2 bg-muted/50 text-xs text-muted-foreground border-b flex items-center justify-between">
+        <span>{totalRows.toLocaleString()} rows x {totalColumns} columns</span>
+        <span>Showing first {rows.length}</span>
       </div>
       <div className="overflow-auto max-h-64">
         <Table>
           <TableHeader>
             <TableRow>
               {columns.map((col) => (
-                <TableHead key={col} className="text-xs whitespace-nowrap">
+                <TableHead key={col} className="text-sm font-medium whitespace-nowrap bg-muted/30 sticky top-0">
                   {col}
                 </TableHead>
               ))}
@@ -36,9 +32,9 @@ export function DataPreview({ columns, rows, totalRows, totalColumns }: DataPrev
           </TableHeader>
           <TableBody>
             {rows.map((row, i) => (
-              <TableRow key={i}>
+              <TableRow key={i} className="even:bg-muted/20">
                 {columns.map((col) => (
-                  <TableCell key={col} className="text-xs py-1">
+                  <TableCell key={col} className="text-sm py-1.5 whitespace-nowrap tabular-nums">
                     {String(row[col] ?? "")}
                   </TableCell>
                 ))}
