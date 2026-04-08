@@ -1,6 +1,5 @@
 /**
- * Tabbed output file viewer. Renders CSVs in CsvEditor, text in CodeViewer.
- * Auto-loads the first tab's content on mount.
+ * Tabbed output file viewer with tab icons and sanitized markdown.
  */
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,17 +8,30 @@ import { Badge } from "@/components/ui/badge";
 import { CsvEditor } from "./CsvEditor";
 import { CodeViewer } from "./CodeViewer";
 import { listFiles, getFile, updateFile, revalidate } from "@/lib/api";
+import { toast } from "sonner";
+import DOMPurify from "dompurify";
+import {
+  Table2,
+  FileText,
+  FileCode,
+  BarChart3,
+  StickyNote,
+  Settings,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import type { FileResponse, CsvFileResponse, TextFileResponse, PipelineResult } from "@/types";
 
-const TAB_ORDER = [
-  { key: "generated_pvmap.csv", label: "PVMAP" },
-  { key: "output_metadata.csv", label: "Metadata Config" },
-  { key: "processed.csv", label: "Processed Data" },
-  { key: "processed.mcf", label: "MCF" },
-  { key: "processed.tmcf", label: "TMCF" },
-  { key: "processed_stat_vars.mcf", label: "StatVars" },
-  { key: "generation_notes.md", label: "Notes" },
-  { key: "processed_counters.txt", label: "Metrics" },
+const TAB_CONFIG = [
+  { key: "generated_pvmap.csv", label: "PVMAP", icon: Table2 },
+  { key: "output_metadata.csv", label: "Metadata", icon: Settings },
+  { key: "processed.csv", label: "Processed", icon: Table2 },
+  { key: "processed.mcf", label: "MCF", icon: FileCode },
+  { key: "processed.tmcf", label: "TMCF", icon: FileCode },
+  { key: "processed_stat_vars.mcf", label: "StatVars", icon: FileText },
+  { key: "generation_notes.md", label: "Notes", icon: StickyNote },
+  { key: "processed_counters.txt", label: "Metrics", icon: BarChart3 },
 ];
 
 interface OutputViewerProps {
@@ -35,13 +47,40 @@ function isTextResponse(f: FileResponse): f is TextFileResponse {
   return f.type === "text";
 }
 
-function tabLabel(tab: { key: string; label: string }, fileData: Record<string, FileResponse>): string {
-  const fd = fileData[tab.key];
-  if (!fd) return tab.label;
-  if (isCsvResponse(fd)) {
-    return `${tab.label} (${fd.row_count}r × ${fd.columns.length}c)`;
-  }
-  return tab.label;
+function ResultBanner({ result }: { result: PipelineResult }) {
+  const passed = result.validation_passed;
+  const attempts = (result.retry_count ?? 0) + 1;
+  const exitReason = result.exit_reason ?? "Unknown";
+  const score = result.quality_metrics?.heuristic_score;
+
+  return (
+    <div className={`mb-4 p-4 rounded-lg border flex items-center justify-between ${
+      passed
+        ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800"
+        : "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800"
+    }`}>
+      <div className="flex items-center gap-3">
+        {passed ? (
+          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+        ) : (
+          <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        )}
+        <div>
+          <p className={`text-sm font-medium ${passed ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`}>
+            {passed ? "Validation Passed" : "Validation Failed"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {attempts} attempt{attempts !== 1 ? "s" : ""} — {exitReason}
+          </p>
+        </div>
+      </div>
+      {score != null && (
+        <Badge variant="outline" className="text-sm tabular-nums">
+          Score: {score.toFixed(1)}/100
+        </Badge>
+      )}
+    </div>
+  );
 }
 
 export function OutputViewer({ runId, result }: OutputViewerProps) {
@@ -57,9 +96,8 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
     });
   }, [runId]);
 
-  // Auto-load first available tab when file list arrives
   useEffect(() => {
-    const tabs = TAB_ORDER.filter((t) => availableFiles.includes(t.key));
+    const tabs = TAB_CONFIG.filter((t) => availableFiles.includes(t.key));
     if (tabs.length === 0) return;
     const firstKey = tabs[0].key;
     if (!fileData[firstKey]) {
@@ -82,7 +120,7 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
     void loadFile(value);
   };
 
-  const tabs = TAB_ORDER.filter((t) => availableFiles.includes(t.key));
+  const tabs = TAB_CONFIG.filter((t) => availableFiles.includes(t.key));
 
   const handleSaveAndRevalidate = async () => {
     if (editedRows) {
@@ -92,10 +130,12 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
     try {
       const res = await revalidate(runId);
       if (res.success) {
-        alert(`Validation passed: ${res.data_rows} data rows`);
+        toast.success(`Validation passed: ${res.data_rows} data rows`);
       } else {
-        alert(`Validation failed: ${res.error}`);
+        toast.error(`Validation failed: ${res.error}`);
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Revalidation failed");
     } finally {
       setRevalidating(false);
     }
@@ -103,32 +143,27 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
 
   return (
     <div>
-      {/* Result banner */}
-      {result && (
-        <div className={`mb-4 p-3 rounded-md text-sm border ${
-          result.validation_passed
-            ? "bg-green-50 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800"
-            : "bg-red-50 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-200 dark:border-red-800"
-        }`}>
-          <strong>{(result.retry_count ?? 0) + 1} attempt(s)</strong> — {result.exit_reason}
-          {result.quality_metrics?.heuristic_score != null && (
-            <Badge variant="outline" className="ml-2">
-              Score: {result.quality_metrics.heuristic_score.toFixed(1)}/100
-            </Badge>
-          )}
-        </div>
-      )}
+      {result && <ResultBanner result={result} />}
 
       {tabs.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4 text-center">No output files found.</p>
+        <div className="text-center py-12">
+          <FileText className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+          <p className="text-sm text-muted-foreground">No output files found.</p>
+        </div>
       ) : (
         <Tabs value={activeTab || tabs[0]?.key} onValueChange={handleTabChange}>
           <TabsList className="flex-wrap h-auto gap-1">
-            {tabs.map((tab) => (
-              <TabsTrigger key={tab.key} value={tab.key} className="text-xs">
-                {tabLabel(tab, fileData)}
-              </TabsTrigger>
-            ))}
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const fd = fileData[tab.key];
+              const sizeLabel = fd && isCsvResponse(fd) ? ` (${fd.row_count}r)` : "";
+              return (
+                <TabsTrigger key={tab.key} value={tab.key} className="text-xs gap-1.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  {tab.label}{sizeLabel}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
           {tabs.map((tab) => {
@@ -146,14 +181,15 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
                   ) : tab.key.endsWith(".md") && isTextResponse(fd) ? (
                     <div
                       className="prose dark:prose-invert max-w-none p-4"
-                      dangerouslySetInnerHTML={{ __html: fd.content }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(fd.content) }}
                     />
                   ) : isTextResponse(fd) ? (
                     <CodeViewer content={fd.content} />
                   ) : null
                 ) : (
-                  <div className="flex items-center justify-center py-12 text-muted-foreground">
-                    <span className="animate-pulse text-sm">Loading file...</span>
+                  <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Loading file...</span>
                   </div>
                 )}
               </TabsContent>
@@ -162,11 +198,14 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
         </Tabs>
       )}
 
-      {/* Actions */}
-      {availableFiles.includes("generated_pvmap.csv") && (
+      {availableFiles.includes("generated_pvmap.csv") && editedRows && (
         <div className="flex justify-center mt-4">
-          <Button onClick={handleSaveAndRevalidate} disabled={revalidating}>
-            {revalidating ? "Validating..." : "Save & Revalidate"}
+          <Button onClick={handleSaveAndRevalidate} disabled={revalidating} className="gap-2">
+            {revalidating ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</>
+            ) : (
+              "Save & Revalidate"
+            )}
           </Button>
         </div>
       )}

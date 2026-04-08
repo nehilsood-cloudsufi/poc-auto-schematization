@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Send } from "lucide-react";
+import { toast } from "sonner";
 import { submitFeedback } from "@/lib/api";
 
 const CATEGORIES = [
@@ -29,9 +34,10 @@ export function FeedbackForm({ runId, onRerunStarted }: FeedbackFormProps) {
     setSubmitting(true);
     try {
       const resp = await submitFeedback(runId, { text, category, severity });
+      toast.success("Feedback submitted — starting new run");
       onRerunStarted(resp.new_run_id);
     } catch (err) {
-      console.error("Feedback submission failed:", err);
+      toast.error(err instanceof Error ? err.message : "Feedback submission failed");
     } finally {
       setSubmitting(false);
     }
@@ -46,16 +52,19 @@ export function FeedbackForm({ runId, onRerunStarted }: FeedbackFormProps) {
         placeholder="Describe what needs to be fixed or improved..."
         rows={4}
       />
-      <div className="flex items-center gap-4">
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="text-sm border rounded px-2 py-1"
-        >
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <div className="flex items-center gap-2 flex-1">
-          <Label className="text-sm">Severity: {severity}</Label>
+      <div className="flex items-center gap-4 flex-wrap">
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CATEGORIES.map((c) => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2 flex-1 min-w-[160px]">
+          <Label className="text-sm whitespace-nowrap">Severity: {severity}</Label>
           <Slider
             value={[severity]}
             onValueChange={(v) => {
@@ -68,8 +77,12 @@ export function FeedbackForm({ runId, onRerunStarted }: FeedbackFormProps) {
             className="w-32"
           />
         </div>
-        <Button onClick={handleSubmit} disabled={!text.trim() || submitting}>
-          {submitting ? "Submitting..." : "Re-run with Feedback"}
+        <Button onClick={handleSubmit} disabled={!text.trim() || submitting} className="gap-2">
+          {submitting ? (
+            "Submitting..."
+          ) : (
+            <><Send className="w-4 h-4" /> Re-run with Feedback</>
+          )}
         </Button>
       </div>
     </div>
