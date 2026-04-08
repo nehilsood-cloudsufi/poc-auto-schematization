@@ -53,7 +53,7 @@ export function FeedbackForm({ runId, onRerunStarted }: FeedbackFormProps) {
         rows={4}
       />
       <div className="flex items-center gap-4 flex-wrap">
-        <Select value={category} onValueChange={setCategory}>
+        <Select value={category} onValueChange={(v) => v && setCategory(v)}>
           <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
