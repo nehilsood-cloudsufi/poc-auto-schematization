@@ -41,11 +41,19 @@ async def get_file(run_id: str, filename: str, request: Request):
 
     if filename.endswith(".csv"):
         try:
-            df = pd.read_csv(fpath).fillna("")
+            import numpy as np
+            df = pd.read_csv(fpath)
+            df = df.replace([np.inf, -np.inf], "").fillna("")
+            # Convert all values to strings to avoid JSON serialization issues
+            # with mixed types, NaN remnants, or numpy scalars
+            rows = [
+                {col: str(v) if v != "" else "" for col, v in row.items()}
+                for row in df.to_dict(orient="records")
+            ]
             return {
                 "type": "csv",
                 "filename": filename,
-                "rows": df.to_dict(orient="records"),
+                "rows": rows,
                 "columns": list(df.columns),
                 "row_count": len(df),
             }
