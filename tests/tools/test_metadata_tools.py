@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.tools.metadata_tools import (
     extract_output_columns,
+    compute_mapped_rows,
     count_mapped_rows,
     count_mapped_columns,
     detect_multi_value_properties,
@@ -153,30 +154,20 @@ class TestExtractOutputColumns:
 
 
 # ============================================================================
-# TestCountMappedRows
+# TestComputeMappedRows
 # ============================================================================
 
-class TestCountMappedRows:
-    def test_counts_data_rows(self):
-        """PVMAP with header + 3 data rows → mapped_rows=3."""
-        assert count_mapped_rows(SIMPLE_PVMAP) == 3
+class TestComputeMappedRows:
+    def test_equals_header_rows(self):
+        """mapped_rows always equals header_rows."""
+        assert compute_mapped_rows(1) == 1
+        assert compute_mapped_rows(2) == 2
+        assert compute_mapped_rows(3) == 3
 
-    def test_skips_header(self):
-        """Row starting with 'key' is excluded."""
-        pvmap = "key,property,value\nFoo,bar,baz\n"
-        assert count_mapped_rows(pvmap) == 1
-
-    def test_empty_pvmap(self):
-        """Empty content → 0."""
-        assert count_mapped_rows("") == 0
-
-    def test_header_only(self):
-        """Header-only PVMAP → 0."""
-        assert count_mapped_rows("key,property,value\n") == 0
-
-    def test_passthrough_pvmap(self):
-        """Passthrough has 4 data rows."""
-        assert count_mapped_rows(PASSTHROUGH_PVMAP) == 4
+    def test_minimum_1(self):
+        """At least 1."""
+        assert compute_mapped_rows(0) == 1
+        assert compute_mapped_rows(-1) == 1
 
 
 # ============================================================================

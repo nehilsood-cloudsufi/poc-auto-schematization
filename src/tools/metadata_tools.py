@@ -80,6 +80,22 @@ def extract_output_columns(pvmap_csv_content: str) -> str:
     return ",".join(result)
 
 
+def compute_mapped_rows(header_rows: int) -> int:
+    """Compute mapped_rows for stat_var_processor config.
+
+    In the processor, mapped_rows controls which input rows get row-based
+    PV lookups. Ground truth analysis confirms mapped_rows == header_rows
+    in all datasets where both are set.
+
+    Args:
+        header_rows: Number of header rows in the input CSV.
+
+    Returns:
+        mapped_rows value (minimum 1).
+    """
+    return max(1, header_rows)
+
+
 def count_mapped_rows(pvmap_csv_content: str) -> int:
     """Count data rows in PVMAP (exclude header row starting with 'key').
 
