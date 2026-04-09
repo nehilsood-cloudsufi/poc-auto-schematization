@@ -123,6 +123,34 @@ class TestExtractOutputColumns:
         # value should come before scalingFactor
         assert cols.index("value") < cols.index("scalingFactor")
 
+    def test_required_columns_always_present(self):
+        """4 required columns present even when PVMAP has none of them."""
+        pvmap_no_svobs = "key,p,v\nFoo,gender,Male\nBar,age,25\n"
+        result = extract_output_columns(pvmap_no_svobs)
+        cols = result.split(",")
+        assert "observationAbout" in cols
+        assert "observationDate" in cols
+        assert "variableMeasured" in cols
+        assert "value" in cols
+
+    def test_required_columns_present_with_empty_pvmap(self):
+        """Empty PVMAP still returns all 4 required columns."""
+        result = extract_output_columns("")
+        cols = result.split(",")
+        assert "variableMeasured" in cols
+
+    def test_optional_unit_added_when_in_pvmap(self):
+        """unit added only when PVMAP contains it."""
+        result = extract_output_columns(PVMAP_WITH_UNIT)
+        cols = result.split(",")
+        assert "unit" in cols
+
+    def test_optional_not_added_when_absent(self):
+        """measurementMethod NOT in output when PVMAP doesn't use it."""
+        result = extract_output_columns(SIMPLE_PVMAP)
+        cols = result.split(",")
+        assert "measurementMethod" not in cols
+
 
 # ============================================================================
 # TestCountMappedRows

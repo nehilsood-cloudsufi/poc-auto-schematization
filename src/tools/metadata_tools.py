@@ -20,75 +20,64 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# StatVarObs properties that belong in output CSV columns.
-# Validated against config_flags.py:258-271 (default_svobs_pvs keys).
-# Excludes typeOf and #Aggregate (internal).
-VALID_SVOBS_PROPERTIES = {
+# Required output columns — always included regardless of PVMAP content.
+# 100% presence across 51 ground truth metadata files.
+REQUIRED_OUTPUT_COLUMNS = [
     "observationAbout",
     "observationDate",
     "variableMeasured",
     "value",
-    "unit",
-    "scalingFactor",
-    "measurementMethod",
-    "observationPeriod",
-    "measurementResult",
-}
-
-# Canonical ordering for output_columns (required first, then optional).
-_OUTPUT_COLUMNS_ORDER = [
-    "observationAbout",
-    "observationDate",
-    "variableMeasured",
-    "value",
-    "unit",
-    "scalingFactor",
-    "measurementMethod",
-    "observationPeriod",
-    "measurementResult",
 ]
+
+# Optional output columns — included only when the PVMAP uses them.
+OPTIONAL_OUTPUT_COLUMNS = [
+    "unit",
+    "scalingFactor",
+    "measurementMethod",
+    "observationPeriod",
+]
+
+# Combined set for validation (replaces old VALID_SVOBS_PROPERTIES).
+VALID_SVOBS_PROPERTIES = set(REQUIRED_OUTPUT_COLUMNS + OPTIONAL_OUTPUT_COLUMNS)
+
+# Full canonical ordering for output_columns.
+_OUTPUT_COLUMNS_ORDER = REQUIRED_OUTPUT_COLUMNS + OPTIONAL_OUTPUT_COLUMNS
 
 
 def extract_output_columns(pvmap_csv_content: str) -> str:
-    """Parse PVMAP CSV and collect StatVarObs properties from odd-indexed columns.
+    """Extract output columns from PVMAP, guaranteeing required columns.
 
-    PVMAP rows have the format:
-        key, property1, value1, property2, value2, ...
-    Odd-indexed columns (1, 3, 5, ...) are property names.
-
-    Only properties in VALID_SVOBS_PROPERTIES are included.
-    Always includes the 4 required columns first, then optional ones.
+    Always includes the 4 required StatVarObs columns. Adds optional columns
+    (unit, scalingFactor, measurementMethod, observationPeriod) only when
+    they appear as property names in the PVMAP.
 
     Args:
         pvmap_csv_content: Raw PVMAP CSV text.
 
     Returns:
-        Comma-separated string of output columns, e.g.
-        'observationAbout,observationDate,variableMeasured,value,unit'
+        Comma-separated string of output columns in canonical order.
     """
-    found_props = set()
-    reader = csv.reader(io.StringIO(pvmap_csv_content))
+    found_optional = set()
+    if pvmap_csv_content and pvmap_csv_content.strip():
+        reader = csv.reader(io.StringIO(pvmap_csv_content))
+        for row in reader:
+            if not row:
+                continue
+            if row[0].strip().lower() == "key":
+                continue
+            # Odd-indexed columns are property names
+            for i in range(1, len(row), 2):
+                prop = row[i].strip()
+                if prop in OPTIONAL_OUTPUT_COLUMNS:
+                    found_optional.add(prop)
 
-    for row in reader:
-        if not row:
-            continue
-        # Skip header row
-        if row[0].strip().lower() == "key":
-            continue
-        # Odd-indexed columns are property names
-        for i in range(1, len(row), 2):
-            prop = row[i].strip()
-            if prop in VALID_SVOBS_PROPERTIES:
-                found_props.add(prop)
+    # Build: required (always) + optional (only if found), in canonical order
+    result = list(REQUIRED_OUTPUT_COLUMNS)
+    for col in OPTIONAL_OUTPUT_COLUMNS:
+        if col in found_optional:
+            result.append(col)
 
-    # Build ordered list: canonical order, only those found
-    ordered = [p for p in _OUTPUT_COLUMNS_ORDER if p in found_props]
-
-    # If we found nothing, return the 4 required columns as default
-    if not ordered:
-        ordered = _OUTPUT_COLUMNS_ORDER[:4]
-
-    return ",".join(ordered)
+    return ",".join(result)
 
 
 def count_mapped_rows(pvmap_csv_content: str) -> int:
