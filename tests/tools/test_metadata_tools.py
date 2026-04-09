@@ -349,7 +349,7 @@ class TestGenerateProcessorConfig:
         params = result["parameters"]
         assert "output_columns" in params
         assert "mapped_rows" in params
-        assert params["mapped_rows"] == 3
+        assert params["mapped_rows"] == 1
 
     def test_writes_to_output_dir(self, tmp_path):
         """File at output/{dataset}/output_metadata.csv."""
@@ -364,24 +364,24 @@ class TestGenerateProcessorConfig:
         result = generate_processor_config(pvmap_csv_content="")
         assert result["success"] is False
         assert "Empty" in result["error"]
+        assert result["mapped_columns_confidence"] is None
 
     def test_no_output_dir(self):
         """No output_dir → config_path is None but params generated."""
         result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP)
         assert result["success"] is True
         assert result["config_path"] is None
-        assert result["parameters"]["mapped_rows"] == 3
+        assert result["parameters"]["mapped_rows"] == 1
 
-    def test_llm_enrichment_merged(self, tmp_path):
-        """LLM enrichment params merge into config."""
+    def test_llm_enrichment_mapped_columns(self, tmp_path):
+        """LLM enrichment can override mapped_columns."""
         result = generate_processor_config(
             pvmap_csv_content=SIMPLE_PVMAP,
             output_dir=str(tmp_path),
-            llm_enrichment={"schemaless": True, "description": "Test dataset"},
+            llm_enrichment={"mapped_columns": 5},
         )
         assert result["success"] is True
-        assert result["parameters"]["schemaless"] is True
-        assert result["parameters"]["description"] == "Test dataset"
+        assert result["parameters"]["mapped_columns"] == 5
 
     def test_existing_metadata_overrides(self, tmp_path):
         """Existing metadata values override auto-generated ones."""
@@ -407,7 +407,74 @@ class TestGenerateProcessorConfig:
         cols = result["parameters"]["output_columns"].split(",")
         assert "observationAbout" in cols
         assert "variableMeasured" in cols
-        assert result["parameters"]["mapped_rows"] == 4
+        assert result["parameters"]["mapped_rows"] == 1
+        assert result["parameters"]["mapped_columns"] == 0
+
+    def test_no_generate_statvar_name(self, tmp_path):
+        """generate_statvar_name no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "generate_statvar_name" not in result["parameters"]
+
+    def test_no_drop_statvars(self, tmp_path):
+        """drop_statvars_without_svobs no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "drop_statvars_without_svobs" not in result["parameters"]
+
+    def test_no_multi_value_properties(self, tmp_path):
+        """multi_value_properties no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "multi_value_properties" not in result["parameters"]
+
+    def test_mapped_rows_equals_header_rows(self, tmp_path):
+        """mapped_rows now equals header_rows, not PVMAP row count."""
+        result = generate_processor_config(
+            pvmap_csv_content=SIMPLE_PVMAP,
+            data_context={"header_rows": 1},
+            output_dir=str(tmp_path),
+        )
+        assert result["parameters"]["mapped_rows"] == 1
+
+    def test_returns_confidence(self, tmp_path):
+        """Result includes mapped_columns_confidence."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "mapped_columns_confidence" in result
+
+    def test_required_output_columns_always_present(self, tmp_path):
+        """Even with minimal PVMAP, all 4 required columns present."""
+        minimal_pvmap = "key,p,v\nFoo,gender,Male\n"
+        result = generate_processor_config(pvmap_csv_content=minimal_pvmap, output_dir=str(tmp_path))
+        cols = result["parameters"]["output_columns"].split(",")
+        assert "observationAbout" in cols
+        assert "variableMeasured" in cols
+
+    def test_empty_pvmap_returns_confidence_none(self):
+        """Empty PVMAP error result includes mapped_columns_confidence: None."""
+        result = generate_processor_config(pvmap_csv_content="")
+        assert result["mapped_columns_confidence"] is None
+
+    def test_reads_input_headers_from_file(self, tmp_path):
+        """When input_headers not provided, reads from input_file."""
+        csv_file = tmp_path / "input.csv"
+        csv_file.write_text("State,Year,Population\nAlice,2020,100\n")
+        pvmap = "key,p,v\nState:CA,observationAbout,geoId/06\nYear,observationDate,{Data}\nPopulation,value,{Number}\n"
+        result = generate_processor_config(
+            pvmap_csv_content=pvmap,
+            input_file=str(csv_file),
+            output_dir=str(tmp_path),
+        )
+        assert result["success"] is True
+        # State is a dimension column (State:CA pattern), should be detected
+        assert result["parameters"]["mapped_columns"] >= 1
+
+    def test_input_headers_param_used_when_provided(self, tmp_path):
+        """Explicit input_headers parameter takes precedence over file read."""
+        result = generate_processor_config(
+            pvmap_csv_content="key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\nval,value,{Number}\n",
+            input_headers=["col_a", "val", "other"],
+            output_dir=str(tmp_path),
+        )
+        assert result["success"] is True
+        # col_a is a dimension column at position 1
         assert result["parameters"]["mapped_columns"] == 1
 
 

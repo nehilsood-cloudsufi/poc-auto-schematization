@@ -108,7 +108,7 @@ class TestMetadataGenerationAgent:
         params = mock_ctx.session.state.get("generated_config_params", {})
         assert "output_columns" in params
         assert "mapped_rows" in params
-        assert params["mapped_rows"] == 3
+        assert params["mapped_rows"] == 1  # mapped_rows now equals header_rows (default 1)
 
     def test_merges_with_existing_metadata(self, agent, mock_ctx, mock_dataset, tmp_path):
         """When GT metadata exists, auto params merge under it (user wins)."""
@@ -140,7 +140,7 @@ class TestMetadataGenerationAgent:
         assert mock_ctx.session.state.get("generated_config_path") is not None
         params = mock_ctx.session.state.get("generated_config_params", {})
         assert "output_columns" in params
-        assert params["mapped_rows"] == 3
+        assert params["mapped_rows"] == 1  # mapped_rows now equals header_rows (default 1)
 
     def test_skips_when_no_pvmap(self, agent, mock_ctx):
         """Gracefully skips when neither pvmap_csv nor pvmap_output in state."""

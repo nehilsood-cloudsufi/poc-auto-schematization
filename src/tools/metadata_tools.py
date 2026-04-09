@@ -4,9 +4,10 @@ Pure functions for deterministic config generation. No ADK dependency.
 
 The stat_var_processor expects a config/metadata CSV (--config_file) with
 processing parameters. This module auto-generates that config from:
-- PVMAP CSV content (output_columns, mapped_rows, mapped_columns)
-- Data context from sampling (header_rows, number_decimal)
-- Optional LLM enrichment (schemaless, description)
+- PVMAP CSV content (output_columns, mapped_columns)
+- Data context from sampling (header_rows)
+- Input CSV headers (mapped_columns confidence)
+- Optional LLM enrichment (mapped_columns override)
 
 Config CSV format: 2-column (parameter,value) matching file_util.file_load_py_dict().
 """
@@ -445,76 +446,74 @@ def generate_processor_config(
     pvmap_csv_content: str,
     data_context: Optional[dict] = None,
     input_file: Optional[str] = None,
+    input_headers: Optional[List[str]] = None,
     output_dir: Optional[str] = None,
     existing_metadata_path: Optional[str] = None,
     llm_enrichment: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Main entry: generates config dict and writes CSV.
 
-    Merges deterministic params + optional LLM enrichment + existing metadata.
+    Computes P1 flags: output_columns, header_rows, mapped_rows, mapped_columns.
+    Merges with optional LLM enrichment and existing metadata.
     Priority: existing_metadata > llm_enrichment > deterministic.
 
     Args:
         pvmap_csv_content: Raw PVMAP CSV text.
         data_context: Data context from sampling (optional).
         input_file: Path to input CSV for header detection (optional).
+        input_headers: List of input column names (optional, read from input_file if absent).
         output_dir: Directory to write output_metadata.csv (optional).
         existing_metadata_path: Path to existing metadata CSV (optional).
         llm_enrichment: Dict of LLM-suggested params (optional).
 
     Returns:
-        Dict with keys: success, config_path, parameters, error.
+        Dict with keys: success, config_path, parameters, mapped_columns_confidence, error.
     """
     if not pvmap_csv_content or not pvmap_csv_content.strip():
         return {
             "success": False,
             "config_path": None,
             "parameters": {},
+            "mapped_columns_confidence": None,
             "error": "Empty PVMAP content",
         }
 
     try:
-        # Phase A: Deterministic params
         auto_params: Dict[str, Any] = {}
 
-        output_columns = extract_output_columns(pvmap_csv_content)
-        auto_params["output_columns"] = output_columns
+        # 1. output_columns — required 4 always + optional from PVMAP
+        auto_params["output_columns"] = extract_output_columns(pvmap_csv_content)
 
-        header_rows = detect_header_rows(input_file, data_context)
+        # 2. header_rows — text scan + PVMAP cross-reference
+        header_rows = detect_header_rows(input_file, data_context, pvmap_csv_content)
         auto_params["header_rows"] = header_rows
 
-        mapped_rows = count_mapped_rows(pvmap_csv_content)
-        auto_params["mapped_rows"] = mapped_rows
+        # 3. mapped_rows — equals header_rows
+        auto_params["mapped_rows"] = compute_mapped_rows(header_rows)
 
-        mapped_columns = count_mapped_columns(pvmap_csv_content)
-        auto_params["mapped_columns"] = mapped_columns
+        # 4. mapped_columns — PVMAP key analysis + confidence
+        if not input_headers and input_file and Path(input_file).exists():
+            try:
+                with open(input_file, "r", encoding="utf-8", errors="replace") as f:
+                    reader = csv.reader(f)
+                    input_headers = next(reader, [])
+            except Exception:
+                input_headers = []
 
-        # Detect multi-value properties
-        multi_val = detect_multi_value_properties(pvmap_csv_content)
-        if multi_val:
-            # Combine with defaults
-            defaults = ["name", "alternateName", "measurementDenominator"]
-            combined = defaults + [p for p in multi_val if p not in defaults]
-            auto_params["multi_value_properties"] = ",".join(combined)
+        mapped_cols, confidence = compute_mapped_columns(
+            pvmap_csv_content, input_headers or []
+        )
+        auto_params["mapped_columns"] = mapped_cols
 
-        # Detect number format
-        if data_context and data_context.get("number_decimal"):
-            auto_params["number_decimal"] = data_context["number_decimal"]
-
-        # Default processing params
-        auto_params["drop_statvars_without_svobs"] = 1
-        auto_params["generate_statvar_name"] = "True"
-
-        # Phase B: Merge LLM enrichment (if provided)
+        # Merge LLM enrichment (only mapped_columns override now)
         if llm_enrichment and isinstance(llm_enrichment, dict):
-            for key in ["schemaless", "drop_statvars_without_svobs", "description"]:
-                if key in llm_enrichment:
-                    auto_params[key] = llm_enrichment[key]
+            if "mapped_columns" in llm_enrichment:
+                auto_params["mapped_columns"] = llm_enrichment["mapped_columns"]
 
-        # Phase C: Merge with existing metadata (existing wins)
+        # Merge with existing metadata (existing wins)
         final_params = merge_with_existing(auto_params, existing_metadata_path)
 
-        # Write to file if output_dir specified
+        # Write to file
         config_path = None
         if output_dir:
             config_path = write_config_csv(
@@ -525,6 +524,7 @@ def generate_processor_config(
             "success": True,
             "config_path": config_path,
             "parameters": final_params,
+            "mapped_columns_confidence": confidence,
             "error": None,
         }
 
@@ -534,5 +534,6 @@ def generate_processor_config(
             "success": False,
             "config_path": None,
             "parameters": {},
+            "mapped_columns_confidence": None,
             "error": str(e),
         }
