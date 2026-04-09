@@ -35,12 +35,20 @@ export interface StartRunRequest {
 export interface Run {
   run_id: string;
   dataset_name: string;
-  status: "pending" | "running" | "complete" | "error";
+  status: "pending" | "running" | "complete" | "error" | "stopped" | "plan_ready";
   timestamp?: string;
   validation_passed?: boolean;
   result?: PipelineResult;
   error?: string | null;
   config?: Record<string, unknown>;
+  display_name?: string;
+  notes?: string;
+  archived?: boolean;
+}
+
+export interface UpdateRunRequest {
+  display_name?: string;
+  notes?: string;
 }
 
 /** Pipeline result embedded in a Run */
@@ -48,6 +56,7 @@ export interface PipelineResult {
   validation_passed?: boolean;
   exit_reason?: string;
   retry_count?: number;
+  phase?: string;
   quality_metrics?: {
     heuristic_score?: number;
   };
@@ -100,10 +109,41 @@ export interface PipelineConfig {
 }
 
 /** Pipeline phases for progress display */
+/** Response from GET /api/runs/{id}/preview */
+export interface PreviewResponse {
+  total_rows: number;
+  columns: number;
+  column_names: string[];
+  showing: number;
+  data: Record<string, unknown>[];
+}
+
 export const PIPELINE_PHASES = [
   "StatePrep",
   "Sampling",
   "SchemaSelectionAgent",
+  "SchemaOrgEnrichment",
+  "MappingPlan",
+  "PlanGate",
+  "Generator",
+  "MetadataGenerator",
+  "Validator",
+  "QualityEvaluator",
+  "UnifiedFeedback",
+  "MaxRetriesCheck",
+] as const;
+
+/** Phase 1 only (plan generation) */
+export const PLAN_PHASES = [
+  "StatePrep",
+  "Sampling",
+  "SchemaSelectionAgent",
+  "SchemaOrgEnrichment",
+  "MappingPlan",
+] as const;
+
+/** Phase 2 only (PVMAP generation) */
+export const GENERATE_PHASES = [
   "Generator",
   "MetadataGenerator",
   "Validator",
@@ -116,6 +156,9 @@ export const PHASE_LABELS: Record<string, string> = {
   StatePrep: "Preparing state",
   Sampling: "Sampling data",
   SchemaSelectionAgent: "Selecting schema",
+  SchemaOrgEnrichment: "Enriching with Schema.org",
+  MappingPlan: "Generating mapping plan",
+  PlanGate: "Plan approval",
   StatVarDiscovery: "Discovering StatVars (MCP)",
   Generator: "Generating PVMAP",
   MetadataGenerator: "Generating metadata config",

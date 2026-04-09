@@ -11,8 +11,10 @@ import type {
   UploadResponse,
   StartRunRequest,
   Run,
+  UpdateRunRequest,
   FileResponse,
   FeedbackRequest,
+  PreviewResponse,
 } from "@/types";
 
 const BASE = "/api";
@@ -22,12 +24,13 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const { headers: extraHeaders, ...rest } = options;
   const response = await fetch(`${BASE}${path}`, {
+    ...rest,
     headers: {
       "Content-Type": "application/json",
-      ...options.headers,
+      ...(extraHeaders as Record<string, string>),
     },
-    ...options,
   });
 
   if (!response.ok) {
@@ -70,8 +73,9 @@ export async function startRun(req: StartRunRequest): Promise<{ run_id: string; 
   return request("/runs", { method: "POST", body: JSON.stringify(req) });
 }
 
-export async function listRuns(): Promise<Run[]> {
-  return request("/runs");
+export async function listRuns(includeArchived = false): Promise<Run[]> {
+  const params = includeArchived ? "?include_archived=true" : "";
+  return request(`/runs${params}`);
 }
 
 export async function getRun(runId: string): Promise<Run> {
@@ -134,4 +138,64 @@ export async function revalidate(
   runId: string
 ): Promise<{ success: boolean; data_rows?: number; error?: string }> {
   return request(`/runs/${runId}/revalidate`, { method: "POST" });
+}
+
+// ── Plan & Control ────────────────────────────────────
+
+export async function generatePvmap(
+  runId: string,
+  plan?: string
+): Promise<{ status: string }> {
+  return request(`/runs/${runId}/generate`, {
+    method: "POST",
+    body: JSON.stringify({ plan: plan ?? null }),
+  });
+}
+
+export async function stopRun(runId: string): Promise<{ status: string }> {
+  return request(`/runs/${runId}/stop`, { method: "POST" });
+}
+
+export async function resumeRun(
+  runId: string
+): Promise<{ status: string; resumed_from: string }> {
+  return request(`/runs/${runId}/resume`, { method: "POST" });
+}
+
+// ── Data Preview ──────────────────────────────────────
+
+export async function getPreview(
+  runId: string,
+  rows: number = 100
+): Promise<PreviewResponse> {
+  return request(`/runs/${runId}/preview?rows=${rows}`);
+}
+
+export async function updateRun(
+  runId: string,
+  data: UpdateRunRequest,
+): Promise<Run> {
+  return request<Run>(`/runs/${runId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function archiveRun(
+  runId: string,
+): Promise<{ archived: boolean }> {
+  return request<{ archived: boolean }>(`/runs/${runId}/archive`, {
+    method: "POST",
+  });
+}
+
+export async function deleteRun(runId: string): Promise<void> {
+  const resp = await fetch(`/api/runs/${runId}`, {
+    method: "DELETE",
+    headers: { "X-Confirm-Delete": "true" },
+  });
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}));
+    throw new Error((detail as { detail?: string }).detail || `Delete failed: ${resp.status}`);
+  }
 }
