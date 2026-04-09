@@ -185,12 +185,21 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
 
         # Find the dataset subdirectory (skip "logs")
         dataset_dir = None
+        fallback_dir = None
         for item in output_dir.iterdir():
             if item.is_dir() and item.name != "logs":
-                if not dataset_name:
-                    dataset_name = item.name
-                dataset_dir = item
-                break
+                if dataset_name and item.name == dataset_name:
+                    # Exact match with name from run_info.json
+                    dataset_dir = item
+                    break
+                elif not fallback_dir:
+                    fallback_dir = item
+
+        # Use exact match if found, otherwise fall back to first subdir
+        if not dataset_dir and fallback_dir:
+            dataset_dir = fallback_dir
+            if not dataset_name:
+                dataset_name = fallback_dir.name
 
         if not dataset_name or not dataset_dir:
             continue
@@ -226,10 +235,10 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
         phase1_exists = (run_dir / "phase1_state.json").exists()
         checkpoint_exists = (run_dir / "checkpoint.json").exists()
 
-        if phase1_exists and not has_pvmap:
-            status = "plan_ready"
-        elif checkpoint_exists:
+        if checkpoint_exists:
             status = "stopped"
+        elif phase1_exists and not has_pvmap:
+            status = "plan_ready"
         else:
             status = "complete"
 
@@ -241,12 +250,31 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
             "attempts": len(attempts),
             "has_pvmap": has_pvmap,
             "run_dir": str(run_dir),
+            "validation_passed": validation_passed,
             "result": result,
             "status": status,
         })
 
     runs.sort(key=lambda r: r["timestamp"], reverse=True)
     return runs
+
+
+def delete_run_directory(run_dir: str) -> bool:
+    """Remove a run directory and all its contents.
+
+    Args:
+        run_dir: Absolute path to the run directory to delete.
+
+    Returns:
+        True if the directory existed and was removed, False if it was absent.
+    """
+    path = Path(run_dir)
+    if not path.exists():
+        logger.warning("delete_run_directory: %s does not exist", run_dir)
+        return False
+    shutil.rmtree(path)
+    logger.info("Deleted run directory: %s", run_dir)
+    return True
 
 
 def cleanup_old_runs(max_age_hours: int = 24, base_dir: Optional[Path] = None) -> None:

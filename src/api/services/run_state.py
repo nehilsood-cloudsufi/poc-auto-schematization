@@ -23,7 +23,7 @@ class RunState:
     dataset_name: str
     run_dir: str
     config: dict
-    status: str = "pending"  # pending | running | complete | error | stopped
+    status: str = "pending"  # pending | running | complete | error | stopped | plan_ready
     result: dict = field(default_factory=dict)
     error: Optional[str] = None
     progress_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=200))
@@ -31,6 +31,9 @@ class RunState:
     created_at: float = field(default_factory=time.time)
     # Cancellation (checked between pipeline phases)
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    # Plan approval (for interactive plan review flow)
+    plan_approved_event: threading.Event = field(default_factory=threading.Event)
+    approved_plan: Optional[str] = None
 
 
 def create_run(
@@ -102,10 +105,10 @@ def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
     has_pvmap = (dataset_dir / "generated_pvmap.csv").exists() if dataset_dir else False
     checkpoint_exists = (run_dir / "checkpoint.json").exists()
 
-    if phase1_exists and not has_pvmap:
-        status = "plan_ready"
-    elif checkpoint_exists:
+    if checkpoint_exists:
         status = "stopped"
+    elif phase1_exists and not has_pvmap:
+        status = "plan_ready"
     else:
         status = "complete"
 
@@ -151,3 +154,54 @@ def list_runs() -> list[RunState]:
 def delete_run(run_id: str) -> bool:
     """Remove a run from tracking. Returns True if it existed."""
     return _runs.pop(run_id, None) is not None
+
+
+def read_run_info(run_dir: Path) -> dict:
+    """Read run_info.json from a run directory, applying default values.
+
+    Defaults applied when fields are absent:
+      - display_name: falls back to dataset_name
+      - notes: ""
+      - archived: False
+
+    Returns {} if run_info.json does not exist.
+    """
+    info_path = run_dir / "run_info.json"
+    if not info_path.exists():
+        return {}
+
+    try:
+        info = json.loads(info_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    # Apply defaults for optional UI fields
+    if "display_name" not in info:
+        info["display_name"] = info.get("dataset_name", "")
+    if "notes" not in info:
+        info["notes"] = ""
+    if "archived" not in info:
+        info["archived"] = False
+
+    return info
+
+
+def write_run_info(run_dir: Path, updates: dict) -> dict:
+    """Merge updates into run_info.json and write back.
+
+    Reads existing content first so non-updated fields are preserved.
+    Returns the full updated dict.
+    """
+    info_path = run_dir / "run_info.json"
+
+    # Load existing content (if any)
+    existing: dict = {}
+    if info_path.exists():
+        try:
+            existing = json.loads(info_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    existing.update(updates)
+    info_path.write_text(json.dumps(existing, indent=2))
+    return existing
