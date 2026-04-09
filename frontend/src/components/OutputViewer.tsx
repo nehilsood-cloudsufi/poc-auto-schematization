@@ -3,12 +3,10 @@
  */
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CsvEditor } from "./CsvEditor";
 import { CodeViewer } from "./CodeViewer";
-import { listFiles, getFile, updateFile, revalidate } from "@/lib/api";
-import { toast } from "sonner";
+import { listFiles, getFile } from "@/lib/api";
 import DOMPurify from "dompurify";
 import {
   Table2,
@@ -16,7 +14,6 @@ import {
   FileCode,
   BarChart3,
   StickyNote,
-  Settings,
   Loader2,
   CheckCircle2,
   XCircle,
@@ -24,8 +21,6 @@ import {
 import type { FileResponse, CsvFileResponse, TextFileResponse, PipelineResult } from "@/types";
 
 const TAB_CONFIG = [
-  { key: "generated_pvmap.csv", label: "PVMAP", icon: Table2 },
-  { key: "output_metadata.csv", label: "Metadata", icon: Settings },
   { key: "processed.csv", label: "Processed", icon: Table2 },
   { key: "processed.mcf", label: "MCF", icon: FileCode },
   { key: "processed.tmcf", label: "TMCF", icon: FileCode },
@@ -47,7 +42,21 @@ function isTextResponse(f: FileResponse): f is TextFileResponse {
   return f.type === "text";
 }
 
-function ResultBanner({ result }: { result: PipelineResult }) {
+/** Simple markdown-to-HTML for rendering .md file content. */
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br>");
+}
+
+export function ResultBanner({ result }: { result: PipelineResult }) {
   const passed = result.validation_passed;
   const attempts = (result.retry_count ?? 0) + 1;
   const exitReason = result.exit_reason ?? "Unknown";
@@ -86,11 +95,13 @@ function ResultBanner({ result }: { result: PipelineResult }) {
 export function OutputViewer({ runId, result }: OutputViewerProps) {
   const [availableFiles, setAvailableFiles] = useState<string[]>([]);
   const [fileData, setFileData] = useState<Record<string, FileResponse>>({});
-  const [editedRows, setEditedRows] = useState<Record<string, unknown>[] | null>(null);
-  const [revalidating, setRevalidating] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("");
 
+  // Reset all state when runId changes so stale data from previous run is cleared
   useEffect(() => {
+    setAvailableFiles([]);
+    setFileData({});
+    setActiveTab("");
     listFiles(runId).then((resp) => {
       setAvailableFiles(resp.files);
     });
@@ -130,25 +141,6 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
 
   const tabs = TAB_CONFIG.filter((t) => availableFiles.includes(t.key));
 
-  const handleSaveAndRevalidate = async () => {
-    if (editedRows) {
-      await updateFile(runId, "generated_pvmap.csv", { rows: editedRows });
-    }
-    setRevalidating(true);
-    try {
-      const res = await revalidate(runId);
-      if (res.success) {
-        toast.success(`Validation passed: ${res.data_rows} data rows`);
-      } else {
-        toast.error(`Validation failed: ${res.error}`);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Revalidation failed");
-    } finally {
-      setRevalidating(false);
-    }
-  };
-
   return (
     <div>
       {result && <ResultBanner result={result} />}
@@ -182,14 +174,13 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
                   isCsvResponse(fd) ? (
                     <CsvEditor
                       columns={fd.columns}
-                      rows={editedRows && tab.key === "generated_pvmap.csv" ? editedRows : fd.rows}
-                      editable={tab.key === "generated_pvmap.csv"}
-                      onChange={tab.key === "generated_pvmap.csv" ? setEditedRows : undefined}
+                      rows={fd.rows}
+                      editable={false}
                     />
                   ) : tab.key.endsWith(".md") && isTextResponse(fd) ? (
                     <div
                       className="prose dark:prose-invert max-w-none p-4"
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(fd.content) }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderMarkdown(fd.content)) }}
                     />
                   ) : isTextResponse(fd) ? (
                     <CodeViewer content={fd.content} />
@@ -206,17 +197,6 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
         </Tabs>
       )}
 
-      {availableFiles.includes("generated_pvmap.csv") && editedRows && (
-        <div className="flex justify-center mt-4">
-          <Button onClick={handleSaveAndRevalidate} disabled={revalidating} className="gap-2">
-            {revalidating ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Validating...</>
-            ) : (
-              "Save & Revalidate"
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
