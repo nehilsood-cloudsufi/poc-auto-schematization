@@ -355,11 +355,17 @@ def _pvmap_cross_ref_headers(
     if not pvmap_keys:
         return 0
 
-    # Check each of the first 5 rows — stop at first non-matching row
+    # Check each of the first 5 rows — stop at first non-matching row.
+    # Require at least 2 matches OR at least 30% of non-empty cells to match,
+    # to avoid false positives from data values that coincidentally match PVMAP keys.
     header_count = 0
     for row in input_rows[:5]:
         row_cells = {cell.strip().lower() for cell in row if cell.strip()}
-        if row_cells & pvmap_keys:
+        if not row_cells:
+            break
+        matches = row_cells & pvmap_keys
+        match_ratio = len(matches) / len(row_cells)
+        if len(matches) >= 2 or match_ratio >= 0.3:
             header_count += 1
         else:
             break
