@@ -214,6 +214,17 @@ class TestMetadataGenerationAgent:
 
         assert mock_ctx.session.state.get("generated_config_path") is not None
 
+    def test_no_dropped_flags_in_output(self, agent, mock_ctx):
+        """Dropped flags should not appear in generated config."""
+        mock_ctx.session.state["attempt_number"] = 1
+
+        events = run_agent(agent, mock_ctx)
+
+        params = mock_ctx.session.state.get("generated_config_params", {})
+        assert "generate_statvar_name" not in params
+        assert "drop_statvars_without_svobs" not in params
+        assert "multi_value_properties" not in params
+
 
 class TestResolveExistingMetadata:
 
