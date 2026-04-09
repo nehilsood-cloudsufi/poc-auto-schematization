@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from src.api.services.run_state import get_or_load_run
 from src.api.services.revalidation_service import revalidate as revalidate_pvmap
+from src.api.services.file_manager import get_output_files
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,5 +37,9 @@ async def revalidate(run_id: str, request: Request):
         metadata_path=metadata_path if metadata_path.exists() else None,
         output_dir=output_dir,
     )
+
+    # Include list of output files that were regenerated
+    output_files = list(get_output_files(output_dir).keys())
+    result["output_files"] = output_files
 
     return result
