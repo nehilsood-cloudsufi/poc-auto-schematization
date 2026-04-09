@@ -136,7 +136,7 @@ export async function submitDevFeedback(
 
 export async function revalidate(
   runId: string
-): Promise<{ success: boolean; data_rows?: number; error?: string }> {
+): Promise<{ success: boolean; data_rows?: number; error?: string; output_files?: string[] }> {
   return request(`/runs/${runId}/revalidate`, { method: "POST" });
 }
 

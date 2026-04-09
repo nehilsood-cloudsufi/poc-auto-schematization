@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { AlertTriangle } from "lucide-react";
 
@@ -12,21 +13,32 @@ export function ConfirmDeleteModal({
   onConfirm,
   onCancel,
 }: ConfirmDeleteModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    dialogRef.current?.focus();
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
         onClick={onCancel}
       />
       {/* Dialog */}
-      <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+      <div ref={dialogRef} tabIndex={-1} className="relative bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4 outline-none">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 p-2 bg-red-100 rounded-full">
             <AlertTriangle className="h-5 w-5 text-red-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 id="delete-dialog-title" className="text-lg font-semibold text-gray-900">
               Delete Run
             </h3>
             <p className="mt-2 text-sm text-gray-600">

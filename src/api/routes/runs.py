@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _resolve_run_dir(output_dir: Path, run_id: str) -> Path:
+    """Resolve run directory with path traversal protection."""
+    run_dir = (output_dir / run_id).resolve()
+    if not str(run_dir).startswith(str(output_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid run ID")
+    return run_dir
+
+
 class StartRunRequest(BaseModel):
     run_id: str
     dataset_name: str
@@ -52,21 +60,31 @@ async def list_all_runs(request: Request, include_archived: bool = False):
     filtered unless include_archived=True.
     """
     output_dir = request.app.state.output_dir
-    active = [
-        {
+
+    # Enrich active (in-memory) runs with run_info.json fields
+    enriched_active = []
+    for r in list_runs():
+        run_dir = output_dir / r.run_id
+        info = read_run_info(run_dir)
+        archived = info.get("archived", False)
+        if archived and not include_archived:
+            continue
+        enriched_active.append({
             "run_id": r.run_id,
             "dataset_name": r.dataset_name,
             "status": r.status,
             "timestamp": "",
             "validation_passed": r.result.get("validation_passed", False) if r.result else False,
             "result": r.result or {},
-        }
-        for r in list_runs()
-    ]
+            "display_name": info.get("display_name", r.dataset_name),
+            "notes": info.get("notes", ""),
+            "archived": archived,
+        })
+
+    active_ids = {r["run_id"] for r in enriched_active}
     historical = discover_historical_runs(base_dir=output_dir)
 
     # Enrich historical runs with run_info fields and apply archive filter
-    active_ids = {r["run_id"] for r in active}
     enriched_historical = []
     for h in historical:
         if h["run_id"] in active_ids:
@@ -81,7 +99,7 @@ async def list_all_runs(request: Request, include_archived: bool = False):
         h["archived"] = archived
         enriched_historical.append(h)
 
-    return active + enriched_historical
+    return enriched_active + enriched_historical
 
 
 @router.get("/runs/{run_id}")
@@ -91,6 +109,8 @@ async def get_run_status(run_id: str, request: Request):
     run = get_or_load_run(run_id, output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    run_dir = output_dir / run_id
+    info = read_run_info(run_dir)
     return {
         "run_id": run.run_id,
         "dataset_name": run.dataset_name,
@@ -98,6 +118,8 @@ async def get_run_status(run_id: str, request: Request):
         "result": run.result,
         "error": run.error,
         "config": run.config,
+        "display_name": info.get("display_name", run.dataset_name),
+        "notes": info.get("notes", ""),
     }
 
 
@@ -105,7 +127,7 @@ async def get_run_status(run_id: str, request: Request):
 async def update_run(run_id: str, req: UpdateRunRequest, request: Request):
     """Update display_name and/or notes for a run."""
     output_dir = request.app.state.output_dir
-    run_dir = output_dir / run_id
+    run_dir = _resolve_run_dir(output_dir, run_id)
     if not (run_dir / "run_info.json").exists():
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -123,7 +145,7 @@ async def update_run(run_id: str, req: UpdateRunRequest, request: Request):
 async def toggle_archive_run(run_id: str, request: Request):
     """Toggle the archived flag for a run. Returns {"archived": bool}."""
     output_dir = request.app.state.output_dir
-    run_dir = output_dir / run_id
+    run_dir = _resolve_run_dir(output_dir, run_id)
     info = read_run_info(run_dir)
     if not info:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
@@ -150,7 +172,7 @@ async def remove_run(
         )
 
     output_dir = request.app.state.output_dir
-    run_dir = output_dir / run_id
+    run_dir = _resolve_run_dir(output_dir, run_id)
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 

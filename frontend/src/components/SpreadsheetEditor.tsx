@@ -161,9 +161,10 @@ export function SpreadsheetEditor({
 
   const onCellValueChanged = useCallback(
     (event: CellValueChangedEvent) => {
+      if (event.rowIndex == null) return;
       pushSnapshot();
       const updatedRows = [...currentRows];
-      updatedRows[event.rowIndex!] = { ...event.data };
+      updatedRows[event.rowIndex] = { ...event.data };
       applyState(updatedRows, currentColumns);
     },
     [currentRows, currentColumns, pushSnapshot, applyState],
