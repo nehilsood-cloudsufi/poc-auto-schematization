@@ -1,31 +1,25 @@
-Analyze the PVMAP and data context to suggest stat_var_processor config parameters.
+You are analyzing a CSV dataset to determine which input columns are DIMENSION columns vs VALUE columns.
 
-PVMAP CSV:
-{pvmap_csv}
+Input CSV columns: {input_headers}
 
-Skeleton Summary:
-{skeleton_summary}
+PVMAP key patterns (grouped by type):
+  Direct keys (column headers as PVMAP keys): {direct_keys_list}
+  Column:Value keys (cell values as PVMAP keys): {column_value_keys_list}
 
-Data Context:
-{data_context_str}
+First 3 data rows from input CSV:
+{sample_rows}
 
-Based on this analysis, output a JSON object with ONLY the parameters you're confident about:
-{{
-  "schemaless": true/false,
-  "drop_statvars_without_svobs": 0 or 1,
-  "description": "Brief dataset description"
-}}
+DEFINITIONS:
+- DIMENSION column: Its cell values appear as PVMAP keys using COLUMN:VALUE syntax.
+  Example: column "agecat" with PVMAP keys "agecat:0", "agecat:1" means agecat is a DIMENSION column.
+- VALUE column: Its column header itself is a PVMAP key.
+  Example: column "NIPR" with PVMAP key "NIPR" means NIPR is a VALUE column.
+- UNMAPPED: Column is not referenced in the PVMAP at all.
 
-Rules for schemaless:
-- true if PVMAP contains dimension/defining properties beyond the standard StatVarObs set
-  (e.g., gender, age, income, healthOutcome, populationType, measuredProperty)
-  This means we are DEFINING new StatVars, not mapping to existing DCIDs
-- false if PVMAP only maps to existing variableMeasured DCIDs without defining properties
+TASK:
+Classify each input column and determine mapped_columns = the 1-based position of the rightmost DIMENSION column.
 
-Rules for drop_statvars_without_svobs:
-- Default 1 (drop). Set 0 only for clearly sparse data where many dimension combos have no values
+If there are no DIMENSION columns (all keys are direct header matches), set mapped_columns to 0.
 
-Rules for description:
-- 1-sentence summary under 100 chars describing the dataset
-
-Output ONLY valid JSON, no explanation.
+Output ONLY valid JSON:
+{{"mapped_columns": N, "dimension_columns": ["col1", "col2"], "reasoning": "brief explanation"}}
