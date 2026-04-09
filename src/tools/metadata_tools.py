@@ -141,6 +141,85 @@ def count_mapped_columns(pvmap_csv_content: str) -> int:
     return max_pairs
 
 
+def compute_mapped_columns(
+    pvmap_csv_content: str,
+    input_headers: List[str],
+) -> tuple:
+    """Compute mapped_columns by classifying input columns as dimension vs value.
+
+    Parses PVMAP keys to find COLUMN:VALUE patterns (e.g., "agecat:0"),
+    then identifies which input columns are dimension columns (their cell
+    values are PVMAP keys) vs value columns (their header is a PVMAP key).
+
+    In stat_var_processor, mapped_columns controls which input columns get
+    cell-value PV lookups. It should be the 1-based position of the rightmost
+    dimension column.
+
+    Args:
+        pvmap_csv_content: Raw PVMAP CSV text.
+        input_headers: List of column names from the input CSV.
+
+    Returns:
+        Tuple of (mapped_columns: int, confidence: str).
+        confidence is "high" or "low".
+    """
+    if not pvmap_csv_content or not pvmap_csv_content.strip() or not input_headers:
+        return (0, "low")
+
+    # Build case-insensitive header lookup
+    header_lower = {h.strip().lower() for h in input_headers}
+
+    # Step 1: Parse PVMAP keys — classify as direct or column:value
+    direct_keys = set()
+    column_value_columns = set()  # Column names from COLUMN:VALUE patterns
+
+    reader = csv.reader(io.StringIO(pvmap_csv_content))
+    for row in reader:
+        if not row:
+            continue
+        key = row[0].strip()
+        if not key or key.lower() == "key":
+            continue
+
+        # Check for COLUMN:VALUE pattern
+        if ":" in key:
+            col_part = key.split(":")[0].strip()
+            # It's COLUMN:VALUE if the column part matches an input header
+            # (but the full key does NOT match a header — distinguishes from
+            # "REF_AREA:Reference area" which is a full header name)
+            if col_part.lower() in header_lower and key.lower() not in header_lower:
+                column_value_columns.add(col_part.lower())
+                continue
+
+        direct_keys.add(key)
+
+    # Step 2: Find dimension column positions (1-based)
+    dimension_positions = []
+    for i, h in enumerate(input_headers):
+        if h.strip().lower() in column_value_columns:
+            dimension_positions.append(i + 1)  # 1-based
+
+    if not dimension_positions:
+        return (0, "low")
+
+    dimension_positions.sort()
+    rightmost = max(dimension_positions)
+
+    # Step 3: Confidence scoring
+    # HIGH: at least 1 column:value key found AND dimension columns form
+    #        a reasonable block (not scattered across the entire width)
+    is_contiguous = True
+    if len(dimension_positions) > 1:
+        # Check gap ratio: are dimensions clustered together?
+        span = max(dimension_positions) - min(dimension_positions) + 1
+        if span > len(dimension_positions) * 3:
+            is_contiguous = False
+
+    confidence = "high" if is_contiguous and len(column_value_columns) > 0 else "low"
+
+    return (rightmost, confidence)
+
+
 def detect_multi_value_properties(pvmap_csv_content: str) -> List[str]:
     """Detect properties appearing in rows for multiple different keys.
 

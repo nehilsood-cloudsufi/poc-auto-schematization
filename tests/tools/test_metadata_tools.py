@@ -9,6 +9,7 @@ from pathlib import Path
 from src.tools.metadata_tools import (
     extract_output_columns,
     compute_mapped_rows,
+    compute_mapped_columns,
     count_mapped_rows,
     count_mapped_columns,
     detect_multi_value_properties,
@@ -385,3 +386,105 @@ class TestGenerateProcessorConfig:
         assert "variableMeasured" in cols
         assert result["parameters"]["mapped_rows"] == 4
         assert result["parameters"]["mapped_columns"] == 1
+
+
+# ============================================================================
+# TestComputeMappedColumns
+# ============================================================================
+
+class TestComputeMappedColumns:
+    """Test mapped_columns computation using PVMAP key analysis."""
+
+    # SAHIE: dimension columns are agecat, racecat, sexcat, iprcat (positions 6-9 in headers)
+    SAHIE_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+year,observationDate,{Number},observationPeriod,P1Y,,
+statefips,#Format,StateFips={Number:0>2},,,,
+countyfips,#Format,CountyFips={Number:0>3},,,,
+agecat:0,age,Years0Onwards,,,,
+agecat:1,age,Years0To18,,,,
+racecat:0,race,USC_AllRaces,,,,
+sexcat:0,gender,USC_BothSexes,,,,
+iprcat:0,povertyStatus,USC_AllIncomes,,,,
+NIPR,variableMeasured,dcid:Count_Person,,,,
+NUI,variableMeasured,dcid:Count_Person,,,,
+"""
+
+    SAHIE_HEADERS = [
+        "year", "version", "statefips", "countyfips", "geocat",
+        "agecat", "racecat", "sexcat", "iprcat",
+        "NIPR", "nipr_moe", "NUI", "nui_moe", "NIC", "nic_moe",
+    ]
+
+    # BRFSS: life_stage is dimension column (position 11)
+    BRFSS_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+State,observationAbout,{Data},populationType,Person,healthOutcome,Asthma
+year,observationDate,{Data},,,,
+life_stage:child,age,YearsUpto18,,,,
+life_stage:adult,age,Years18Onwards,,,,
+Prevalence (Percent),value,{Number},,,,
+Standard Error,marginOfError,{Number},,,,
+"""
+
+    BRFSS_HEADERS = [
+        "State", "Income", "Sample Sizec", "Prevalence (Percent)",
+        "Standard Error", "95% CId (Percent)", "|| ||",
+        "Weighted Numbere", "95% CId (Weighted Number)", "year", "life_stage",
+    ]
+
+    # BIS: all direct keys (headers contain colons but match full header names)
+    BIS_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+REF_AREA:Reference area,observationAbout,{Data},,,,
+TIME_PERIOD:Time period or range,observationDate,{Data},,,,
+OBS_VALUE:Observation Value,value,{Number},,,,
+UNIT_MEASURE:Unit of measure,unit,{Data},,,,
+"""
+
+    BIS_HEADERS = [
+        "STRUCTURE", "STRUCTURE_ID", "ACTION", "FREQ:Frequency",
+        "REF_AREA:Reference area", "TIME_PERIOD:Time period or range",
+        "OBS_VALUE:Observation Value", "UNIT_MEASURE:Unit of measure",
+    ]
+
+    def test_sahie_dimension_columns(self):
+        """SAHIE has COLUMN:VALUE keys -> detects dimension columns."""
+        result, confidence = compute_mapped_columns(self.SAHIE_PVMAP, self.SAHIE_HEADERS)
+        # Dimension columns: agecat(6), racecat(7), sexcat(8), iprcat(9)
+        assert result == 9
+        assert confidence == "high"
+
+    def test_brfss_dimension_columns(self):
+        """BRFSS has life_stage:child/adult -> detects life_stage as dimension."""
+        result, confidence = compute_mapped_columns(self.BRFSS_PVMAP, self.BRFSS_HEADERS)
+        # life_stage is at position 11 — it's the only COLUMN:VALUE column
+        assert result == 11
+
+    def test_bis_all_direct_keys(self):
+        """BIS has only direct keys (header names contain colons, not COLUMN:VALUE)."""
+        result, confidence = compute_mapped_columns(self.BIS_PVMAP, self.BIS_HEADERS)
+        # No COLUMN:VALUE keys -> confidence should be LOW
+        assert confidence == "low"
+
+    def test_empty_pvmap(self):
+        """Empty PVMAP -> 0, low confidence."""
+        result, confidence = compute_mapped_columns("", ["A", "B", "C"])
+        assert result == 0
+        assert confidence == "low"
+
+    def test_simple_passthrough(self):
+        """Passthrough PVMAP (all direct keys matching headers) -> 0, low."""
+        pvmap = "key,p,v\nobservationAbout,observationAbout,{Data}\nvalue,value,{Number}\n"
+        headers = ["observationAbout", "observationDate", "value"]
+        result, confidence = compute_mapped_columns(pvmap, headers)
+        assert result == 0
+        assert confidence == "low"
+
+    def test_contiguous_dimensions_high_confidence(self):
+        """When dimension columns are contiguous from left -> high confidence."""
+        pvmap = "key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\ncol_b:x,qux,quux\nval_col,value,{Number}\n"
+        headers = ["col_a", "col_b", "val_col", "other"]
+        result, confidence = compute_mapped_columns(pvmap, headers)
+        assert result == 2  # col_a(1) and col_b(2)
+        assert confidence == "high"
