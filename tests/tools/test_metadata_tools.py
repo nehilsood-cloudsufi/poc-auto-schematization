@@ -251,6 +251,29 @@ class TestDetectHeaderRows:
         result = detect_header_rows(input_file="/nonexistent/file.csv")
         assert result == 1
 
+    def test_pvmap_cross_reference_confirms_single_header(self, tmp_path):
+        """PVMAP keys matching row 1 column names confirms 1 header row."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("State,Year,Value\nAlice,2020,100\nBob,2021,200\n")
+        pvmap = "key,p,v\nState,observationAbout,{Data}\nYear,observationDate,{Data}\n"
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=pvmap)
+        assert result == 1
+
+    def test_pvmap_cross_reference_detects_two_header_rows(self, tmp_path):
+        """PVMAP keys matching both row 1 and row 2 values -> 2 header rows."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("Category,SubCat,Value\nTypeA,SubX,Count\n10,20,100\n")
+        pvmap = "key,p,v\nCategory,observationAbout,{Data}\nTypeA,populationType,{Data}\n"
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=pvmap)
+        assert result == 2
+
+    def test_no_pvmap_falls_back_to_text_scan(self, tmp_path):
+        """Without PVMAP, uses existing text-scan logic."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("Name,Value,Year\nAlice,100,2020\n")
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=None)
+        assert result == 1
+
 
 # ============================================================================
 # TestMergeWithExisting

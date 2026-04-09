@@ -261,20 +261,23 @@ def detect_multi_value_properties(pvmap_csv_content: str) -> List[str]:
 def detect_header_rows(
     input_file: Optional[str] = None,
     data_context: Optional[dict] = None,
+    pvmap_csv_content: Optional[str] = None,
 ) -> int:
     """Detect number of header rows.
 
-    Uses data_context first if available, then scans input file.
+    Uses data_context first if available, then scans input file using both
+    text-scan and PVMAP cross-reference (taking the maximum of the two).
     Default: 1.
 
     Args:
         input_file: Path to input CSV file.
         data_context: Data context dict from sampling agent.
+        pvmap_csv_content: Optional PVMAP CSV text for cross-reference.
 
     Returns:
         Number of header rows (minimum 1).
     """
-    # 1. Check data_context
+    # 1. Check data_context (trusted source — use directly)
     if data_context:
         hr = data_context.get("header_rows")
         if hr is not None:
@@ -295,19 +298,72 @@ def detect_header_rows(
                     rows.append(row)
 
             if len(rows) >= 2:
-                # Count leading text-only rows
-                header_count = 0
+                # text_scan: count leading text-only rows (minimum 1 if any found)
+                text_scan = 0
                 for row in rows:
                     if _is_text_row(row):
-                        header_count += 1
+                        text_scan += 1
                     else:
                         break
-                if header_count > 0:
-                    return header_count
+                text_scan = max(1, text_scan) if text_scan > 0 else 1
+
+                # pvmap_cross_ref: check input rows against PVMAP keys
+                pvmap_cross_ref = _pvmap_cross_ref_headers(rows, pvmap_csv_content)
+
+                return max(text_scan, pvmap_cross_ref)
         except Exception:
             pass
 
     return 1
+
+
+def _pvmap_cross_ref_headers(
+    input_rows: List[list],
+    pvmap_csv_content: Optional[str],
+) -> int:
+    """Cross-reference input rows against PVMAP keys to count header rows.
+
+    For each of the first 5 input rows, checks if any cells match PVMAP keys
+    (case-insensitive). Stops counting at the first non-matching row.
+
+    Args:
+        input_rows: List of CSV rows (each row is a list of strings).
+        pvmap_csv_content: Raw PVMAP CSV text, or None.
+
+    Returns:
+        Number of header rows detected (0 if no PVMAP or no matches found,
+        otherwise max(1, matched_count)).
+    """
+    if not pvmap_csv_content or not pvmap_csv_content.strip():
+        return 0
+
+    # Collect all PVMAP keys (lowercased)
+    pvmap_keys: set = set()
+    try:
+        reader = csv.reader(io.StringIO(pvmap_csv_content))
+        for row in reader:
+            if not row:
+                continue
+            key = row[0].strip()
+            if not key or key.lower() == "key":
+                continue
+            pvmap_keys.add(key.lower())
+    except Exception:
+        return 0
+
+    if not pvmap_keys:
+        return 0
+
+    # Check each of the first 5 rows — stop at first non-matching row
+    header_count = 0
+    for row in input_rows[:5]:
+        row_cells = {cell.strip().lower() for cell in row if cell.strip()}
+        if row_cells & pvmap_keys:
+            header_count += 1
+        else:
+            break
+
+    return max(1, header_count) if header_count > 0 else 0
 
 
 def _is_text_row(row: list) -> bool:
