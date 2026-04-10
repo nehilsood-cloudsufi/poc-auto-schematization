@@ -2167,6 +2167,30 @@ class TieredCorrectionAgent(BaseAgent):
         )
 
         # =====================================================================
+        # ENFORCE HUMAN FEEDBACK CONSTRAINTS
+        # =====================================================================
+        ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+        if ledger_json:
+            from src.agents.feedback_enforcement import apply_enforcement
+            from src.api.models.feedback import FeedbackLedger as FL
+            ledger = FL.model_validate_json(ledger_json)
+            enforced, enforcement_changes = apply_enforcement(best_pvmap, ledger)
+            if enforcement_changes:
+                best_pvmap = enforced
+                ctx.session.state["pvmap_csv"] = enforced
+                ctx.session.state["feedback_enforcement_applied"] = True
+                ctx.session.state["feedback_enforcement_changes"] = enforcement_changes
+                # Write enforced PVMAP to disk
+                pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                pvmap_path.write_text(enforced, encoding="utf-8")
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Enforced {len(enforcement_changes)} human feedback constraint(s)")
+                    ])
+                )
+
+        # =====================================================================
         # TIER 1: Programmatic correction
         # =====================================================================
         counters_path = Path(current_dataset.output_dir) / "processed_counters.txt"
