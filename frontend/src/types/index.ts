@@ -91,11 +91,36 @@ export interface TextFileResponse {
 
 export type FileResponse = CsvFileResponse | TextFileResponse;
 
-/** Feedback submission */
+export type FeedbackType = "pin_row" | "set_mapping" | "apply_rule" | "free_text" | "auto";
+
+export interface FeedbackEntryInput {
+  type: FeedbackType;
+  content: string;
+  target?: string;
+}
+
+export interface FeedbackEntry {
+  id: string;
+  type: FeedbackType;
+  round: number;
+  source: "human" | "auto";
+  content: string;
+  target?: string;
+  retracted: boolean;
+  superseded: boolean;
+  timestamp: string;
+}
+
+export interface FeedbackLedger {
+  entries: FeedbackEntry[];
+}
+
+/** Enhanced feedback submission — supports structured entries */
 export interface FeedbackRequest {
-  text: string;
-  category: string;
-  severity: number;
+  text?: string;
+  category?: string;
+  severity?: number;
+  entries?: FeedbackEntryInput[];
 }
 
 /** Pipeline configuration (stored in React state across wizard steps) */

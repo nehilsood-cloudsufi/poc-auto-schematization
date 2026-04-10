@@ -14,6 +14,7 @@ import type {
   UpdateRunRequest,
   FileResponse,
   FeedbackRequest,
+  FeedbackLedger,
   PreviewResponse,
   MappingPlan,
 } from "@/types";
@@ -120,6 +121,19 @@ export async function submitFeedback(
     method: "POST",
     body: JSON.stringify(feedback),
   });
+}
+
+export async function getFeedbackLedger(
+  runId: string
+): Promise<FeedbackLedger> {
+  return request(`/runs/${runId}/feedback/ledger`);
+}
+
+export async function retractFeedbackEntry(
+  runId: string,
+  entryId: string
+): Promise<{ retracted: boolean; entry_id: string }> {
+  return request(`/runs/${runId}/feedback/${entryId}`, { method: "DELETE" });
 }
 
 export async function submitDevFeedback(
