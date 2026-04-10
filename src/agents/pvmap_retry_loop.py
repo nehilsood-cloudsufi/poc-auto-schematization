@@ -468,8 +468,25 @@ class StatePreparationAgent(BaseAgent):
         # =====================================================================
         if attempt == 0:
             ctx.session.state["quality_metrics_history"] = []
-            # Preserve human feedback if injected (for UI re-runs)
-            if not ctx.session.state.get("human_feedback_provided"):
+            # Initialize or load feedback ledger
+            ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+            if ledger_json:
+                # Ledger was passed from feedback.py (accumulated feedback)
+                pass  # ledger already in state
+            elif ctx.session.state.get("human_feedback_provided"):
+                # Legacy: human_feedback was injected as raw string, wrap in ledger
+                from src.api.models.feedback import FeedbackEntry, FeedbackType, FeedbackLedger as FL
+                raw = ctx.session.state.get("error_feedback", "")
+                ledger = FL()
+                if raw:
+                    ledger.add_entry(FeedbackEntry(
+                        type=FeedbackType.FREE_TEXT, round=1,
+                        source="human", content=raw,
+                    ))
+                ctx.session.state["feedback_ledger_json"] = ledger.model_dump_json()
+            else:
+                from src.api.models.feedback import FeedbackLedger as FL
+                ctx.session.state["feedback_ledger_json"] = FL().model_dump_json()
                 ctx.session.state["error_feedback"] = ""
             ctx.session.state["exit_reason"] = None
             ctx.session.state["validation_counter_summary"] = ""
@@ -823,16 +840,57 @@ class StatePreparationAgent(BaseAgent):
             )
 
         # =====================================================================
-        # CRITICAL: Escape PVMAP placeholders in feedback to prevent templating errors
+        # Parse auto_feedback_raw from previous iteration into ledger
+        # =====================================================================
+        auto_raw = ctx.session.state.pop("auto_feedback_raw", "")
+        if auto_raw and attempt > 0:
+            ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+            if ledger_json:
+                from src.api.models.feedback import FeedbackEntry, FeedbackType, FeedbackLedger as FL
+                ledger = FL.model_validate_json(ledger_json)
+                ledger.clear_auto_entries()
+                ledger.add_entry(FeedbackEntry(
+                    type=FeedbackType.AUTO, round=attempt,
+                    source="auto", content=auto_raw,
+                ))
+                ctx.session.state["feedback_ledger_json"] = ledger.model_dump_json()
+
+        # =====================================================================
+        # CRITICAL: Render feedback ledger into prompt sections and escape
+        # PVMAP placeholders to prevent ADK templating errors.
         # The generator instruction uses {error_feedback},
         # which may contain PVMAP snippets with {Data}/{Number} from LLM analysis
         # =====================================================================
-        error_feedback = ctx.session.state.get("error_feedback", "")
-        if error_feedback:
-            # Cap feedback size to prevent token overflow across iterations
-            if len(error_feedback) > 4000:
-                error_feedback = error_feedback[:4000] + "\n...[truncated for token budget]"
-            ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
+        ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+        if ledger_json:
+            from src.api.models.feedback import FeedbackLedger as FL
+            from src.api.services.feedback_merger import FeedbackMerger
+            ledger = FL.model_validate_json(ledger_json)
+            merger = FeedbackMerger()
+            human_text, auto_text = merger.render_separate(ledger)
+            merged = merger.merge(ledger)
+
+            # Cap and escape each section
+            if len(merged) > 4000:
+                merged = merged[:4000] + "\n...[truncated for token budget]"
+
+            ctx.session.state["human_feedback_prompt"] = escape_pvmap_placeholders(human_text)
+            ctx.session.state["auto_feedback_prompt"] = escape_pvmap_placeholders(auto_text)
+            ctx.session.state["error_feedback"] = escape_pvmap_placeholders(merged)
+            ctx.session.state["human_feedback_provided"] = ledger.has_human_entries()
+            ctx.session.state["human_instructions_summary"] = escape_pvmap_placeholders(
+                merger.render_human_summary(ledger)
+            )
+        else:
+            # Fallback: no ledger, use raw error_feedback
+            error_feedback = ctx.session.state.get("error_feedback", "")
+            if error_feedback:
+                if len(error_feedback) > 4000:
+                    error_feedback = error_feedback[:4000] + "\n...[truncated for token budget]"
+                ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
+            ctx.session.state.setdefault("human_feedback_prompt", "")
+            ctx.session.state.setdefault("auto_feedback_prompt", "")
+            ctx.session.state.setdefault("human_instructions_summary", "(No human instructions provided)")
 
         if "validation_counter_summary" not in ctx.session.state:
             ctx.session.state["validation_counter_summary"] = ""
@@ -928,6 +986,22 @@ class StatePreparationAgent(BaseAgent):
 
             sampled = ctx.session.state.get("sampled_data", "")
             error_fb = ctx.session.state.get("error_feedback", "")
+
+            # Prepend repair changes to feedback so generator sees what was auto-fixed
+            repair_changes = ctx.session.state.get("pvmap_repair_changes", "")
+            if repair_changes and error_fb:
+                if isinstance(repair_changes, list):
+                    changes_text = "\n".join(f"- {c}" for c in repair_changes[:10])
+                else:
+                    changes_text = str(repair_changes)
+                if changes_text.strip() and "No auto-repairs" not in changes_text:
+                    repair_prefix = (
+                        "## AUTO-REPAIRS FROM PREVIOUS ATTEMPT\n"
+                        "These were fixed programmatically. Generate correctly this time:\n"
+                        + changes_text + "\n\n"
+                    )
+                    error_fb = repair_prefix + error_fb
+
             metadata = ctx.session.state.get("metadata", "")
             statvar_summary = ctx.session.state.get("statvar_summary", "")
             approved_plan = ctx.session.state.get("approved_mapping_plan", "")
