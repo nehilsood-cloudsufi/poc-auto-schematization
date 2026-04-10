@@ -43,3 +43,25 @@ def load_feedback_history(output_dir: Path) -> List[Dict]:
             logger.warning("Failed to parse feedback file: %s", f)
     logger.debug("Loaded %d feedback entries from %s", len(entries), feedback_dir)
     return entries
+
+
+def save_ledger_to_disk(ledger, output_dir: Path) -> Path:
+    """Write feedback ledger JSON to output_dir/feedback_ledger.json."""
+    from src.api.models.feedback import FeedbackLedger
+    path = output_dir / "feedback_ledger.json"
+    path.write_text(ledger.model_dump_json(indent=2))
+    logger.debug("Saved feedback ledger (%d entries) to %s", len(ledger.entries), path)
+    return path
+
+
+def load_ledger_from_disk(output_dir: Path):
+    """Load feedback ledger from output_dir/feedback_ledger.json."""
+    from src.api.models.feedback import FeedbackLedger
+    path = output_dir / "feedback_ledger.json"
+    if not path.exists():
+        return FeedbackLedger()
+    try:
+        return FeedbackLedger.model_validate_json(path.read_text())
+    except Exception:
+        logger.warning("Failed to parse feedback ledger: %s", path)
+        return FeedbackLedger()

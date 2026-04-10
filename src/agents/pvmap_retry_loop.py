@@ -881,6 +881,15 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["human_instructions_summary"] = escape_pvmap_placeholders(
                 merger.render_human_summary(ledger)
             )
+
+            # Persist ledger to disk for API access
+            try:
+                current_dataset = ctx.session.state.get("current_dataset")
+                if current_dataset and hasattr(current_dataset, "output_dir"):
+                    from src.api.services.feedback_store import save_ledger_to_disk
+                    save_ledger_to_disk(ledger, Path(current_dataset.output_dir))
+            except Exception as e:
+                logger.warning("Failed to persist ledger to disk: %s", e)
         else:
             # Fallback: no ledger, use raw error_feedback
             error_feedback = ctx.session.state.get("error_feedback", "")
