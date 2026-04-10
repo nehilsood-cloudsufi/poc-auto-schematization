@@ -34,6 +34,12 @@ You MUST base confidence scores on data evidence, not guesses.
 
 {statvar_summary}
 
+## Engineer Feedback
+
+{engineer_feedback}
+
+If engineer feedback is provided above, consider it carefully when ranking candidates and assigning roles. The engineer has domain knowledge that may override statistical heuristics.
+
 ## Output
 
 Return a JSON object matching the MappingPlan schema exactly. Include:

@@ -147,6 +147,12 @@ class MappingPlanAgent(BaseAgent):
         populated = populated.replace("{statvar_summary}", statvar_summary)
         populated = populated.replace("{candidate_pool_json}", candidate_pool_json)
 
+        # Inject engineer feedback if provided (for plan regeneration)
+        engineer_feedback = ctx.session.state.get("engineer_feedback", "")
+        if not engineer_feedback:
+            engineer_feedback = "(No feedback provided — this is the initial plan generation.)"
+        populated = populated.replace("{engineer_feedback}", engineer_feedback)
+
         dataset_name = ctx.session.state.get("dataset_name", "unknown")
 
         # Generate structured plan via LLM
