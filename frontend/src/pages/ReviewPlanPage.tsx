@@ -1,26 +1,37 @@
 /**
- * Wizard Step 3: Review and edit the mapping plan.
+ * Wizard Step 3: Review and edit the structured mapping plan.
+ *
+ * Replaces the old markdown-dump view with an interactive form:
+ * - Dataset Understanding (read-only summary)
+ * - ActiveMappingsTable (expandable rows with selectable candidates)
+ * - StaticProperties (radio buttons for global props)
+ * - IgnoredColumns (collapsed list)
+ * - Global notes / warnings
+ * - Approve button that sends the edited plan to the backend
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { WizardStepper } from "@/components/WizardStepper";
 import { ProgressTracker } from "@/components/ProgressTracker";
+import { ActiveMappingsTable } from "@/components/PlanReview/ActiveMappingsTable";
+import { StaticProperties } from "@/components/PlanReview/StaticProperties";
+import { IgnoredColumns } from "@/components/PlanReview/IgnoredColumns";
+import { PlanFeedback } from "@/components/PlanReview/PlanFeedback";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { getFile, generatePvmap, stopRun } from "@/lib/api";
+import { getPlan, approvePlan, generatePvmap, stopRun, regeneratePlan, addPlanNote } from "@/lib/api";
 import { toast } from "sonner";
 import { PLAN_PHASES } from "@/types";
+import type { MappingPlan, ColumnMapping } from "@/types";
 import {
   ChevronLeft,
   Play,
   Square,
-  Pencil,
-  Eye,
   CheckCircle2,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
-import DOMPurify from "dompurify";
 
 interface ReviewPlanPageProps {
   datasetName: string;
@@ -35,19 +46,21 @@ export function ReviewPlanPage({
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
 
-  const [plan, setPlan] = useState("");
+  const [plan, setPlan] = useState<MappingPlan | null>(null);
   const [planReady, setPlanReady] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
+  // --- WebSocket: listen for plan generation progress ---
   const { events } = useWebSocket({
     runId: runId ?? null,
     enabled: !planReady,
     onComplete: (event) => {
       if (event.result?.phase === "plan") {
         setPlanReady(true);
+        setRegenerating(false);
         toast.info("Plan ready for review");
       } else {
         navigate(`/runs/${runId}/results`);
@@ -56,34 +69,55 @@ export function ReviewPlanPage({
     onError,
   });
 
+  // --- Load plan when ready (via WebSocket completion) ---
   useEffect(() => {
     if (!planReady || !runId) return;
     setLoadingPlan(true);
-    getFile(runId, "mapping_plan.md")
-      .then((file) => {
-        if (file.type === "text") setPlan(file.content);
-      })
+    getPlan(runId)
+      .then((data) => setPlan(data))
       .catch(() => toast.error("Failed to load plan"))
       .finally(() => setLoadingPlan(false));
   }, [planReady, runId]);
 
+  // --- On mount: check if plan already exists (e.g. page refresh) ---
   useEffect(() => {
     if (!runId) return;
-    getFile(runId, "mapping_plan.md")
-      .then((file) => {
-        if (file.type === "text" && file.content) {
-          setPlan(file.content);
+    getPlan(runId)
+      .then((data) => {
+        if (data && data.active_columns) {
+          setPlan(data);
           setPlanReady(true);
         }
       })
       .catch(() => {});
   }, [runId]);
 
+  // --- Handlers ---
+
+  const handleColumnUpdate = (columnName: string, updates: Partial<ColumnMapping>) => {
+    setPlan(prev => prev ? {
+      ...prev,
+      active_columns: prev.active_columns.map(col =>
+        col.column_name === columnName ? { ...col, ...updates } : col
+      ),
+    } : prev);
+  };
+
+  const handleStaticUpdate = (propName: string, selectedIndex: number) => {
+    setPlan(prev => prev ? {
+      ...prev,
+      static_properties: prev.static_properties.map(sp =>
+        sp.property_name === propName ? { ...sp, selected_index: selectedIndex } : sp
+      ),
+    } : prev);
+  };
+
   const handleApprove = async () => {
-    if (!runId) return;
+    if (!runId || !plan) return;
     setSubmitting(true);
     try {
-      await generatePvmap(runId, plan);
+      await approvePlan(runId, plan);
+      await generatePvmap(runId);
       onGenerateStarted();
       navigate(`/runs/${runId}`);
     } catch (err) {
@@ -106,21 +140,33 @@ export function ReviewPlanPage({
     }
   };
 
-  const renderMarkdown = (text: string): string => {
-    let html = text
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-      .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-      .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`(.+?)`/g, "<code>$1</code>")
-      .replace(/^- (.+)$/gm, "<li>$1</li>")
-      .replace(/\n\n/g, "</p><p>")
-      .replace(/\n/g, "<br>");
-    html = `<p>${html}</p>`;
-    return DOMPurify.sanitize(html);
+  const handleAddNote = async (note: string) => {
+    if (!runId) return;
+    try {
+      const result = await addPlanNote(runId, note);
+      setPlan(prev => prev ? { ...prev, engineer_notes: result.notes } : prev);
+      toast.success("Note added");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add note");
+    }
   };
 
+  const handleRegenerate = async (feedback: string, deep: boolean) => {
+    if (!runId) return;
+    setRegenerating(true);
+    setPlanReady(false);
+    setPlan(null);
+    try {
+      await regeneratePlan(runId, feedback, deep);
+      // WebSocket will notify when new plan is ready via onComplete
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate");
+      setRegenerating(false);
+      setPlanReady(true);
+    }
+  };
+
+  // --- Render: plan generation in progress ---
   if (!planReady) {
     return (
       <div className="p-8 max-w-2xl mx-auto">
@@ -153,7 +199,8 @@ export function ReviewPlanPage({
     );
   }
 
-  if (loadingPlan) {
+  // --- Render: loading plan data ---
+  if (loadingPlan || !plan) {
     return (
       <div className="p-8 max-w-4xl mx-auto">
         <WizardStepper currentStep={2} />
@@ -170,10 +217,15 @@ export function ReviewPlanPage({
     );
   }
 
+  // --- Count ambiguous columns for the header badge ---
+  const ambiguousCount = plan.active_columns.filter(c => c.is_ambiguous).length;
+
+  // --- Render: interactive plan review ---
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <WizardStepper currentStep={2} />
 
+      {/* Page header */}
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-bold">Review Mapping Plan</h1>
         <div className="flex items-center gap-2">
@@ -181,48 +233,101 @@ export function ReviewPlanPage({
           <span className="text-sm text-green-600 dark:text-green-400 font-medium">Plan Ready</span>
         </div>
       </div>
-      <p className="text-muted-foreground mb-4">
+      <p className="text-muted-foreground mb-6">
         Dataset: <span className="font-mono font-medium">{datasetName}</span>
       </p>
 
-      <Card className="shadow-sm">
-        <div className="px-4 py-2 border-b flex items-center justify-between bg-muted/30">
-          <span className="text-sm font-medium">Mapping Plan</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsEditing(!isEditing)}
-            className="gap-1.5 text-xs"
-          >
-            {isEditing ? (
-              <><Eye className="w-3.5 h-3.5" /> Preview</>
-            ) : (
-              <><Pencil className="w-3.5 h-3.5" /> Edit</>
-            )}
-          </Button>
-        </div>
-        <CardContent className="pt-4">
-          {isEditing ? (
-            <Textarea
-              value={plan}
-              onChange={(e) => setPlan(e.target.value)}
-              className="font-mono text-sm min-h-[500px]"
-              rows={30}
-            />
-          ) : (
-            <div
-              className="prose dark:prose-invert max-w-none text-sm min-h-[200px]"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(plan) }}
-            />
-          )}
+      {/* Section 1: Dataset Understanding (read-only) */}
+      <Card className="shadow-sm mb-4">
+        <CardContent className="pt-5 pb-4">
+          <h2 className="text-sm font-semibold mb-3">Dataset Understanding</h2>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <dt className="text-muted-foreground">Archetype</dt>
+            <dd className="font-medium">{plan.understanding.archetype}</dd>
+            <dt className="text-muted-foreground">Observation Grain</dt>
+            <dd>{plan.understanding.observation_grain}</dd>
+            <dt className="text-muted-foreground">Key Insight</dt>
+            <dd>{plan.understanding.key_insight}</dd>
+          </dl>
         </CardContent>
       </Card>
 
+      {/* Section 2: Active Column Mappings */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="text-sm font-semibold">Column Mappings</h2>
+          <span className="text-xs text-muted-foreground">
+            {plan.active_columns.length} columns
+          </span>
+          {ambiguousCount > 0 && (
+            <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              <AlertTriangle className="w-3 h-3" />
+              {ambiguousCount} ambiguous
+            </span>
+          )}
+        </div>
+        <ActiveMappingsTable
+          columns={plan.active_columns}
+          onUpdate={handleColumnUpdate}
+        />
+      </div>
+
+      {/* Section 3: Static Properties */}
+      {plan.static_properties.length > 0 && (
+        <Card className="shadow-sm mb-4">
+          <CardContent className="pt-5 pb-4">
+            <h2 className="text-sm font-semibold mb-3">Static Properties</h2>
+            <StaticProperties
+              properties={plan.static_properties}
+              onUpdate={handleStaticUpdate}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Section 4: Ignored Columns */}
+      {plan.ignored_columns.length > 0 && (
+        <div className="mb-4">
+          <IgnoredColumns columns={plan.ignored_columns} />
+        </div>
+      )}
+
+      {/* Section 5: Global Notes / Warnings */}
+      {plan.global_notes.length > 0 && (
+        <Card className="shadow-sm mb-4">
+          <CardContent className="pt-5 pb-4">
+            <h2 className="text-sm font-semibold mb-2">Notes</h2>
+            <ul className="space-y-1.5">
+              {plan.global_notes.map((note, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <span>{note}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Feedback & Notes Input */}
+      <Card className="shadow-sm mb-4">
+        <CardContent className="pt-5 pb-4">
+          <h2 className="text-sm font-semibold mb-3">Feedback & Notes</h2>
+          <PlanFeedback
+            notes={plan.engineer_notes ?? []}
+            onAddNote={handleAddNote}
+            onRegenerate={handleRegenerate}
+            regenerating={regenerating}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Navigation buttons */}
       <div className="flex justify-between mt-6">
         <Button variant="ghost" onClick={() => navigate("/configure")} className="gap-1.5">
           <ChevronLeft className="w-4 h-4" /> Back
         </Button>
-        <Button onClick={handleApprove} disabled={submitting || !plan} size="lg" className="gap-2">
+        <Button onClick={handleApprove} disabled={submitting} size="lg" className="gap-2">
           {submitting ? "Starting..." : "Approve & Generate PVMAP"}
           {!submitting && <Play className="w-4 h-4" />}
         </Button>
