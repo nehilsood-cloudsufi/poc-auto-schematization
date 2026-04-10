@@ -193,6 +193,7 @@ export interface MappingPlan {
   ignored_columns: ColumnMapping[];
   static_properties: StaticProperty[];
   global_notes: string[];
+  engineer_notes: string[];
 }
 
 export const PIPELINE_PHASES = [

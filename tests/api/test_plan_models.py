@@ -127,3 +127,38 @@ class TestMappingPlan:
             notes="verified",
         )
         assert c_with.validation.property_exists is True
+
+
+class TestEngineerNotes:
+    def test_default_empty(self):
+        plan = MappingPlan(
+            dataset_name="test",
+            understanding=DatasetUnderstanding(
+                archetype="Flat", observation_grain="n/a", key_insight="n/a"
+            ),
+            active_columns=[],
+            ignored_columns=[],
+            static_properties=[],
+            global_notes=[],
+        )
+        assert plan.engineer_notes == []
+
+    def test_notes_persist_roundtrip(self):
+        plan = MappingPlan(
+            dataset_name="test",
+            understanding=DatasetUnderstanding(
+                archetype="Flat", observation_grain="n/a", key_insight="n/a"
+            ),
+            active_columns=[],
+            ignored_columns=[],
+            static_properties=[],
+            global_notes=[],
+            engineer_notes=["Date format is YYYY-MM", "Use wikidataId for places"],
+        )
+        restored = MappingPlan.model_validate_json(plan.model_dump_json())
+        assert restored.engineer_notes == ["Date format is YYYY-MM", "Use wikidataId for places"]
+
+    def test_backward_compat_no_notes_field(self):
+        old_json = '{"dataset_name":"test","understanding":{"archetype":"Flat","observation_grain":"n/a","key_insight":"n/a"},"active_columns":[],"ignored_columns":[],"static_properties":[],"global_notes":[]}'
+        plan = MappingPlan.model_validate_json(old_json)
+        assert plan.engineer_notes == []

@@ -75,3 +75,4 @@ class MappingPlan(BaseModel):
     ignored_columns: list[ColumnMapping]
     static_properties: list[StaticProperty]
     global_notes: list[str]
+    engineer_notes: list[str] = Field(default_factory=list)
