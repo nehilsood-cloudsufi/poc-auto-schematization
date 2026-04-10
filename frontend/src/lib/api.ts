@@ -183,6 +183,27 @@ export async function approvePlan(
   });
 }
 
+export async function regeneratePlan(
+  runId: string,
+  feedback: string,
+  deep: boolean = false
+): Promise<{ status: string }> {
+  return request(`/runs/${runId}/plan/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({ feedback, deep }),
+  });
+}
+
+export async function addPlanNote(
+  runId: string,
+  note: string
+): Promise<{ notes: string[] }> {
+  return request(`/runs/${runId}/plan/notes`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
 export async function stopRun(runId: string): Promise<{ status: string }> {
   return request(`/runs/${runId}/stop`, { method: "POST" });
 }
