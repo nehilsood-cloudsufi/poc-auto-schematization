@@ -118,6 +118,58 @@ export interface PreviewResponse {
   data: Record<string, unknown>[];
 }
 
+// ── Structured Plan Types ─────────────────────────────────
+
+export type CandidateSource = "from Schema.org" | "from MCP" | "from schema_vocab" | "LLM suggestion" | "user override";
+export type ColumnRole = "observationAbout" | "observationDate" | "measure" | "dimension" | "metadata" | "ignored";
+
+export interface CandidateValidation {
+  property_exists: boolean;
+  place_resolution_rate: number | null;
+  existing_statvar: string | null;
+  notes: string;
+}
+
+export interface PropertyValueCandidate {
+  property: string;
+  value_expression: string;
+  confidence: number;
+  source: CandidateSource;
+  reason: string;
+  validation: CandidateValidation | null;
+}
+
+export interface ColumnMapping {
+  column_name: string;
+  role: ColumnRole;
+  candidates: PropertyValueCandidate[];
+  selected_index: number;
+  evidence: string;
+  dc_match: string | null;
+  is_ambiguous: boolean;
+}
+
+export interface StaticProperty {
+  property_name: string;
+  candidates: PropertyValueCandidate[];
+  selected_index: number;
+}
+
+export interface DatasetUnderstanding {
+  archetype: string;
+  observation_grain: string;
+  key_insight: string;
+}
+
+export interface MappingPlan {
+  dataset_name: string;
+  understanding: DatasetUnderstanding;
+  active_columns: ColumnMapping[];
+  ignored_columns: ColumnMapping[];
+  static_properties: StaticProperty[];
+  global_notes: string[];
+}
+
 export const PIPELINE_PHASES = [
   "StatePrep",
   "Sampling",
@@ -139,7 +191,9 @@ export const PLAN_PHASES = [
   "Sampling",
   "SchemaSelectionAgent",
   "SchemaOrgEnrichment",
+  "CandidateRetriever",
   "MappingPlan",
+  "PlanValidator",
 ] as const;
 
 /** Phase 2 only (PVMAP generation) */
@@ -157,7 +211,9 @@ export const PHASE_LABELS: Record<string, string> = {
   Sampling: "Sampling data",
   SchemaSelectionAgent: "Selecting schema",
   SchemaOrgEnrichment: "Enriching with Schema.org",
+  CandidateRetriever: "Retrieving grounding candidates",
   MappingPlan: "Generating mapping plan",
+  PlanValidator: "Validating against DC API",
   PlanGate: "Plan approval",
   StatVarDiscovery: "Discovering StatVars (MCP)",
   Generator: "Generating PVMAP",

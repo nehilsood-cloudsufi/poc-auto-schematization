@@ -15,6 +15,7 @@ import type {
   FileResponse,
   FeedbackRequest,
   PreviewResponse,
+  MappingPlan,
 } from "@/types";
 
 const BASE = "/api";
@@ -149,6 +150,22 @@ export async function generatePvmap(
   return request(`/runs/${runId}/generate`, {
     method: "POST",
     body: JSON.stringify({ plan: plan ?? null }),
+  });
+}
+
+export async function getPlan(
+  runId: string
+): Promise<MappingPlan> {
+  return request(`/runs/${runId}/plan`);
+}
+
+export async function approvePlan(
+  runId: string,
+  plan: MappingPlan
+): Promise<{ status: string; skeleton_rows: number }> {
+  return request(`/runs/${runId}/plan/approve`, {
+    method: "POST",
+    body: JSON.stringify({ plan }),
   });
 }
 
