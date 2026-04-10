@@ -1351,7 +1351,7 @@ class ConditionalFeedbackAgent(BaseAgent):
                     yield event
             except Exception as e:
                 logger.error("Feedback LlmAgent crashed: %s", e, exc_info=True)
-                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                ctx.session.state["auto_feedback_raw"] = self._build_deterministic_feedback(ctx, e)
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
@@ -1414,7 +1414,7 @@ class ConditionalFeedbackAgent(BaseAgent):
                     yield event
             except Exception as e:
                 logger.error("Feedback LlmAgent crashed (quality path): %s", e, exc_info=True)
-                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                ctx.session.state["auto_feedback_raw"] = self._build_deterministic_feedback(ctx, e)
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[

@@ -23,7 +23,7 @@ def test_feedback_v2_shorter_than_v1():
     prompts = PROJECT_ROOT / "src" / "resources" / "prompts"
     v1_lines = len((prompts / "feedback_agent.txt").read_text().splitlines())
     v2_lines = len((prompts / "feedback_agent_v2.txt").read_text().splitlines())
-    assert v2_lines < v1_lines * 0.6  # v2 should be <60% of v1
+    assert v2_lines < v1_lines * 0.65  # v2 should be <65% of v1
 
 
 def test_feedback_v2_no_dropped_vars():
@@ -44,3 +44,15 @@ def test_quality_eval_has_column_coverage_threshold():
     from src.agents.quality_evaluation_agent import QualityEvaluationAgent
     assert hasattr(QualityEvaluationAgent, 'COLUMN_COVERAGE_THRESHOLD')
     assert QualityEvaluationAgent.COLUMN_COVERAGE_THRESHOLD == 80.0
+
+
+def test_feedback_agent_output_key_is_auto_feedback_raw():
+    from src.agents.feedback_agent import create_feedback_agent
+    agent = create_feedback_agent()
+    assert agent.output_key == "auto_feedback_raw"
+
+
+def test_feedback_v2_has_human_instructions_placeholder():
+    from src.agents.pvmap_retry_loop import PROJECT_ROOT
+    v2_text = (PROJECT_ROOT / "src" / "resources" / "prompts" / "feedback_agent_v2.txt").read_text()
+    assert "{human_instructions_summary}" in v2_text

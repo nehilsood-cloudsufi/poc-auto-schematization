@@ -71,7 +71,7 @@ def create_feedback_agent(
         - validation_statvar_analysis: str - StatVar analysis from MCF output
 
     State Outputs (written via output_key):
-        - error_feedback: str - Actionable feedback for next attempt
+        - auto_feedback_raw: str - Raw feedback, parsed into ledger by StatePrep
     """
     # Get model from environment override if available
     model = os.getenv("FEEDBACK_AGENT_MODEL", model)
@@ -87,7 +87,7 @@ def create_feedback_agent(
         name=name,
         model=create_resilient_model(model),
         instruction=instruction,
-        output_key="error_feedback",  # Generator reads this on retry
+        output_key="auto_feedback_raw",  # Parsed into ledger by StatePrep
         include_contents="none",  # Prevent conversation history accumulation across loop iterations
         # Schema.org tools removed: feedback agent only needs to analyze errors
         # and produce concise guidance. The Generator has these tools for PVMAP creation.
