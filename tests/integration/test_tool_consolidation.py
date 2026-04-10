@@ -19,10 +19,10 @@ def test_generator_only_has_validate():
     assert "search_schemaorg_vocabulary" not in tool_names
 
 
-def test_mapping_plan_prompt_has_schemaorg_placeholder():
-    """Plan prompt template should have the Schema.org enrichment placeholder."""
+def test_mapping_plan_prompt_has_candidate_pool_placeholder():
+    """Plan prompt template should have the candidate pool placeholder (v2 structured output)."""
     prompt = Path("src/resources/prompts/mapping_plan_prompt.txt").read_text()
-    assert "{schemaorg_column_mappings}" in prompt
+    assert "{candidate_pool_json}" in prompt
 
 
 def test_schemaorg_enrichment_parses_skeleton():

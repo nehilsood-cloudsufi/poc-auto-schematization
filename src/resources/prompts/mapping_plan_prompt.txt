@@ -1,96 +1,52 @@
-You are a Data Commons expert analyst. Your job: analyze this dataset and produce a DETAILED MAPPING PLAN explaining how each column should be mapped to Data Commons properties. This plan will be reviewed by a human before PVMAP generation begins.
+You are a Data Commons expert analyst. Your job: RANK and REFINE pre-retrieved candidate property-value mappings for each column. You do NOT invent mappings from scratch — candidates have already been retrieved from Schema.org, MCP, and schema vocabulary.
 
 ## Your Task
 
-For each column in the dataset, explain:
-1. What role it plays (place identifier, date, measure, dimension, metadata, or ignored)
-2. What Data Commons property it maps to
-3. WHY you chose this mapping (with evidence from the data)
-4. What alternatives you considered and rejected
+For each column:
+1. RANK the provided candidates by relevance (reorder if retrieval got priorities wrong)
+2. Assign a confidence score (0.0-1.0) based on DATA EVIDENCE (cardinality, type, samples)
+3. Confirm or adjust the proposed role (observationAbout, observationDate, measure, dimension, ignored)
+4. If NO candidate fits, propose ONE novel mapping with source "LLM suggestion"
 
-## Dataset Understanding
+For static properties (populationType, measuredProperty, statType, unit):
+- Propose top-3 options ranked by relevance
 
-First, classify the dataset:
-- **Archetype:** Is this Wide (many measure columns), Flat (single value column with dimension columns), or Dimension-Row (values in rows, not columns)?
-- **Observation grain:** What does one row represent? (e.g., one observation per country per year)
-- Explain your classification reasoning.
+You MUST NOT invent property names that don't appear in the candidates or schema vocabulary.
+You MUST base confidence scores on data evidence, not guesses.
 
-## Data Context (from automated profiling)
+## Dataset Columns
 
 {skeleton_summary}
-
-## Schema Category: {schema_category}
-
-## Schema Vocabulary
-
-{schema_vocab_content}
-
-Use Data Commons property names from this vocabulary. If no vocabulary is available, use standard Data Commons naming conventions.
 
 ## Sampled Data
 
 {sampled_data}
 
-## Schema.org Property Mappings (from automated lookup)
+## Pre-Retrieved Candidates (per column)
 
-{schemaorg_column_mappings}
+{candidate_pool_json}
 
-CRITICAL INSTRUCTION: For EVERY column listed above, you MUST copy its Schema.org data into that column's **Schema.org** output field below. Format: "DC: [dc property] / Schema.org: [schema.org equivalent]".
-- Example: Column "REF_AREA" above says "DC property: observationAbout" + "Schema.org equivalent: about (from Observation)" → write **Schema.org:** DC: observationAbout / Schema.org: about (from Observation)
-- If a column says "No direct Schema.org match", THEN write "N/A"
-- Do NOT write "N/A" if Schema.org data IS provided above for that column
+## Schema Vocabulary (valid property names)
+
+{schema_vocab_content}
 
 ## Data Commons Discovery Results
 
 {statvar_summary}
 
-### Per-Column DC Matches
+## Output
 
-{per_column_dc_matches}
-
-If existing StatVars were found, REUSE their property decomposition patterns. This ensures consistency with Data Commons conventions.
-
-## Output Format
-
-Produce your plan in this EXACT markdown format:
-
-# Mapping Plan: [dataset name]
-
-## Dataset Understanding
-- **Format:** [Wide/Flat/Dimension-Row]
-- **Observation grain:** [what one row represents]
-- **Key insight:** [1-2 sentences about what this data represents]
-
-## Data Commons Findings
-- **Existing StatVars found:** [list relevant DCIDs with names, or "None — novel dataset"]
-- **Reuse recommendation:** [which existing patterns to follow, or "N/A"]
-- **Novel mappings needed:** [columns requiring new StatVar definitions]
-
-## Column Mappings
-
-### Column: `[exact column name]`
-- **Role:** [observationAbout | observationDate | measure | dimension | metadata | ignored]
-- **Mapping:** `[DC property] -> [expression using placeholders]`
-- **Reason:** [Why this role was chosen — be specific]
-- **Evidence:** [Data statistics: unique count, data type, sample values, value range]
-- **Alternatives rejected:** [Other roles considered and why they don't fit]
-- **Schema.org:** [COPY from the "Schema.org Property Mappings" section above. Example: if the section says "DC property: observationAbout / Schema.org equivalent: about (from Observation)", write "DC: observationAbout / Schema.org: about (from Observation)". Write "N/A" ONLY if that column says "No direct Schema.org match" above]
-- **DC Match:** [Closest existing StatVar DCID, or "None — novel mapping"]
-- **DC Properties:** [If DC match found: list the property decomposition to reuse]
-
-[Repeat for EVERY column. Do not skip any.]
-
-## Properties to Generate
-- [List static properties: populationType, measuredProperty, statType, unit, etc.]
-- [Include properties inferred from DC matches]
-
-## Global Notes
-- [Dataset-wide observations, warnings, edge cases]
-- [Flag any AMBIGUOUS columns where human input is especially valuable — mark with WARNING]
+Return a JSON object matching the MappingPlan schema exactly. Include:
+- dataset_name: the dataset identifier
+- understanding: archetype (Wide/Flat/Dimension-Row), observation_grain, key_insight
+- active_columns: columns with actual mappings (observationAbout, observationDate, measure, dimension)
+- ignored_columns: columns to skip (constant values, empty, metadata)
+- static_properties: populationType, measuredProperty, statType, unit with ranked candidates
+- global_notes: warnings, edge cases, ambiguities
 
 ## IMPORTANT RULES
 - Analyze EVERY column — do not skip any
-- Use EXACT column names from the data context (copy-paste from COLUMN REFERENCE TABLE)
-- Use [DATA] and [NUMBER] when showing placeholder examples (not curly-brace variants)
-- If a column's role is genuinely ambiguous, say so and recommend the most likely option
-- Base your reasoning on DATA EVIDENCE (cardinality, types, samples), not just column names
+- Use EXACT column names (copy from the candidates section)
+- Use [DATA] and [NUMBER] for placeholder expressions (NOT curly-brace variants)
+- Cross-column reasoning: only ONE column should be observationAbout, only ONE should be observationDate
+- If a column is genuinely ambiguous, set is_ambiguous=true
