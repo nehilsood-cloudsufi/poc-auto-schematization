@@ -152,7 +152,11 @@ class TestPvmapHelpersPromptPopulation:
     """Tests for build_prompt_with_feedback template population."""
 
     def test_all_placeholders_replaced(self, temp_dir):
-        """All template placeholders get replaced."""
+        """All template placeholders get replaced.
+
+        Uses the v3 two-section feedback placeholders. Legacy error_feedback
+        is routed into {{AUTO_FEEDBACK}} for backward compatibility.
+        """
         from src.agents.pvmap_generation.helpers import build_prompt_with_feedback
 
         template_path = temp_dir / "template.txt"
@@ -161,7 +165,8 @@ class TestPvmapHelpersPromptPopulation:
             "Schema: {{SCHEMA_EXAMPLES}}\n"
             "Data: {{SAMPLED_DATA}}\n"
             "Metadata: {{METADATA_CONFIG}}\n"
-            "Feedback: {{ERROR_FEEDBACK}}\n"
+            "Human: {{HUMAN_FEEDBACK}}\n"
+            "Auto: {{AUTO_FEEDBACK}}\n"
             "StatVars: {{STATVAR_SUMMARY}}\n"
             "MCP: {{MCP_TOOLS_INSTRUCTION}}\n"
         )
@@ -179,6 +184,7 @@ class TestPvmapHelpersPromptPopulation:
         assert "my_schema" in prompt
         assert "my_data" in prompt
         assert "my_metadata" in prompt
+        # Legacy error_feedback goes into AUTO_FEEDBACK section
         assert "fix the key" in prompt
         assert "Count_Person HIGH" in prompt
         assert "column table here" in prompt
@@ -194,7 +200,7 @@ class TestPvmapHelpersPromptPopulation:
             "Schema: {{SCHEMA_EXAMPLES}}\n"
             "Data: {{SAMPLED_DATA}}\n"
             "Metadata: {{METADATA_CONFIG}}\n"
-            "Feedback: {{ERROR_FEEDBACK}}\n"
+            "Auto: {{AUTO_FEEDBACK}}\n"
             "StatVars: {{STATVAR_SUMMARY}}\n"
         )
 
@@ -205,5 +211,5 @@ class TestPvmapHelpersPromptPopulation:
             metadata_content="metadata",
         )
 
-        assert "Feedback: \n" in prompt  # Empty feedback
+        assert "Auto: \n" in prompt  # Empty auto feedback
         assert "StatVars: \n" in prompt  # Empty statvars

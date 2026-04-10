@@ -19,14 +19,29 @@ def test_v3_template_path():
 
 
 def test_v3_has_all_placeholders():
-    """v3 prompt has same placeholders as v2."""
+    """v3 prompt has the expected placeholders.
+
+    v3 replaces the single {{ERROR_FEEDBACK}} placeholder from v2 with two
+    separate sections: {{HUMAN_FEEDBACK}} (highest priority) and
+    {{AUTO_FEEDBACK}} (auto-generated). All other placeholders are shared.
+    """
     from src.agents.pvmap_retry_loop import PROJECT_ROOT
     prompts_dir = PROJECT_ROOT / "src" / "resources" / "prompts"
     v2_text = (prompts_dir / "improved_pvmap_prompt_v2.txt").read_text()
     v3_text = (prompts_dir / "improved_pvmap_prompt_v3.txt").read_text()
     v2_ph = set(re.findall(r'\{\{[A-Z_]+\}\}', v2_text))
     v3_ph = set(re.findall(r'\{\{[A-Z_]+\}\}', v3_text))
-    assert v2_ph == v3_ph
+
+    # Shared placeholders must all be present in v3
+    shared = v2_ph - {"{{ERROR_FEEDBACK}}"}
+    assert shared <= v3_ph, f"v3 is missing placeholders from v2: {shared - v3_ph}"
+
+    # v3 has the two new sections that replace ERROR_FEEDBACK
+    assert "{{HUMAN_FEEDBACK}}" in v3_ph
+    assert "{{AUTO_FEEDBACK}}" in v3_ph
+
+    # v3 must NOT still have the old single-section placeholder
+    assert "{{ERROR_FEEDBACK}}" not in v3_ph
 
 
 def test_v3_has_skeleton_heading():

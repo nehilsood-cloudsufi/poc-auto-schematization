@@ -27,7 +27,9 @@ def build_prompt_with_feedback(
     metadata_content: str,
     error_feedback: Optional[str] = None,
     discovered_statvars: Optional[str] = None,
-    data_context: Optional[str] = None
+    data_context: Optional[str] = None,
+    human_feedback: Optional[str] = None,
+    auto_feedback: Optional[str] = None,
 ) -> str:
     """
     Build PVMAP generation prompt by populating template.
@@ -37,9 +39,15 @@ def build_prompt_with_feedback(
         schema_content: Schema examples content (or None if not available)
         sampled_data_content: Sampled data CSV content
         metadata_content: Metadata config content
-        error_feedback: Optional error feedback from previous attempt
+        error_feedback: Optional error feedback from previous attempt (legacy;
+            routed into the auto-feedback section when human_feedback/auto_feedback
+            are not provided)
         discovered_statvars: Optional discovered StatVars from MCP discovery
         data_context: Optional skeleton summary markdown from DataContext
+        human_feedback: Optional human-expert instructions (highest priority).
+            Populates {{HUMAN_FEEDBACK}} in v3+ templates.
+        auto_feedback: Optional auto-generated validation feedback.
+            Populates {{AUTO_FEEDBACK}} in v3+ templates.
 
     Returns:
         Populated prompt string
@@ -80,9 +88,20 @@ def build_prompt_with_feedback(
     prompt = prompt.replace("{{SCHEMA_EXAMPLES}}", schema_content)
     prompt = prompt.replace("{{SAMPLED_DATA}}", sampled_data_content)
     prompt = prompt.replace("{{METADATA_CONFIG}}", metadata_content)
-    prompt = prompt.replace("{{ERROR_FEEDBACK}}", error_feedback or "")
     prompt = prompt.replace("{{STATVAR_SUMMARY}}", discovered_statvars or "")
     prompt = prompt.replace("{{MCP_TOOLS_INSTRUCTION}}", "")
+
+    # Two-section feedback: human + auto (new v3+ templates)
+    if human_feedback is not None or auto_feedback is not None:
+        prompt = prompt.replace("{{HUMAN_FEEDBACK}}", human_feedback or "")
+        prompt = prompt.replace("{{AUTO_FEEDBACK}}", auto_feedback or "")
+    else:
+        # Backward compat: old callers using error_feedback only
+        prompt = prompt.replace("{{HUMAN_FEEDBACK}}", "")
+        prompt = prompt.replace("{{AUTO_FEEDBACK}}", error_feedback or "")
+
+    # Clean up old placeholder if present in any template version
+    prompt = prompt.replace("{{ERROR_FEEDBACK}}", "")
 
     return prompt
 

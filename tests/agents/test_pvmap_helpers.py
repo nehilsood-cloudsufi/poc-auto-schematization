@@ -73,11 +73,15 @@ def test_build_prompt_with_feedback_missing_schema(temp_dir):
 
 
 def test_build_prompt_with_error_feedback(temp_dir):
-    """Test prompt building with error feedback injection via {{ERROR_FEEDBACK}}."""
+    """Test prompt building with error feedback injection.
+
+    Legacy error_feedback is routed into the {{AUTO_FEEDBACK}} section.
+    Old {{ERROR_FEEDBACK}} placeholders are cleaned up (replaced with "").
+    """
     template_path = temp_dir / "template.txt"
     template_path.write_text(
         "Generate PVMAP for {{SAMPLED_DATA}}\n"
-        "Feedback: {{ERROR_FEEDBACK}}"
+        "Auto: {{AUTO_FEEDBACK}}"
     )
 
     error_feedback = "Error: Missing property mapping for column 'population'"

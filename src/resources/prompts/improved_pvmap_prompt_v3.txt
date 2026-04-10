@@ -105,11 +105,24 @@ If metadata has observation_date_format: just map observationDate — the proces
 
 ---
 
-## Error Feedback (from previous attempts)
+## HUMAN INSTRUCTIONS (MANDATORY — HIGHEST PRIORITY)
 
-{{ERROR_FEEDBACK}}
+{{HUMAN_FEEDBACK}}
 
-If feedback is present: read carefully, apply the specific fixes, ensure keys match EXACT headers, and fix ALL affected rows.
+These instructions come directly from a human expert who reviewed your previous output.
+You MUST follow every instruction above. If any instruction conflicts with other
+guidance in this prompt, the human instruction wins. After generating, verify each
+human instruction was applied. If you cannot follow an instruction, explain why in
+a comment row — but DO NOT silently ignore it.
+
+---
+
+## Auto-Generated Feedback (from validation analysis)
+
+{{AUTO_FEEDBACK}}
+
+If auto-feedback is present: apply fixes ONLY where they do not conflict with
+the HUMAN INSTRUCTIONS section above. Human instructions always take precedence.
 
 ---
 
@@ -165,6 +178,28 @@ If an approved mapping plan is present above, you MUST follow its column-role de
 | #Multiply | Unit conversion factor | #Multiply,1000000 |
 
 **Schema.org tools:** If schema.org vocabulary tools are available, call `lookup_schemaorg_type` for your chosen populationType and `validate_pvmap_property` for key dimension properties before generating output.
+
+## Dimension Mapping Strategy
+
+Choose the correct pattern based on the number of unique values in a dimension column:
+
+| Unique Values | Strategy | Pattern | Example |
+|---------------|----------|---------|---------|
+| 1-10 | Enumerate all values | COLUMN:VALUE rows | Gender:Male,gender,dcs:Male |
+| >10 | Passthrough | Column,dc_property,[DATA] | Activity,isicV4,[DATA] |
+
+**WHY THIS MATTERS:** Enumerating 100+ values creates a fragile, error-prone PVMAP. A single passthrough row with [DATA] dynamically maps ALL values and produces the same unique StatVars — far more reliably. The PVMAP skeleton already uses passthrough for high-cardinality dimensions; preserve that pattern.
+
+**Compact passthrough example (6 lines, 304 unique StatVars):**
+```csv
+key,property,value
+CountryCode,observationAbout,geoId/[DATA]
+Year,observationDate,[NUMBER]
+Variable,measurementMethod,[DATA]
+UnconsolidatedVariableName,measurementQualifier,[DATA]
+Activity,isicV4,[DATA]
+Value,value,[NUMBER],populationType,dcs:Organization,measuredProperty,dcs:amount,statType,dcs:measuredValue
+```
 
 ## Archetype Reference
 
