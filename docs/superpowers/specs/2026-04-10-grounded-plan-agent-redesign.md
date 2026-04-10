@@ -25,14 +25,16 @@ CURRENT (ungrounded):
 NEW (grounded, structured, binding):
   Sampling -> SchemaSelection -> SchemaOrgEnrichment -> CandidateRetriever (programmatic)
   -> MappingPlanAgent v2 (LLM ranks candidates, doesn't invent)
+  -> PlanValidator (DC API validation of properties, places, StatVars)
   -> structured JSON plan -> engineer picks from options in interactive UI
   -> PlanToSkeletonConverter -> partial PVMAP CSV (locked rows)
   -> PVMAP Generator (fills gaps only, cannot override engineer selections)
 ```
 
-Three new components:
+Four new components:
 - **CandidateRetriever** -- programmatic, gathers grounding data per column from Schema.org, MCP, schema_vocab
 - **MappingPlanAgent v2** -- LLM ranks candidates using Gemini structured output (Pydantic response schema)
+- **PlanValidator** -- programmatic, validates candidates against live DC API (property existence, place resolution, StatVar matching)
 - **PlanToSkeletonConverter** -- programmatic, converts approved selections to partial PVMAP CSV rows
 
 ## Implementation Phases
@@ -41,6 +43,7 @@ Three new components:
 - New Pydantic data models for structured plan
 - CandidateRetriever: per-column grounding from Schema.org + MCP + schema_vocab
 - MappingPlanAgent v2: Gemini structured output, LLM ranks not invents
+- PlanValidator: validate candidates against live DC API (property existence, place resolution, StatVar matching)
 - New API endpoints: `GET /plan` (JSON), `POST /plan/approve`
 - Auto-generate markdown from JSON for logs/debugging
 - Move MCP per-column queries before plan generation (currently only in Phase 3)
@@ -222,6 +225,62 @@ async def retrieve_candidates(
     """
 ```
 
+## PlanValidator (DC API Validation)
+
+### Location
+`src/pipeline/plan/plan_validator.py`
+
+### What it does
+After the LLM generates the structured plan, validate candidate property-value pairs against the live Data Commons API before showing the plan to the engineer. This catches hallucinated properties and invalid DCIDs that slipped through retrieval.
+
+### Validation checks
+
+1. **Property existence**: For each candidate's `property` field, check if it's a valid DC property via `GET https://api.datacommons.org/v2/node?nodes=dcid:{property}`. Mark invalid properties with `validated: false`.
+
+2. **Place resolution**: For columns with role=observationAbout, sample a few column values and check if they resolve to real DC place entities via `GET https://api.datacommons.org/v2/resolve?entities={value}`. Report resolution rate (e.g., "28/30 values resolve").
+
+3. **StatVar pattern check**: For the combination of static properties (populationType + measuredProperty + constraints), check if a similar StatVar already exists via `GET https://api.datacommons.org/v2/node?nodes=dcid:{constructed_dcid}`. If it exists, flag as "reuse existing" rather than "novel".
+
+4. **Enum value validation**: For dimension columns where schema_vocab provides valid enum values, check if the column's actual values match known DC enum values.
+
+### Output
+Each candidate gets a `validation` field added:
+
+```python
+class CandidateValidation(BaseModel):
+    property_exists: bool           # DC API confirmed property is real
+    place_resolution_rate: float | None  # for observationAbout columns only
+    existing_statvar: str | None    # DCID if a matching StatVar already exists
+    notes: str                      # e.g., "2 of 5 enum values not in DC"
+```
+
+Updated model:
+```python
+class PropertyValueCandidate(BaseModel):
+    property: str
+    value_expression: str
+    confidence: float = Field(ge=0, le=1)
+    source: CandidateSource
+    reason: str
+    validation: CandidateValidation | None = None  # populated by PlanValidator
+```
+
+### When it runs
+After MappingPlanAgent v2 generates the plan, before saving to disk and serving to the UI. Runs in parallel for all candidates (asyncio.gather).
+
+### Performance
+- Property existence checks are lightweight (~50ms each, cacheable)
+- Place resolution: sample 5 values per place column (~200ms)
+- StatVar check: 1 query per static property combination (~100ms)
+- Total: ~1-3 seconds for a typical dataset (cached after first run)
+
+### Display in UI
+Validation results shown as simple text in the detail panel:
+- "Property verified in DC" or "Property not found in DC"
+- "Place resolution: 28/30 values resolve" 
+- "Matches existing StatVar: dcid:Count_Person_Employed"
+- Unvalidated candidates (LLM suggestions) show "Not validated — LLM suggestion"
+
 ## MappingPlanAgent v2 (LLM Ranker)
 
 ### Location
@@ -345,6 +404,7 @@ Generated skeleton CSV:
 ### New files
 - `src/pipeline/plan/candidate_retriever.py` -- grounding engine
 - `src/pipeline/plan/skeleton_converter.py` -- plan to PVMAP conversion
+- `src/pipeline/plan/plan_validator.py` -- DC API validation
 - `src/pipeline/plan/__init__.py`
 - `src/api/models/plan.py` -- Pydantic models (shared between agent and API)
 - `frontend/src/components/PlanReview/ActiveMappingsTable.tsx`
@@ -353,6 +413,7 @@ Generated skeleton CSV:
 - `frontend/src/components/PlanReview/IgnoredColumns.tsx`
 - `tests/pipeline/plan/test_candidate_retriever.py`
 - `tests/pipeline/plan/test_skeleton_converter.py`
+- `tests/pipeline/plan/test_plan_validator.py`
 - `tests/api/test_plan_models.py`
 
 ### Modified files
@@ -384,10 +445,14 @@ Generated skeleton CSV:
 - Unit tests for CandidateRetriever: mock Schema.org, MCP, schema_vocab responses, verify merged candidates
 - Unit tests for CandidateRetriever merge logic: same property from multiple sources, confidence aggregation
 - Unit tests for MappingPlanAgent v2: mock Gemini response, verify Pydantic validation
+- Unit tests for PlanValidator: mock DC API responses, verify property existence checks
+- Unit tests for PlanValidator: place resolution rate calculation
+- Unit tests for PlanValidator: StatVar pattern matching
 - Unit tests for PlanToSkeletonConverter: verify PVMAP CSV output matches selections
 - Unit tests for PlanToSkeletonConverter: static properties row generation
-- Integration test: run full Phase 1 on BIS dataset, verify plan JSON has grounded candidates
+- Integration test: run full Phase 1 on BIS dataset, verify plan JSON has grounded + validated candidates
 - Test MCP-disabled path: verify plan still generates with Schema.org + vocab only
+- Test DC API unavailable: validator degrades gracefully (validation=None, plan still works)
 
 ### Phase 2 (frontend)
 - Render test: MappingPlan JSON renders correct number of active/ignored rows
