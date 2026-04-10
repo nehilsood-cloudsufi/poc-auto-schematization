@@ -84,11 +84,28 @@ class PlanGateAgent(BaseAgent):
             )
             return
 
-        # Auto-approve or interactive (default auto-approve for now)
         if mapping_plan:
-            escaped = escape_pvmap_placeholders(mapping_plan)
-            ctx.session.state["approved_mapping_plan"] = escaped
-            logger.info("Mapping plan approved (%d chars)", len(mapping_plan))
+            # Check if it's structured JSON (new format) or markdown (legacy)
+            try:
+                import json
+                plan_data = json.loads(mapping_plan)
+                # Structured plan — generate skeleton and store both
+                from src.api.models.plan import MappingPlan
+                from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
+                from src.agents.mapping_plan_agent import _plan_to_markdown
+                plan_obj = MappingPlan.model_validate(plan_data)
+                skeleton = plan_to_skeleton_csv(plan_obj)
+                ctx.session.state["pvmap_skeleton"] = skeleton
+                ctx.session.state["approved_plan_json"] = mapping_plan
+                # Also generate markdown for backward compatibility
+                escaped = escape_pvmap_placeholders(_plan_to_markdown(plan_obj))
+                ctx.session.state["approved_mapping_plan"] = escaped
+                logger.info("Structured plan approved — skeleton: %d rows", skeleton.count("\n"))
+            except (json.JSONDecodeError, Exception) as e:
+                # Legacy markdown plan — keep existing behavior
+                logger.info("Legacy markdown plan detected: %s", e)
+                escaped = escape_pvmap_placeholders(mapping_plan)
+                ctx.session.state["approved_mapping_plan"] = escaped
             yield Event(
                 author=self.name,
                 content=types.Content(
@@ -390,6 +407,7 @@ def run_dataset_pipeline(
     plan_only: bool = False,
     from_plan: Optional[str] = None,
     auto_approve: bool = False,
+    extra_initial_state: Optional[dict] = None,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -491,12 +509,23 @@ def run_dataset_pipeline(
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
 
-    # Add MappingPlanAgent and PlanGateAgent (unless loading from existing plan)
+    # Add CandidateRetriever + MappingPlanAgent + PlanValidator + PlanGate
     if not from_plan:
+        from src.pipeline.plan.candidate_retriever import CandidateRetrieverAgent
         from src.agents.mapping_plan_agent import MappingPlanAgent
+        from src.pipeline.plan.plan_validator import PlanValidatorAgent
+
+        retriever_agent = CandidateRetrieverAgent(name="CandidateRetriever")
+        sub_agents.append(retriever_agent)
+        logger.info("CandidateRetrieverAgent added to pipeline")
+
         plan_agent = MappingPlanAgent(name="MappingPlan", model=model)
         sub_agents.append(plan_agent)
         logger.info("MappingPlanAgent added to pipeline")
+
+        validator_agent = PlanValidatorAgent(name="PlanValidator")
+        sub_agents.append(validator_agent)
+        logger.info("PlanValidatorAgent added to pipeline")
 
         gate_agent = PlanGateAgent(name="PlanGate")
         sub_agents.append(gate_agent)
@@ -504,8 +533,13 @@ def run_dataset_pipeline(
     else:
         logger.info("MappingPlanAgent skipped (--from-plan provided)")
 
-    # Add generation, evaluation, and LLM judge
-    sub_agents.extend([pvmap_agent, evaluation_agent, llm_judge_agent])
+    # Add generation, evaluation, and LLM judge (skip for plan_only mode)
+    if not plan_only:
+        sub_agents.extend([pvmap_agent, evaluation_agent, llm_judge_agent])
+    else:
+        logger.info("plan_only=True — skipping PVMAP generation, evaluation, and LLM judge agents")
+
+    logger.info("Pipeline sub_agents (%d): %s", len(sub_agents), [a.name for a in sub_agents])
 
     # Create a sequential agent to run the pipeline
     # With MCP: StatVarDiscovery -> PVMAPGeneration -> Evaluation
@@ -636,6 +670,11 @@ def run_dataset_pipeline(
     else:
         initial_state["schema_base_dir"] = str(PROJECT_ROOT / "src" / "resources" / "schema_examples")
 
+    # Inject extra initial state (e.g., Phase 1 state for Phase 2 runs)
+    if extra_initial_state:
+        initial_state.update(extra_initial_state)
+        logger.info("Injected %d extra state keys: %s", len(extra_initial_state), list(extra_initial_state.keys()))
+
     # Add MCP state if enabled
     if enable_mcp and mcp_url:
         initial_state["mcp_enabled"] = True
@@ -762,10 +801,71 @@ def run_dataset_pipeline(
         if plan_only:
             plan_path = str(current_dataset.output_dir / "mapping_plan.md")
             logger.info("Plan-only mode complete. Plan at: %s", plan_path)
+
+            # Read Phase 1 outputs from disk (ADK session state is unreliable
+            # for agent-modified keys — InMemorySessionService doesn't persist them)
+            out = current_dataset.output_dir
+
+            mapping_plan = ""
+            if Path(plan_path).exists():
+                mapping_plan = Path(plan_path).read_text()
+
+            skeleton_summary = ""
+            data_context_dict = {}
+            data_context_path = out / "data_context.json"
+            if data_context_path.exists():
+                try:
+                    import json as _json
+                    data_context_dict = _json.loads(data_context_path.read_text())
+                    skeleton_summary = data_context_dict.get("skeleton_summary", "")
+                except Exception:
+                    pass
+
+            # Fallback: try session state (sometimes works)
+            if not skeleton_summary:
+                skeleton_summary = final_state.get("skeleton_summary", "")
+
+            # Schema.org enrichment (written by SchemaOrgEnrichmentAgent)
+            schemaorg_mappings = ""
+            schemaorg_path = out / "schemaorg_enrichment.md"
+            if schemaorg_path.exists():
+                schemaorg_mappings = schemaorg_path.read_text()
+
+            sampled_data_path = ""
+            agentic_sampled = out / "agentic_sampled.csv"
+            if agentic_sampled.exists():
+                sampled_data_path = str(agentic_sampled)
+
+            # Schema category and vocab from session state (set by SchemaSelectionAgent)
+            schema_category = final_state.get("schema_category", "")
+            schema_vocab_content = final_state.get("schema_vocab_content", "")
+
+            # If schema_vocab_content missing, try reading from schema dir
+            if not schema_vocab_content and schema_category:
+                # Extract category name from "Selected schema category: X"
+                cat_name = schema_category.replace("Selected schema category: ", "").strip()
+                schema_dir = Path(initial_state.get("schema_base_dir", ""))
+                vocab_path = schema_dir / cat_name / "schema_vocab.json"
+                if vocab_path.exists():
+                    schema_vocab_content = vocab_path.read_text()
+
+            logger.info(
+                "Phase 1 state from disk: skeleton=%d chars, plan=%d chars, sampled=%s, category=%s",
+                len(skeleton_summary), len(mapping_plan), sampled_data_path, schema_category,
+            )
+
             return {
                 "status": "plan_generated",
+                "phase": "plan",
                 "plan_path": plan_path,
                 "dataset_name": dataset_name,
+                "skeleton_summary": skeleton_summary,
+                "schema_category": schema_category,
+                "schema_vocab_content": schema_vocab_content,
+                "mapping_plan": mapping_plan,
+                "sampled_data_path": sampled_data_path,
+                "data_context": data_context_dict,
+                "schemaorg_column_mappings": schemaorg_mappings,
             }
 
         # Determine success by checking actual artifacts
