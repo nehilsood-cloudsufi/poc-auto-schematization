@@ -661,6 +661,21 @@ def run_dataset_pipeline(
 
     # Inject human feedback if provided (for UI re-runs)
     if human_feedback:
+        # Check if ledger JSON in initial_state or extra_initial_state (extra_initial_state
+        # is applied AFTER this block, so we must peek at it here)
+        ledger_json = initial_state.get("feedback_ledger_json") or (
+            extra_initial_state.get("feedback_ledger_json") if extra_initial_state else None
+        )
+        if not ledger_json:
+            # Legacy: wrap raw feedback string in a ledger
+            from src.api.models.feedback import FeedbackEntry, FeedbackLedger, FeedbackType
+            ledger = FeedbackLedger()
+            ledger.add_entry(FeedbackEntry(
+                type=FeedbackType.FREE_TEXT, round=1,
+                source="human", content=human_feedback,
+            ))
+            initial_state["feedback_ledger_json"] = ledger.model_dump_json()
+        # Keep backward compat keys
         initial_state["error_feedback"] = human_feedback
         initial_state["human_feedback_provided"] = True
 
