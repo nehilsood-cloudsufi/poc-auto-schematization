@@ -494,10 +494,12 @@ def generate_processor_config(
         header_rows = detect_header_rows(input_file, data_context, pvmap_csv_content)
         auto_params["header_rows"] = header_rows
 
-        # 3. mapped_rows — equals header_rows
-        auto_params["mapped_rows"] = compute_mapped_rows(header_rows)
-
-        # 4. mapped_columns — PVMAP key analysis + confidence
+        # 3 & 4. mapped_rows + mapped_columns — PVMAP key analysis + confidence
+        # CRITICAL: When confidence is LOW (can't classify dimension columns),
+        # we OMIT both mapped_rows and mapped_columns. This lets the processor
+        # use its defaults (0 and []) which triggers the "allow all lookups"
+        # fallback at stat_var_processor.py:2065. Setting mapped_rows=1 with
+        # mapped_columns=0 would BLOCK dimension column lookups.
         if not input_headers and input_file and Path(input_file).exists():
             try:
                 with open(input_file, "r", encoding="utf-8", errors="replace") as f:
@@ -509,12 +511,17 @@ def generate_processor_config(
         mapped_cols, confidence = compute_mapped_columns(
             pvmap_csv_content, input_headers or []
         )
-        auto_params["mapped_columns"] = mapped_cols
 
-        # Merge LLM enrichment (only mapped_columns override now)
+        # LLM enrichment can override mapped_columns
         if llm_enrichment and isinstance(llm_enrichment, dict):
             if "mapped_columns" in llm_enrichment:
-                auto_params["mapped_columns"] = llm_enrichment["mapped_columns"]
+                mapped_cols = llm_enrichment["mapped_columns"]
+                confidence = "high"  # LLM provided explicit value
+
+        # Only set mapped_rows/mapped_columns when we're confident
+        if confidence == "high" and mapped_cols > 0:
+            auto_params["mapped_rows"] = compute_mapped_rows(header_rows)
+            auto_params["mapped_columns"] = mapped_cols
 
         # Merge with existing metadata (existing wins)
         final_params = merge_with_existing(auto_params, existing_metadata_path)

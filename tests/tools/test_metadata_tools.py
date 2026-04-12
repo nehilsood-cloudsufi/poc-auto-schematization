@@ -348,8 +348,10 @@ class TestGenerateProcessorConfig:
 
         params = result["parameters"]
         assert "output_columns" in params
-        assert "mapped_rows" in params
-        assert params["mapped_rows"] == 1
+        # SIMPLE_PVMAP has no COLUMN:VALUE keys → low confidence →
+        # mapped_rows/mapped_columns omitted (processor uses safe defaults)
+        assert "mapped_rows" not in params
+        assert "mapped_columns" not in params
 
     def test_writes_to_output_dir(self, tmp_path):
         """File at output/{dataset}/output_metadata.csv."""
@@ -371,10 +373,11 @@ class TestGenerateProcessorConfig:
         result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP)
         assert result["success"] is True
         assert result["config_path"] is None
-        assert result["parameters"]["mapped_rows"] == 1
+        # SIMPLE_PVMAP has low confidence → mapped_rows omitted
+        assert "mapped_rows" not in result["parameters"]
 
     def test_llm_enrichment_mapped_columns(self, tmp_path):
-        """LLM enrichment can override mapped_columns."""
+        """LLM enrichment sets mapped_columns (promotes to high confidence)."""
         result = generate_processor_config(
             pvmap_csv_content=SIMPLE_PVMAP,
             output_dir=str(tmp_path),
@@ -382,6 +385,8 @@ class TestGenerateProcessorConfig:
         )
         assert result["success"] is True
         assert result["parameters"]["mapped_columns"] == 5
+        # LLM override promotes to high confidence → mapped_rows also set
+        assert "mapped_rows" in result["parameters"]
 
     def test_existing_metadata_overrides(self, tmp_path):
         """Existing metadata values override auto-generated ones."""
@@ -407,8 +412,9 @@ class TestGenerateProcessorConfig:
         cols = result["parameters"]["output_columns"].split(",")
         assert "observationAbout" in cols
         assert "variableMeasured" in cols
-        assert result["parameters"]["mapped_rows"] == 1
-        assert result["parameters"]["mapped_columns"] == 0
+        # Passthrough has no COLUMN:VALUE keys → low confidence → omitted
+        assert "mapped_rows" not in result["parameters"]
+        assert "mapped_columns" not in result["parameters"]
 
     def test_no_generate_statvar_name(self, tmp_path):
         """generate_statvar_name no longer in output."""
@@ -425,14 +431,18 @@ class TestGenerateProcessorConfig:
         result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
         assert "multi_value_properties" not in result["parameters"]
 
-    def test_mapped_rows_equals_header_rows(self, tmp_path):
-        """mapped_rows now equals header_rows, not PVMAP row count."""
+    def test_mapped_rows_set_when_high_confidence(self, tmp_path):
+        """mapped_rows set to header_rows when mapped_columns confidence is high."""
+        # PVMAP with COLUMN:VALUE keys → high confidence → both set
+        pvmap_with_cv = "key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\nval_col,value,{Number}\n"
         result = generate_processor_config(
-            pvmap_csv_content=SIMPLE_PVMAP,
+            pvmap_csv_content=pvmap_with_cv,
+            input_headers=["col_a", "val_col", "other"],
             data_context={"header_rows": 1},
             output_dir=str(tmp_path),
         )
         assert result["parameters"]["mapped_rows"] == 1
+        assert result["parameters"]["mapped_columns"] == 1
 
     def test_returns_confidence(self, tmp_path):
         """Result includes mapped_columns_confidence."""
