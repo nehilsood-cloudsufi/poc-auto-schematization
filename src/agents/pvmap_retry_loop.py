@@ -344,6 +344,28 @@ def _compact_vocab_for_generator(vocab_content: str, budget: int = 15000) -> str
     return compacted
 
 
+def classify_validation_error(validation_output: str, data_rows: int) -> str:
+    """Classify a validation error as Tier 1 (syntax) or Tier 2 (semantic).
+
+    Tier 1 (syntax): bad CSV format, wrong prefix, missing key match
+    Tier 2 (semantic): duplicate observations, wrong column roles, zero data rows
+
+    Returns: "tier1_syntax" or "tier2_semantic"
+    """
+    output_lower = validation_output.lower() if validation_output else ""
+
+    # Tier 2 signals: semantic/structural problems requiring plan revision
+    if data_rows == 0:
+        return "tier2_semantic"
+    if "duplicate observation" in output_lower or "duplicate statvar" in output_lower:
+        return "tier2_semantic"
+    if "no data rows" in output_lower or "0 data rows" in output_lower:
+        return "tier2_semantic"
+
+    # Everything else is Tier 1: syntax/formatting
+    return "tier1_syntax"
+
+
 class GeneratorWrapperAgent(BaseAgent):
     """Wrapper that creates a fresh Generator per iteration.
 
@@ -2322,6 +2344,41 @@ class TieredCorrectionAgent(BaseAgent):
             return
 
         # =====================================================================
+        # CHECK A: Detect PLAN_ERROR from generator output
+        # =====================================================================
+        pvmap_output = ctx.session.state.get("pvmap_output", {})
+        if isinstance(pvmap_output, dict) and pvmap_output.get("status") == "PLAN_ERROR":
+            ctx.session.state["plan_revision_needed"] = True
+            ctx.session.state["plan_revision_reason"] = pvmap_output.get(
+                "reason", "Generator reported plan error"
+            )
+            logger.info(
+                "PLAN_ERROR detected from generator: %s",
+                ctx.session.state["plan_revision_reason"][:200],
+            )
+
+        # =====================================================================
+        # CHECK B: Classify validation error tier for outer loop routing
+        # =====================================================================
+        if not validation_passed:
+            validation_output = ctx.session.state.get("validation_output", "")
+            data_rows = ctx.session.state.get("validation_data_rows", 0)
+            error_tier = classify_validation_error(validation_output, data_rows)
+            ctx.session.state["error_tier"] = error_tier
+
+            if error_tier == "tier2_semantic":
+                ctx.session.state["plan_revision_needed"] = True
+                ctx.session.state["plan_revision_reason"] = (
+                    f"Semantic error: {str(validation_output)[:500]}"
+                )
+                logger.info(
+                    "Tier 2 semantic error detected — plan revision may be needed: %s",
+                    ctx.session.state["plan_revision_reason"][:200],
+                )
+            else:
+                logger.info("Tier 1 syntax error detected — correctable within retry loop")
+
+        # =====================================================================
         # SAVE BEST-SO-FAR from attempt 0
         # =====================================================================
         best_pvmap = ctx.session.state.get("pvmap_csv", "")
@@ -2945,6 +3002,7 @@ def create_pvmap_retry_loop(
 # ============================================================================
 
 __all__ = [
+    'classify_validation_error',
     'create_pvmap_retry_loop',
     'TieredCorrectionAgent',
     'GeneratorWrapperAgent',
