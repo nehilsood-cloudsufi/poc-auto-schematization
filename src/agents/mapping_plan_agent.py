@@ -25,6 +25,8 @@ import os
 from pathlib import Path
 from typing import AsyncGenerator
 
+from pydantic import PrivateAttr
+
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
@@ -114,6 +116,8 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
 class MappingPlanAgent(BaseAgent):
     """Generates a structured mapping plan by ranking pre-retrieved candidates."""
 
+    _model_name: str = PrivateAttr(default="gemini-3.1-pro-preview")
+
     def __init__(self, name: str = "MappingPlanAgent", model: str = None):
         super().__init__(name=name)
         self._model_name = model or os.getenv("MAPPING_PLAN_MODEL", "gemini-3.1-pro-preview")
@@ -123,10 +127,6 @@ class MappingPlanAgent(BaseAgent):
         yield Event(author=self.name, content=types.Content(
             parts=[types.Part(text="Generating structured mapping plan...")]
         ))
-
-        # Load prompt template
-        template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt.txt"
-        template = template_path.read_text()
 
         # Populate template from state
         skeleton = ctx.session.state.get("skeleton_summary", "")
@@ -141,22 +141,50 @@ class MappingPlanAgent(BaseAgent):
         else:
             candidate_pool_json = str(candidate_pool) if candidate_pool else "{}"
 
-        populated = template.replace("{skeleton_summary}", skeleton)
-        populated = populated.replace("{schema_vocab_content}", schema_vocab)
-        populated = populated.replace("{sampled_data}", sampled_data)
-        populated = populated.replace("{statvar_summary}", statvar_summary)
-        populated = populated.replace("{candidate_pool_json}", candidate_pool_json)
-
         # Inject engineer feedback if provided (for plan regeneration)
         engineer_feedback = ctx.session.state.get("engineer_feedback", "")
         if not engineer_feedback:
             engineer_feedback = "(No feedback provided — this is the initial plan generation.)"
-        populated = populated.replace("{engineer_feedback}", engineer_feedback)
 
         dataset_name = ctx.session.state.get("dataset_name", "unknown")
 
-        # Generate structured plan via LLM
-        plan = await self._generate_plan(populated, dataset_name)
+        # Detect Phase A analysis availability for v2 mode
+        column_analysis = ctx.session.state.get("column_analysis", "")
+        use_v2 = bool(column_analysis and column_analysis != "{}")
+
+        if use_v2:
+            # --- v2 path: enriched plan with Phase A column analysis ---
+            logger.info("Phase A column_analysis detected; using v2 enriched plan prompt")
+            template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt_v2.txt"
+            template = template_path.read_text()
+
+            # Truncate sampled_data to header + 5 rows for v2
+            if sampled_data:
+                sampled_lines = sampled_data.split("\n")
+                sampled_data_truncated = "\n".join(sampled_lines[:6])
+            else:
+                sampled_data_truncated = ""
+
+            populated = template.replace("{column_analysis_json}", column_analysis)
+            populated = populated.replace("{candidate_pool_json}", candidate_pool_json)
+            populated = populated.replace("{schema_vocab_content}", schema_vocab)
+            populated = populated.replace("{sampled_data}", sampled_data_truncated)
+            populated = populated.replace("{engineer_feedback}", engineer_feedback)
+
+            plan = await self._generate_plan(populated, dataset_name, use_v2=True)
+        else:
+            # --- v1 path: original plan generation (unchanged) ---
+            template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt.txt"
+            template = template_path.read_text()
+
+            populated = template.replace("{skeleton_summary}", skeleton)
+            populated = populated.replace("{schema_vocab_content}", schema_vocab)
+            populated = populated.replace("{sampled_data}", sampled_data)
+            populated = populated.replace("{statvar_summary}", statvar_summary)
+            populated = populated.replace("{candidate_pool_json}", candidate_pool_json)
+            populated = populated.replace("{engineer_feedback}", engineer_feedback)
+
+            plan = await self._generate_plan(populated, dataset_name)
 
         # Serialize to JSON
         plan_json = plan.model_dump_json(indent=2)
@@ -190,19 +218,31 @@ class MappingPlanAgent(BaseAgent):
             ))]
         ))
 
-    async def _generate_plan(self, prompt: str, dataset_name: str) -> MappingPlan:
-        """Call Gemini with structured output to generate the mapping plan."""
+    async def _generate_plan(
+        self, prompt: str, dataset_name: str, use_v2: bool = False,
+    ) -> MappingPlan:
+        """Call Gemini with structured output to generate the mapping plan.
+
+        When *use_v2* is True, uses the EnrichedMappingPlan schema with a
+        larger output-token budget so the LLM can return the richer plan.
+        """
         client = genai.Client()
 
-        # Build the JSON schema from the Pydantic model for Gemini structured output
-        plan_schema = MappingPlan.model_json_schema()
+        if use_v2:
+            from src.api.models.plan import EnrichedMappingPlan
+
+            plan_schema = EnrichedMappingPlan.model_json_schema()
+            max_tokens = 16384
+        else:
+            plan_schema = MappingPlan.model_json_schema()
+            max_tokens = 8192
 
         response = await client.aio.models.generate_content(
             model=self._model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=8192,
+                max_output_tokens=max_tokens,
                 response_mime_type="application/json",
                 response_schema=plan_schema,
             ),
@@ -210,7 +250,12 @@ class MappingPlanAgent(BaseAgent):
 
         # Parse via Pydantic for validation
         try:
-            plan = MappingPlan.model_validate_json(response.text)
+            if use_v2:
+                from src.api.models.plan import EnrichedMappingPlan
+
+                plan = EnrichedMappingPlan.model_validate_json(response.text)
+            else:
+                plan = MappingPlan.model_validate_json(response.text)
         except Exception as e:
             logger.error("Failed to parse structured output: %s. Raw: %s", e, response.text[:500])
             raise
