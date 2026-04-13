@@ -828,6 +828,20 @@ def run_dataset_pipeline(
             if Path(plan_path).exists():
                 mapping_plan = Path(plan_path).read_text()
 
+            # Read structured plan JSON (written by MappingPlanAgent)
+            mapping_plan_json = ""
+            plan_json_path = out / "mapping_plan.json"
+            if plan_json_path.exists():
+                mapping_plan_json = plan_json_path.read_text()
+            if not mapping_plan_json:
+                mapping_plan_json = final_state.get("mapping_plan_json", "")
+
+            # Read candidate pool (written by CandidateRetrieverAgent to session state)
+            candidate_pool = final_state.get("candidate_pool", "")
+
+            # Read column analysis (written by ColumnAnalyzerAgent to session state)
+            column_analysis = final_state.get("column_analysis", "")
+
             skeleton_summary = ""
             data_context_dict = {}
             data_context_path = out / "data_context.json"
@@ -881,9 +895,12 @@ def run_dataset_pipeline(
                 "schema_category": schema_category,
                 "schema_vocab_content": schema_vocab_content,
                 "mapping_plan": mapping_plan,
+                "mapping_plan_json": mapping_plan_json,
                 "sampled_data_path": sampled_data_path,
                 "data_context": data_context_dict,
                 "schemaorg_column_mappings": schemaorg_mappings,
+                "candidate_pool": candidate_pool,
+                "column_analysis": column_analysis,
             }
 
         # Determine success by checking actual artifacts

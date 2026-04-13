@@ -47,7 +47,14 @@ async def get_plan(run_id: str):
     # Try structured JSON first
     json_path = run_dir / "output" / dataset_name / "mapping_plan.json"
     if json_path.exists():
-        plan = MappingPlan.model_validate_json(json_path.read_text())
+        raw = json_path.read_text()
+        plan_data = json.loads(raw)
+        # Try EnrichedMappingPlan first, fall back to MappingPlan
+        if "statvar_blueprint" in plan_data:
+            from src.api.models.plan import EnrichedMappingPlan
+            plan = EnrichedMappingPlan.model_validate(plan_data)
+        else:
+            plan = MappingPlan.model_validate(plan_data)
         return plan.model_dump()
 
     # Fall back: check phase1_state.json
@@ -56,7 +63,12 @@ async def get_plan(run_id: str):
         phase1 = json.loads(phase1_path.read_text())
         plan_json = phase1.get("mapping_plan_json", "")
         if plan_json:
-            plan = MappingPlan.model_validate_json(plan_json)
+            plan_data = json.loads(plan_json)
+            if "statvar_blueprint" in plan_data:
+                from src.api.models.plan import EnrichedMappingPlan
+                plan = EnrichedMappingPlan.model_validate(plan_data)
+            else:
+                plan = MappingPlan.model_validate(plan_data)
             return plan.model_dump()
 
     raise HTTPException(status_code=404, detail="No structured plan found for this run")
@@ -405,6 +417,7 @@ async def resume_run(run_id: str, request: Request):
 
 @router.get("/runs/{run_id}/preview")
 async def preview_data(run_id: str, rows: int = 100):
+    rows = min(max(rows, 1), 5000)  # Bound to prevent OOM
     """Return a preview of the uploaded CSV data."""
     run = get_run(run_id)
     if run is None:
