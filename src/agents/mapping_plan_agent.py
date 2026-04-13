@@ -110,6 +110,78 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
             lines.append(f"- {note}")
         lines.append("")
 
+    # --- Enriched plan sections (only present on EnrichedMappingPlan) ---
+
+    # Composite Key
+    if hasattr(plan, "composite_key") and plan.composite_key:
+        lines.append("## Composite Key")
+        lines.append(", ".join(f"`{k}`" for k in plan.composite_key))
+        lines.append("")
+
+    # StatVar Blueprint
+    if hasattr(plan, "statvar_blueprint") and plan.statvar_blueprint:
+        bp = plan.statvar_blueprint
+        lines.append("## StatVar Blueprint")
+        lines.append("")
+        lines.append("**Base properties:**")
+        for prop in bp.base_properties:
+            lines.append(f"- `{prop.name}` = `{prop.value}`")
+        if bp.constraint_columns:
+            lines.append(f"- **Constraint columns:** {', '.join(f'`{c}`' for c in bp.constraint_columns)}")
+        if bp.measure_columns:
+            lines.append(f"- **Measure columns:** {', '.join(f'`{c}`' for c in bp.measure_columns)}")
+        lines.append("")
+
+    # Value Dictionaries
+    if hasattr(plan, "value_dictionaries") and plan.value_dictionaries:
+        lines.append("## Value Dictionaries")
+        lines.append("")
+        for vd in plan.value_dictionaries:
+            lines.append(f"### {vd.column_name}")
+            lines.append(f"DC property: `{vd.dc_property}`")
+            lines.append("")
+            lines.append("| Raw Value | Action | DCID | Reason |")
+            lines.append("|-----------|--------|------|--------|")
+            for m in vd.mappings:
+                dcid_str = m.dcid if m.dcid else "—"
+                lines.append(f"| {m.raw_value} | {m.action} | {dcid_str} | {m.reason} |")
+            lines.append("")
+
+    # Column Relationships (filter out "independent" type)
+    if hasattr(plan, "column_relationships") and plan.column_relationships:
+        meaningful = [r for r in plan.column_relationships if r.relationship.value != "independent"]
+        if meaningful:
+            lines.append("## Column Relationships")
+            lines.append("")
+            lines.append("| Column A | Relationship | Column B | Evidence |")
+            lines.append("|----------|-------------|----------|----------|")
+            for rel in meaningful:
+                lines.append(
+                    f"| {rel.column_a} | {rel.relationship.value} | {rel.column_b} | {rel.evidence} |"
+                )
+            lines.append("")
+
+    # Place Resolution
+    if hasattr(plan, "place_resolution") and plan.place_resolution:
+        pr = plan.place_resolution
+        lines.append("## Place Resolution")
+        lines.append(f"- **Column:** `{pr.column_name}`")
+        lines.append(f"- **Format:** {pr.format_detected}")
+        lines.append(f"- **Prefix rule:** `{pr.prefix_rule}`")
+        if pr.pad_zeros is not None:
+            lines.append(f"- **Pad zeros:** {pr.pad_zeros}")
+        lines.append(f"- **Resolution rate:** {pr.resolution_rate}")
+        lines.append("")
+
+    # Time Resolution
+    if hasattr(plan, "time_resolution") and plan.time_resolution:
+        tr = plan.time_resolution
+        lines.append("## Time Resolution")
+        lines.append(f"- **Columns:** {', '.join(f'`{c}`' for c in tr.columns)}")
+        lines.append(f"- **Format:** {tr.format_detected}")
+        lines.append(f"- **Normalization rule:** {tr.normalization_rule}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
