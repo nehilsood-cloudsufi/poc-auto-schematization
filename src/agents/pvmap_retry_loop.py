@@ -563,17 +563,16 @@ class StatePreparationAgent(BaseAgent):
                     mcp_url_val = ctx.session.state.get("mcp_url")
                     if mcp_enabled and mcp_url_val:
                         try:
-                            import asyncio as _asyncio
                             from src.pipeline.pvmap_skeleton.mcp_enrichment import (
                                 enrich_via_mcp_hybrid,
                                 enrich_skeleton_with_results,
                                 format_dimension_reference,
                             )
-                            enrichment = _asyncio.run(enrich_via_mcp_hybrid(
+                            enrichment = await enrich_via_mcp_hybrid(
                                 data_context=data_context,
                                 verification=verification,
                                 mcp_url=mcp_url_val,
-                            ))
+                            )
                             if enrichment.get("enrichment_success"):
                                 pvmap_skeleton = enrich_skeleton_with_results(
                                     pvmap_skeleton, enrichment,
@@ -952,10 +951,37 @@ class StatePreparationAgent(BaseAgent):
         'populated_pvmap_prompt', which the generator's instruction
         ({populated_pvmap_prompt}) resolves at runtime.
 
+        If an enriched mapping plan (with statvar_blueprint) is available in
+        state as 'approved_plan_json', the executor prompt is used instead of
+        the standard PVMAP prompt. The executor prompt is a simpler, more
+        mechanical translation that follows the pre-approved plan faithfully.
+
         Template placeholders ({{...}}) are filled with state values.
         PVMAP placeholders ({Data}, {Number}, {Year}, etc.) are then escaped
         to [DATA], [NUMBER], [Year] to prevent ADK template resolution errors.
         """
+        # =================================================================
+        # Check if we have an enriched plan — use executor prompt if so
+        # =================================================================
+        approved_plan_json = ctx.session.state.get("approved_plan_json", "")
+        use_executor = False
+        enriched_plan = None
+
+        if approved_plan_json:
+            try:
+                import json
+                plan_data = json.loads(approved_plan_json) if isinstance(approved_plan_json, str) else approved_plan_json
+                if "statvar_blueprint" in plan_data:
+                    from src.api.models.plan import EnrichedMappingPlan
+                    enriched_plan = EnrichedMappingPlan.model_validate(plan_data)
+                    use_executor = True
+            except Exception as e:
+                logger.warning("Failed to parse enriched plan, falling back to standard prompt: %s", e)
+
+        if use_executor and enriched_plan is not None:
+            self._populate_executor_prompt(ctx, enriched_plan)
+            return
+
         prompt_version = ctx.session.state.get("prompt_version", "v2")
         template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
         template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
@@ -1065,6 +1091,12 @@ class StatePreparationAgent(BaseAgent):
             dim_ref = ctx.session.state.get("dimension_value_reference", "")
             populated = populated.replace("{{DIMENSION_VALUE_REFERENCE}}", dim_ref)
 
+            # v3 split-feedback placeholders
+            human_fb_prompt = ctx.session.state.get("human_feedback_prompt", "")
+            auto_fb_prompt = ctx.session.state.get("auto_feedback_prompt", "")
+            populated = populated.replace("{{HUMAN_FEEDBACK}}", human_fb_prompt)
+            populated = populated.replace("{{AUTO_FEEDBACK}}", auto_fb_prompt)
+
             # Inject PVMAP skeleton — strip entire section if empty
             pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
             if pvmap_skeleton.strip():
@@ -1106,6 +1138,153 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["populated_pvmap_prompt"] = (
                 "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
             )
+
+    def _populate_executor_prompt(
+        self, ctx: InvocationContext, enriched_plan: "Any"
+    ) -> None:
+        """Populate the executor prompt template from an enriched mapping plan.
+
+        The executor prompt is used when a human-approved enriched plan
+        (with statvar_blueprint, value_dictionaries, etc.) is available.
+        It produces a more mechanical, plan-faithful PVMAP generation prompt.
+        """
+        template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "pvmap_executor_prompt.txt"
+        if not template_path.exists():
+            logger.error("Executor prompt template not found: %s", template_path)
+            ctx.session.state["populated_pvmap_prompt"] = (
+                "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+            )
+            return
+
+        try:
+            template = template_path.read_text(encoding="utf-8")
+
+            # --- Build {{PLAN_COLUMN_TABLE}} ---
+            table_lines = ["| Column | Role | Property | Value Expression |",
+                           "| --- | --- | --- | --- |"]
+            for col in enriched_plan.active_columns:
+                sel = col.candidates[col.selected_index] if col.candidates else None
+                prop = sel.property if sel else ""
+                val_expr = sel.value_expression if sel else ""
+                table_lines.append(
+                    f"| {col.column_name} | {col.role.value} | {prop} | {val_expr} |"
+                )
+            plan_column_table = "\n".join(table_lines)
+
+            # --- Build {{STATVAR_BLUEPRINT}} ---
+            bp = enriched_plan.statvar_blueprint
+            bp_lines = [
+                f"Base: {bp.base_properties}",
+                f"Constraint columns: {bp.constraint_columns}",
+                f"Measure columns: {bp.measure_columns}",
+            ]
+            statvar_blueprint = "\n".join(bp_lines)
+
+            # --- Build {{VALUE_DICTIONARIES}} ---
+            vd_lines: list[str] = []
+            for vd in enriched_plan.value_dictionaries:
+                vd_lines.append(f"**{vd.column_name}** (property: {vd.dc_property}):")
+                for m in vd.mappings:
+                    if m.action == "MAP" and m.dcid:
+                        vd_lines.append(f"  - {m.raw_value} -> {m.dcid}")
+                    elif m.action == "DROP_CONSTRAINT":
+                        vd_lines.append(
+                            f"  - {m.raw_value} -> DROP_CONSTRAINT ({m.reason})"
+                        )
+                    elif m.action == "DROP_ROW":
+                        vd_lines.append(
+                            f"  - {m.raw_value} -> DROP_ROW ({m.reason})"
+                        )
+                    else:
+                        vd_lines.append(f"  - {m.raw_value} -> {m.dcid or m.action} ({m.reason})")
+                if vd.total_indicators:
+                    vd_lines.append(f"  Total indicators: {vd.total_indicators}")
+            value_dictionaries = "\n".join(vd_lines) if vd_lines else "(none)"
+
+            # --- Build {{PLACE_RESOLUTION}} ---
+            if enriched_plan.place_resolution:
+                pr = enriched_plan.place_resolution
+                place_lines = [
+                    f"Column: {pr.column_name}",
+                    f"Format: {pr.format_detected}",
+                    f"Prefix rule: {pr.prefix_rule}",
+                ]
+                if pr.pad_zeros is not None:
+                    place_lines.append(f"Pad zeros: {pr.pad_zeros}")
+                place_lines.append(f"Resolution rate: {pr.resolution_rate:.0%}")
+                place_resolution = "\n".join(place_lines)
+            else:
+                place_resolution = "(none)"
+
+            # --- Build {{TIME_RESOLUTION}} ---
+            if enriched_plan.time_resolution:
+                tr = enriched_plan.time_resolution
+                time_resolution = (
+                    f"Columns: {tr.columns}\n"
+                    f"Format: {tr.format_detected}\n"
+                    f"Normalization: {tr.normalization_rule}"
+                )
+            else:
+                time_resolution = "(none)"
+
+            # --- Build {{COLUMN_RELATIONSHIPS}} ---
+            rel_lines: list[str] = []
+            for cr in enriched_plan.column_relationships:
+                if cr.relationship.value != "independent":
+                    rel_lines.append(
+                        f"- {cr.column_a} <-> {cr.column_b}: "
+                        f"{cr.relationship.value} (strength={cr.strength:.2f}) — "
+                        f"{cr.pvmap_implication}"
+                    )
+            column_relationships = "\n".join(rel_lines) if rel_lines else "(none)"
+
+            # --- Build {{PVMAP_SKELETON}} from state ---
+            pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
+
+            # --- Build {{SAMPLED_DATA}} — header + 5 rows ---
+            sampled_data_full = ctx.session.state.get("sampled_data", "")
+            if sampled_data_full:
+                sd_lines = sampled_data_full.split("\n")
+                # Keep header + first 5 data rows
+                sampled_data = "\n".join(sd_lines[:6])
+            else:
+                sampled_data = "(no sampled data available)"
+
+            # --- Fill template ---
+            populated = template.replace("{{PLAN_COLUMN_TABLE}}", plan_column_table)
+            populated = populated.replace("{{STATVAR_BLUEPRINT}}", statvar_blueprint)
+            populated = populated.replace("{{VALUE_DICTIONARIES}}", value_dictionaries)
+            populated = populated.replace("{{PLACE_RESOLUTION}}", place_resolution)
+            populated = populated.replace("{{TIME_RESOLUTION}}", time_resolution)
+            populated = populated.replace("{{COLUMN_RELATIONSHIPS}}", column_relationships)
+            populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
+            populated = populated.replace("{{SAMPLED_DATA}}", sampled_data)
+
+            # Escape all {word} patterns to prevent ADK template resolution
+            populated = escape_pvmap_placeholders(populated)
+
+            ctx.session.state["populated_pvmap_prompt"] = populated
+            logger.info(
+                "Populated executor prompt: %d chars (enriched plan for '%s')",
+                len(populated), enriched_plan.dataset_name,
+            )
+
+        except Exception as e:
+            logger.error("Failed to populate executor prompt: %s", e)
+            # Fall back to standard prompt population
+            logger.info("Falling back to standard prompt template after executor failure")
+            # Reset the method to use standard path by clearing the early return
+            prompt_version = ctx.session.state.get("prompt_version", "v2")
+            template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
+            fallback_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
+            if fallback_path.exists():
+                ctx.session.state["populated_pvmap_prompt"] = (
+                    escape_pvmap_placeholders(fallback_path.read_text(encoding="utf-8"))
+                )
+            else:
+                ctx.session.state["populated_pvmap_prompt"] = (
+                    "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+                )
 
     def _trim_session_events(self, ctx: InvocationContext) -> None:
         """Trim old session events to prevent token overflow across iterations.
@@ -1307,7 +1486,7 @@ class ConditionalFeedbackAgent(BaseAgent):
         name: str = "UnifiedFeedback",
         model: str = "gemini-2.5-flash",
         thinking_level: Optional[str] = None,
-        feedback_prompt_version: str = "v1",
+        feedback_prompt_version: str = "v2",
     ):
         """
         Initialize ConditionalFeedbackAgent.
@@ -1578,7 +1757,7 @@ class ConditionalFeedbackAgent(BaseAgent):
 
             # Format quality_metrics for display (writes string to state)
             metrics_str = self._format_metrics(quality_metrics)
-            ctx.session.state["quality_metrics"] = metrics_str
+            ctx.session.state["quality_metrics_display"] = metrics_str
 
             # Format GT score section
             gt_section = self._format_gt_section(quality_metrics)
@@ -2233,6 +2412,10 @@ class TieredCorrectionAgent(BaseAgent):
                             best_pvmap = corrected
                             best_rows = tier1_rows
                             best_valid = True
+                            ctx.session.state["best_data_rows"] = tier1_rows
+                            ctx.session.state["best_pvmap_csv"] = corrected
+                            ctx.session.state["best_attempt_number"] = ctx.session.state.get("attempt_number", 0)
+                            ctx.session.state["best_validation_passed"] = True
 
                         # Evaluate quality to check if we can stop
                         score, acceptable = self._evaluate_quality(ctx, corrected)
@@ -2334,6 +2517,10 @@ class TieredCorrectionAgent(BaseAgent):
                             best_pvmap = patched
                             best_rows = tier2_rows
                             best_valid = True
+                            ctx.session.state["best_data_rows"] = tier2_rows
+                            ctx.session.state["best_pvmap_csv"] = patched
+                            ctx.session.state["best_attempt_number"] = ctx.session.state.get("attempt_number", 0)
+                            ctx.session.state["best_validation_passed"] = True
 
                         score, acceptable = self._evaluate_quality(ctx, patched)
                         if acceptable:
@@ -2394,7 +2581,7 @@ class TieredCorrectionAgent(BaseAgent):
                 ctx.session.state["pvmap_csv"] = best_pvmap
                 if filtered_logs:
                     ctx.session.state["error_feedback"] = filtered_logs.to_summary()
-                ctx.session.state["attempt_number"] = 2
+                ctx.session.state["attempt_number"] = -1  # StatePrep increments to 0, treating Tier 3 as a fresh start
 
                 # Trim session events to prevent token overflow
                 self._trim_session_events(ctx)
@@ -2408,6 +2595,10 @@ class TieredCorrectionAgent(BaseAgent):
                 # Force re-read of file-backed state
                 ctx.session.state.pop("sampled_data", None)
                 ctx.session.state.pop("schema_examples", None)
+
+                # Clear stale feedback state before Tier 3 fresh start
+                ctx.session.state.pop("auto_feedback_raw", None)
+                ctx.session.state.pop("error_feedback", None)
 
                 # Run StatePrep to re-populate state
                 state_prep = StatePreparationAgent(name="TieredStatePrep")
@@ -2613,7 +2804,7 @@ def create_pvmap_retry_loop(
     mcp_url: Optional[str] = None,
     min_attempts: Optional[int] = None,
     thinking_level: Optional[str] = None,
-    feedback_prompt_version: str = "v1",
+    feedback_prompt_version: str = "v2",
 ) -> SequentialAgent:
     """
     Create PVMAP generation pipeline with tiered correction.
