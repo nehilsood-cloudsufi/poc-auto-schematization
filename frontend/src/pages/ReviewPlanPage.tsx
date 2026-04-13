@@ -9,7 +9,7 @@
  * - Global notes / warnings
  * - Approve button that sends the edited plan to the backend
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +20,7 @@ import { StaticProperties } from "@/components/PlanReview/StaticProperties";
 import { IgnoredColumns } from "@/components/PlanReview/IgnoredColumns";
 import { PlanFeedback } from "@/components/PlanReview/PlanFeedback";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { getPlan, approvePlan, generatePvmap, stopRun, regeneratePlan, addPlanNote } from "@/lib/api";
+import { getPlan, approvePlan, generatePvmap, stopRun, regeneratePlan, addPlanNote, updatePlan } from "@/lib/api";
 import { toast } from "sonner";
 import { PLAN_PHASES } from "@/types";
 import type { MappingPlan, ColumnMapping } from "@/types";
@@ -31,6 +31,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
+  Code2,
+  Table2,
+  Save,
 } from "lucide-react";
 
 interface ReviewPlanPageProps {
@@ -52,6 +55,14 @@ export function ReviewPlanPage({
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [viewMode, setViewMode] = useState<"structured" | "json">("structured");
+  const [jsonText, setJsonText] = useState("");
+  const [jsonDirty, setJsonDirty] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [savingJson, setSavingJson] = useState(false);
+
+  const skeletonWidths8 = useMemo(() => Array.from({ length: 8 }, () => `${50 + Math.random() * 50}%`), []);
+  const skeletonWidths12 = useMemo(() => Array.from({ length: 12 }, () => `${40 + Math.random() * 60}%`), []);
 
   // --- WebSocket: listen for plan generation progress ---
   const { events } = useWebSocket({
@@ -71,13 +82,13 @@ export function ReviewPlanPage({
 
   // --- Load plan when ready (via WebSocket completion) ---
   useEffect(() => {
-    if (!planReady || !runId) return;
+    if (!planReady || !runId || plan !== null) return;
     setLoadingPlan(true);
     getPlan(runId)
       .then((data) => setPlan(data))
       .catch(() => toast.error("Failed to load plan"))
       .finally(() => setLoadingPlan(false));
-  }, [planReady, runId]);
+  }, [planReady, runId, plan]);
 
   // --- On mount: check if plan already exists (e.g. page refresh) ---
   useEffect(() => {
@@ -92,7 +103,43 @@ export function ReviewPlanPage({
       .catch(() => {});
   }, [runId]);
 
+  // --- Sync JSON text when plan loads or changes from structured edits ---
+  useEffect(() => {
+    if (plan && !jsonDirty) {
+      setJsonText(JSON.stringify(plan, null, 2));
+      setJsonError(null);
+    }
+  }, [plan, jsonDirty]);
+
   // --- Handlers ---
+
+  const handleJsonChange = (value: string) => {
+    setJsonText(value);
+    setJsonDirty(true);
+    // Validate JSON on each change
+    try {
+      JSON.parse(value);
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : "Invalid JSON");
+    }
+  };
+
+  const handleSaveJson = async () => {
+    if (!runId || jsonError) return;
+    setSavingJson(true);
+    try {
+      const parsed = JSON.parse(jsonText);
+      await updatePlan(runId, parsed);
+      setPlan(parsed as MappingPlan);
+      setJsonDirty(false);
+      toast.success("Plan saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save plan");
+    } finally {
+      setSavingJson(false);
+    }
+  };
 
   const handleColumnUpdate = (columnName: string, updates: Partial<ColumnMapping>) => {
     setPlan(prev => prev ? {
@@ -153,6 +200,7 @@ export function ReviewPlanPage({
 
   const handleRegenerate = async (feedback: string, deep: boolean) => {
     if (!runId) return;
+    const previousPlan = plan;
     setRegenerating(true);
     setPlanReady(false);
     setPlan(null);
@@ -163,6 +211,7 @@ export function ReviewPlanPage({
       toast.error(err instanceof Error ? err.message : "Failed to regenerate");
       setRegenerating(false);
       setPlanReady(true);
+      setPlan(previousPlan);
     }
   };
 
@@ -189,8 +238,8 @@ export function ReviewPlanPage({
         <Card className="shadow-sm mt-4">
           <CardContent className="pt-6">
             <div className="space-y-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: `${50 + Math.random() * 50}%` }} />
+              {skeletonWidths8.map((w, i) => (
+                <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: w }} />
               ))}
             </div>
           </CardContent>
@@ -207,8 +256,8 @@ export function ReviewPlanPage({
         <Card className="shadow-sm mt-6">
           <CardContent className="pt-6">
             <div className="space-y-3">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: `${40 + Math.random() * 60}%` }} />
+              {skeletonWidths12.map((w, i) => (
+                <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: w }} />
               ))}
             </div>
           </CardContent>
@@ -233,83 +282,174 @@ export function ReviewPlanPage({
           <span className="text-sm text-green-600 dark:text-green-400 font-medium">Plan Ready</span>
         </div>
       </div>
-      <p className="text-muted-foreground mb-6">
-        Dataset: <span className="font-mono font-medium">{datasetName}</span>
+      <p className="text-muted-foreground mb-4">
+        Dataset: <span className="font-mono font-medium">{plan?.dataset_name || datasetName}</span>
       </p>
 
-      {/* Section 1: Dataset Understanding (read-only) */}
-      <Card className="shadow-sm mb-4">
-        <CardContent className="pt-5 pb-4">
-          <h2 className="text-sm font-semibold mb-3">Dataset Understanding</h2>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Archetype</dt>
-            <dd className="font-medium">{plan.understanding.archetype}</dd>
-            <dt className="text-muted-foreground">Observation Grain</dt>
-            <dd>{plan.understanding.observation_grain}</dd>
-            <dt className="text-muted-foreground">Key Insight</dt>
-            <dd>{plan.understanding.key_insight}</dd>
-          </dl>
-        </CardContent>
-      </Card>
-
-      {/* Section 2: Active Column Mappings */}
-      <div className="mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <h2 className="text-sm font-semibold">Column Mappings</h2>
-          <span className="text-xs text-muted-foreground">
-            {plan.active_columns.length} columns
-          </span>
-          {ambiguousCount > 0 && (
-            <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-              <AlertTriangle className="w-3 h-3" />
-              {ambiguousCount} ambiguous
-            </span>
-          )}
-        </div>
-        <ActiveMappingsTable
-          columns={plan.active_columns}
-          onUpdate={handleColumnUpdate}
-        />
+      {/* View mode toggle */}
+      <div className="flex items-center gap-1 mb-4 border rounded-md p-0.5 w-fit bg-muted/50">
+        <button
+          onClick={() => {
+            if (viewMode === "json" && jsonDirty) {
+              // Sync JSON edits back to structured view
+              try {
+                const parsed = JSON.parse(jsonText);
+                setPlan(parsed as MappingPlan);
+                setJsonDirty(false);
+              } catch {
+                toast.error("Fix JSON errors before switching to structured view");
+                return;
+              }
+            }
+            setViewMode("structured");
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors ${
+            viewMode === "structured"
+              ? "bg-background shadow-sm font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Table2 className="w-3.5 h-3.5" />
+          Structured
+        </button>
+        <button
+          onClick={() => {
+            // Sync current plan state to JSON when switching
+            if (plan) {
+              setJsonText(JSON.stringify(plan, null, 2));
+              setJsonDirty(false);
+              setJsonError(null);
+            }
+            setViewMode("json");
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors ${
+            viewMode === "json"
+              ? "bg-background shadow-sm font-medium"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Code2 className="w-3.5 h-3.5" />
+          JSON Editor
+        </button>
       </div>
 
-      {/* Section 3: Static Properties */}
-      {plan.static_properties.length > 0 && (
-        <Card className="shadow-sm mb-4">
-          <CardContent className="pt-5 pb-4">
-            <h2 className="text-sm font-semibold mb-3">Static Properties</h2>
-            <StaticProperties
-              properties={plan.static_properties}
-              onUpdate={handleStaticUpdate}
+      {viewMode === "json" ? (
+        <>
+          {/* JSON Editor View */}
+          <Card className="shadow-sm mb-4">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold">Plan JSON</h2>
+                <div className="flex items-center gap-2">
+                  {jsonDirty && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
+                  )}
+                  {jsonError && (
+                    <span className="text-xs text-destructive">{jsonError}</span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveJson}
+                    disabled={savingJson || !!jsonError || !jsonDirty}
+                    className="gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {savingJson ? "Saving..." : "Save Edits"}
+                  </Button>
+                </div>
+              </div>
+              <textarea
+                value={jsonText}
+                onChange={(e) => handleJsonChange(e.target.value)}
+                className={`w-full font-mono text-xs leading-relaxed p-3 rounded-md border bg-muted/30 resize-vertical focus:outline-none focus:ring-2 focus:ring-ring ${
+                  jsonError ? "border-destructive focus:ring-destructive" : ""
+                }`}
+                style={{ minHeight: "400px", height: "60vh", maxHeight: "80vh" }}
+                spellCheck={false}
+              />
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <>
+          {/* Structured View (existing sections) */}
+
+          {/* Section 1: Dataset Understanding (read-only) */}
+          <Card className="shadow-sm mb-4">
+            <CardContent className="pt-5 pb-4">
+              <h2 className="text-sm font-semibold mb-3">Dataset Understanding</h2>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Archetype</dt>
+                <dd className="font-medium">{plan.understanding.archetype}</dd>
+                <dt className="text-muted-foreground">Observation Grain</dt>
+                <dd>{plan.understanding.observation_grain}</dd>
+                <dt className="text-muted-foreground">Key Insight</dt>
+                <dd>{plan.understanding.key_insight}</dd>
+              </dl>
+            </CardContent>
+          </Card>
+
+          {/* Section 2: Active Column Mappings */}
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-sm font-semibold">Column Mappings</h2>
+              <span className="text-xs text-muted-foreground">
+                {plan.active_columns.length} columns
+              </span>
+              {ambiguousCount > 0 && (
+                <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  <AlertTriangle className="w-3 h-3" />
+                  {ambiguousCount} ambiguous
+                </span>
+              )}
+            </div>
+            <ActiveMappingsTable
+              columns={plan.active_columns}
+              onUpdate={handleColumnUpdate}
             />
-          </CardContent>
-        </Card>
+          </div>
+
+          {/* Section 3: Static Properties */}
+          {plan.static_properties.length > 0 && (
+            <Card className="shadow-sm mb-4">
+              <CardContent className="pt-5 pb-4">
+                <h2 className="text-sm font-semibold mb-3">Static Properties</h2>
+                <StaticProperties
+                  properties={plan.static_properties}
+                  onUpdate={handleStaticUpdate}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Section 4: Ignored Columns */}
+          {plan.ignored_columns.length > 0 && (
+            <div className="mb-4">
+              <IgnoredColumns columns={plan.ignored_columns} />
+            </div>
+          )}
+
+          {/* Section 5: Global Notes / Warnings */}
+          {plan.global_notes.length > 0 && (
+            <Card className="shadow-sm mb-4">
+              <CardContent className="pt-5 pb-4">
+                <h2 className="text-sm font-semibold mb-2">Notes</h2>
+                <ul className="space-y-1.5">
+                  {plan.global_notes.map((note, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
-      {/* Section 4: Ignored Columns */}
-      {plan.ignored_columns.length > 0 && (
-        <div className="mb-4">
-          <IgnoredColumns columns={plan.ignored_columns} />
-        </div>
-      )}
-
-      {/* Section 5: Global Notes / Warnings */}
-      {plan.global_notes.length > 0 && (
-        <Card className="shadow-sm mb-4">
-          <CardContent className="pt-5 pb-4">
-            <h2 className="text-sm font-semibold mb-2">Notes</h2>
-            <ul className="space-y-1.5">
-              {plan.global_notes.map((note, idx) => (
-                <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                  <span>{note}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Feedback & Notes Input */}
+      {/* Feedback & Notes Input (visible in both views) */}
       <Card className="shadow-sm mb-4">
         <CardContent className="pt-5 pb-4">
           <h2 className="text-sm font-semibold mb-3">Feedback & Notes</h2>

@@ -252,3 +252,34 @@ export const PHASE_LABELS: Record<string, string> = {
   MaxRetriesCheck: "Checking retry status",
   Evaluation: "Running evaluation",
 };
+
+// ── Enriched Plan Types ──────────────────────────────────
+
+export interface ColumnRelationship {
+  column_a: string;
+  column_b: string;
+  relationship: string;
+  strength: number;
+  evidence: string;
+  pvmap_implication: string;
+}
+
+export interface ValueMapping {
+  raw_value: string;
+  dcid: string | null;
+  action: string;
+  reason: string;
+}
+
+export interface ValueDictionary {
+  column_name: string;
+  dc_property: string;
+  mappings: ValueMapping[];
+  total_indicators: string[];
+}
+
+export interface StatVarBlueprint {
+  base_properties: Record<string, string>;
+  constraint_columns: string[];
+  measure_columns: string[];
+}

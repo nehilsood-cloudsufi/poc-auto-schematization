@@ -173,6 +173,16 @@ export async function getPlan(
   return request(`/runs/${runId}/plan`);
 }
 
+export async function updatePlan(
+  runId: string,
+  plan: Record<string, unknown>
+): Promise<{ status: string; message: string }> {
+  return request(`/runs/${runId}/plan`, {
+    method: "PUT",
+    body: JSON.stringify(plan),
+  });
+}
+
 export async function approvePlan(
   runId: string,
   plan: MappingPlan
@@ -226,8 +236,8 @@ export async function getPreview(
 export async function updateRun(
   runId: string,
   data: UpdateRunRequest,
-): Promise<Run> {
-  return request<Run>(`/runs/${runId}`, {
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(`/runs/${runId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
