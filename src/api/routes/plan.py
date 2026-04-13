@@ -74,6 +74,54 @@ async def get_plan(run_id: str, request: Request):
     raise HTTPException(status_code=404, detail="No structured plan found for this run")
 
 
+@router.get("/runs/{run_id}/plan/markdown")
+async def get_plan_markdown(run_id: str, request: Request):
+    """Return the mapping plan as human-readable markdown text."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    run_dir = Path(run.run_dir)
+    dataset_name = run.dataset_name
+
+    # Try markdown file from disk
+    md_path = run_dir / "output" / dataset_name / "mapping_plan.md"
+    if md_path.exists():
+        return {"markdown": md_path.read_text()}
+
+    # Generate from JSON
+    json_path = run_dir / "output" / dataset_name / "mapping_plan.json"
+    if json_path.exists():
+        from src.agents.mapping_plan_agent import _plan_to_markdown
+        raw = json_path.read_text()
+        plan_data = json.loads(raw)
+        if "statvar_blueprint" in plan_data:
+            from src.api.models.plan import EnrichedMappingPlan
+            plan_obj = EnrichedMappingPlan.model_validate(plan_data)
+        else:
+            plan_obj = MappingPlan.model_validate(plan_data)
+        md = _plan_to_markdown(plan_obj)
+        md_path.write_text(md)
+        return {"markdown": md}
+
+    # Fallback: phase1_state
+    phase1_path = run_dir / "phase1_state.json"
+    if phase1_path.exists():
+        phase1 = json.loads(phase1_path.read_text())
+        plan_json_str = phase1.get("mapping_plan_json", "")
+        if plan_json_str:
+            from src.agents.mapping_plan_agent import _plan_to_markdown
+            plan_data = json.loads(plan_json_str)
+            if "statvar_blueprint" in plan_data:
+                from src.api.models.plan import EnrichedMappingPlan
+                plan_obj = EnrichedMappingPlan.model_validate(plan_data)
+            else:
+                plan_obj = MappingPlan.model_validate(plan_data)
+            return {"markdown": _plan_to_markdown(plan_obj)}
+
+    raise HTTPException(status_code=404, detail="No plan found for this run")
+
+
 @router.put("/runs/{run_id}/plan")
 async def update_plan(run_id: str, body: dict, request: Request):
     """Accept full plan edit from user (JSON editor)."""
