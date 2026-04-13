@@ -39,6 +39,19 @@ def plan_to_skeleton_csv(plan: "MappingPlan") -> str:
         A CSV string in PVMAP format with a header row, column rows, and a
         static-properties row.
     """
+    # If EnrichedMappingPlan with mapping_rules that have pvmap_rows,
+    # use them directly instead of generating from candidates
+    if hasattr(plan, 'mapping_rules') and plan.mapping_rules:
+        all_pvmap_rows = []
+        for rule in plan.mapping_rules:
+            if rule.pvmap_rows:
+                all_pvmap_rows.extend(rule.pvmap_rows)
+        if all_pvmap_rows:
+            max_cols = max(len(row.split(",")) for row in all_pvmap_rows)
+            header = "key" + "," * (max_cols - 1)
+            lines = [header] + all_pvmap_rows
+            return "\n".join(lines) + "\n"
+
     # --- Collect all rows (as lists of cells) to determine max width ---
     rows: list[list[str]] = []
 

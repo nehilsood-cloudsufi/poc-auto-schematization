@@ -443,3 +443,80 @@ class TestFullEndToEnd:
 
         widths = {len(row) for row in rows}
         assert len(widths) == 1, f"Not all rows have the same width: {widths}"
+
+
+class TestMappingRules:
+    """Tests for EnrichedMappingPlan with mapping_rules containing pvmap_rows."""
+
+    def test_skeleton_from_mapping_rules(self):
+        """When mapping_rules have pvmap_rows, use them directly."""
+        from src.api.models.plan import (
+            EnrichedMappingPlan, DatasetUnderstanding, StatVarBlueprint,
+            StatVarProperty, MappingRule, ObservationTemplate,
+        )
+        from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
+
+        plan = EnrichedMappingPlan(
+            dataset_name="test",
+            understanding=DatasetUnderstanding(archetype="Long", observation_grain="row", key_insight="test"),
+            active_columns=[],
+            ignored_columns=[],
+            static_properties=[],
+            global_notes=[],
+            statvar_blueprint=StatVarBlueprint(
+                base_properties=[StatVarProperty(name="populationType", value="dcs:Person")],
+                constraint_columns=[], measure_columns=["Value"],
+            ),
+            composite_key=["A"],
+            mapping_rules=[
+                MappingRule(
+                    rule_id="r1", measure_column="Value", description="test",
+                    observation=ObservationTemplate(
+                        about_column="Country", about_expression="country/{Data}",
+                        date_column="Year", date_expression="{Number}",
+                        value_column="Value", value_expression="{Number}",
+                    ),
+                    pvmap_rows=[
+                        "Country,observationAbout,country/{Data}",
+                        "Year,observationDate,{Number}",
+                        "Value,value,{Number},populationType,dcs:Person",
+                    ],
+                ),
+            ],
+        )
+        csv = plan_to_skeleton_csv(plan)
+        assert "Country,observationAbout,country/{Data}" in csv
+        assert "Year,observationDate,{Number}" in csv
+        assert "Value,value,{Number},populationType,dcs:Person" in csv
+
+    def test_skeleton_without_mapping_rules_unchanged(self):
+        """Plans without mapping_rules use the existing candidate-based logic."""
+        from src.api.models.plan import (
+            EnrichedMappingPlan, DatasetUnderstanding, StatVarBlueprint,
+            StatVarProperty, ColumnMapping, ColumnRole, PropertyValueCandidate,
+            CandidateSource, StaticProperty,
+        )
+        from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
+
+        plan = EnrichedMappingPlan(
+            dataset_name="test",
+            understanding=DatasetUnderstanding(archetype="Long", observation_grain="row", key_insight="test"),
+            active_columns=[
+                ColumnMapping(column_name="Year", role=ColumnRole.OBSERVATION_DATE,
+                    candidates=[PropertyValueCandidate(property="observationDate", value_expression="[NUMBER]",
+                        confidence=0.95, source=CandidateSource.SCHEMA_ORG, reason="test")],
+                    evidence="test", selected_index=0),
+            ],
+            ignored_columns=[],
+            static_properties=[],
+            global_notes=[],
+            statvar_blueprint=StatVarBlueprint(
+                base_properties=[StatVarProperty(name="populationType", value="dcs:Person")],
+                constraint_columns=[], measure_columns=["Value"],
+            ),
+            composite_key=["Year"],
+            # No mapping_rules — should fall through to existing logic
+        )
+        csv = plan_to_skeleton_csv(plan)
+        assert "Year" in csv
+        assert "observationDate" in csv
