@@ -1143,8 +1143,8 @@ class TestDebugExampleExtraction:
         finally:
             counters_path.unlink()
 
-    def test_max_five_examples(self):
-        """At most 5 debug examples should be kept per error type."""
+    def test_all_examples_returned(self):
+        """All debug examples should be returned (no truncation at mining layer)."""
         lines = ['"key","value"', '"error-unresolved-place",100']
         for i in range(10):
             lines.append(f'"error-unresolved-place_val{i}",{10-i}')
@@ -1155,7 +1155,7 @@ class TestDebugExampleExtraction:
         try:
             result = filter_counters(counters_path)
             examples = result.error_examples.get('error-unresolved-place', [])
-            assert len(examples) == 5
+            assert len(examples) == 10
         finally:
             counters_path.unlink()
 

@@ -779,20 +779,16 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
         elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key:
             result.warnings[key] = value
 
-    # Mine debug examples for specific error types
-    _ERROR_TYPES_TO_MINE = [
-        'error-pvmap-dropped-undefined-property',
-        'error-unresolved-place',
-        'error-mismatched-svobs',
-        'error-duplicate-statvars',
-        'error-aggregate-invalid-values',
-        'error-statvar-missing-property',
-        'error-svobs-missing-property',
-    ]
-    for error_type in _ERROR_TYPES_TO_MINE:
-        if error_type not in result.errors:
-            continue
-        prefix = f"{error_type}_"
+    # Mine debug examples universally for ALL error/dropped/warning types
+    # (replaces old hardcoded 7-type list)
+    all_error_types = set(result.errors.keys())
+    # Also mine dropped and warning counter types that have detail suffixes
+    for key in raw_counters:
+        if key in ('dropped-invalid-svobs', 'dropped-invalid-statvars',
+                   'dropped-statvars-without-svobs'):
+            all_error_types.add(key)
+    for err_type in all_error_types:
+        prefix = f"{err_type}_"
         examples = []
         for key, value in raw_counters.items():
             if key.startswith(prefix):
@@ -801,7 +797,7 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
                     examples.append((example_val, value))
         if examples:
             examples.sort(key=lambda x: -x[1])
-            result.error_examples[error_type] = examples[:5]
+            result.error_examples[err_type] = examples
 
     # =====================================================================
     # Rich signal extraction from non-prefixed counters
@@ -815,7 +811,7 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
             if prop_name not in SKIP_CARDINALITY_PROPS:
                 result.property_cardinality[prop_name] = value
 
-    # (b) Per-StatVar observation counts from svobs-added_dcid:*
+    # (b) Per-StatVar observation counts from svobs-added_dcid:* and generated-svobs_*
     for key, value in raw_counters.items():
         if key.startswith('svobs-added_dcid:'):
             sv_name = key.replace('svobs-added_dcid:', '')
@@ -823,13 +819,21 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
             if len(sv_name) > 100:
                 sv_name = sv_name[:100] + '...'
             result.statvars_with_obs.append((sv_name, value))
+        elif key.startswith('generated-svobs_') and not key.endswith('.csv'):
+            sv_name = key[len('generated-svobs_'):]
+            if sv_name and not sv_name.startswith('/'):
+                result.statvars_with_obs.append((sv_name, value))
     result.statvars_with_obs.sort(key=lambda x: -x[1])
 
-    # (c) Dropped StatVars from dropped-statvars-without-svobs_*
+    # (c) Dropped StatVars from dropped-statvars-without-svobs_* and dropped-invalid-statvars_*
+    dropped_prefixes = ['dropped-invalid-statvars_', 'dropped-statvars-without-svobs_']
     for key, value in raw_counters.items():
-        if key.startswith('dropped-statvars-without-svobs_'):
-            sv_name = key.replace('dropped-statvars-without-svobs_', '')
-            result.dropped_statvars.append(sv_name)
+        for dp in dropped_prefixes:
+            if key.startswith(dp):
+                sv_name = key[len(dp):]
+                if sv_name and not sv_name.startswith('/'):
+                    if sv_name not in result.dropped_statvars:
+                        result.dropped_statvars.append(sv_name)
 
     # (d) Per-StatVar generation counts from generated-statvars_*
     for key, value in raw_counters.items():
