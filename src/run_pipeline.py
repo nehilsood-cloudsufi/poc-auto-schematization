@@ -343,21 +343,16 @@ def run_discovery(
     for _ in runner.run(user_id="pipeline_user", session_id=session_id, new_message=dummy_message):
         pass
 
-    # Step 2: Get the session properly using async and modify its state
-    async def set_session_state():
-        session = await runner.session_service.get_session(
-            session_id=session_id,
-            user_id="pipeline_user",
-            app_name="agents"
-        )
-        if session:
-            session.state["input_dir"] = str(input_dir)
-            session.state["use_metadata"] = use_metadata
-            session.state["ground_truth_repo"] = ground_truth_repo
-            return True
-        return False
-
-    asyncio.run(set_session_state())
+    # Step 2: Inject state directly into the stored session object
+    # (get_session() returns a copy; we must access internal storage)
+    stored_sessions = getattr(runner.session_service, 'sessions', {})
+    for app_sessions in stored_sessions.values():
+        for user_sessions in app_sessions.values():
+            if session_id in user_sessions:
+                user_sessions[session_id].state["input_dir"] = str(input_dir)
+                user_sessions[session_id].state["use_metadata"] = use_metadata
+                user_sessions[session_id].state["ground_truth_repo"] = ground_truth_repo
+                break
 
     # Step 3: Run actual discovery
     user_message = types.Content(parts=[types.Part(text="Discover datasets")])
@@ -441,6 +436,9 @@ def run_dataset_pipeline(
     Returns:
         Final state dictionary
     """
+    if plan_only and from_plan:
+        raise ValueError("plan_only and from_plan are mutually exclusive — cannot skip plan generation and skip PVMAP generation simultaneously")
+
     # Generate session ID early for logging
     session_id = f"{dataset_name}_{uuid.uuid4().hex[:8]}"
 
@@ -509,11 +507,16 @@ def run_dataset_pipeline(
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
 
-    # Add CandidateRetriever + MappingPlanAgent + PlanValidator + PlanGate
+    # Add ColumnAnalyzer + CandidateRetriever + MappingPlanAgent + PlanValidator + PlanGate
     if not from_plan:
+        from src.pipeline.plan.column_analyzer import ColumnAnalyzerAgent
         from src.pipeline.plan.candidate_retriever import CandidateRetrieverAgent
         from src.agents.mapping_plan_agent import MappingPlanAgent
         from src.pipeline.plan.plan_validator import PlanValidatorAgent
+
+        column_analyzer_agent = ColumnAnalyzerAgent(name="ColumnAnalyzer")
+        sub_agents.append(column_analyzer_agent)
+        logger.info("ColumnAnalyzerAgent added to pipeline")
 
         retriever_agent = CandidateRetrieverAgent(name="CandidateRetriever")
         sub_agents.append(retriever_agent)

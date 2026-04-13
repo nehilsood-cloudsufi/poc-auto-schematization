@@ -492,3 +492,54 @@ def _build_coref_groups(pairs: List[Tuple[str, str]]) -> List[List[str]]:
         groups.setdefault(root, []).append(node)
 
     return [sorted(g) for g in groups.values() if len(g) > 1]
+
+
+# ---------------------------------------------------------------------------
+# ADK Agent Wrapper
+# ---------------------------------------------------------------------------
+
+from google.adk.agents import BaseAgent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from google.genai import types as genai_types
+import json as _json
+
+
+class ColumnAnalyzerAgent(BaseAgent):
+    """ADK agent that runs Phase A column analysis and stores results in state."""
+
+    def __init__(self, name: str = "ColumnAnalyzer"):
+        super().__init__(name=name)
+
+    async def _run_async_impl(self, ctx: InvocationContext):
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text="Running Phase A column relationship analysis...")]
+        ))
+
+        sampled_data_path = ctx.session.state.get("sampled_data_path", "")
+        if not sampled_data_path:
+            logger.warning("No sampled_data_path in state -- skipping column analysis")
+            ctx.session.state["column_analysis"] = "{}"
+            yield Event(author=self.name, content=genai_types.Content(
+                parts=[genai_types.Part(text="Skipped: no sampled data path")]
+            ))
+            return
+
+        from pathlib import Path
+        path = Path(str(sampled_data_path))
+        if not path.exists():
+            logger.warning("Sampled data file not found: %s", path)
+            ctx.session.state["column_analysis"] = "{}"
+            return
+
+        df = pd.read_csv(path, nrows=1000, encoding="utf-8", on_bad_lines="skip", low_memory=False)
+        analysis = analyze_columns(df)
+
+        ctx.session.state["column_analysis"] = _json.dumps(analysis.to_dict(), indent=2)
+
+        n_rels = len(analysis.relationships)
+        logger.info("Column analysis complete: %d relationships, composite key: %s", n_rels, analysis.composite_key)
+
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text=f"Phase A complete: {n_rels} relationships, key: {analysis.composite_key}")]
+        ))
