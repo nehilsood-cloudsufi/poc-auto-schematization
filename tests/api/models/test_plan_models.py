@@ -7,7 +7,11 @@ from src.api.models.plan import (
     StatVarProperty,
     ColumnRelationship,
     EnrichedMappingPlan,
+    IndicatorColumn,
+    IndicatorValueMapping,
     MappingPlan,
+    MappingRule,
+    ObservationTemplate,
     PlaceResolution,
     RelationshipType,
     StatVarBlueprint,
@@ -395,3 +399,260 @@ class TestEnrichedMappingPlan:
         assert restored.composite_key == ["geo", "year"]
         assert restored.transformation_strategy.action == "melt"
         assert restored.transformation_strategy.value_vars == ["v1", "v2"]
+
+    def test_new_fields_default_to_empty_lists(self, base_mapping_plan_kwargs, sample_statvar_blueprint):
+        emp = EnrichedMappingPlan(
+            **base_mapping_plan_kwargs,
+            statvar_blueprint=sample_statvar_blueprint,
+        )
+        assert emp.indicator_columns == []
+        assert emp.mapping_rules == []
+
+
+# ---------------------------------------------------------------------------
+# IndicatorValueMapping
+# ---------------------------------------------------------------------------
+
+class TestIndicatorValueMapping:
+    def test_creation(self):
+        ivm = IndicatorValueMapping(
+            raw_value="Asthma prevalence",
+            population_type="dcs:Person",
+            measured_property="dcs:prevalence",
+            stat_type="measuredValue",
+            reason="Direct prevalence measure",
+        )
+        assert ivm.raw_value == "Asthma prevalence"
+        assert ivm.population_type == "dcs:Person"
+        assert ivm.measured_property == "dcs:prevalence"
+        assert ivm.stat_type == "measuredValue"
+        assert ivm.extra_properties == []
+        assert ivm.reason == "Direct prevalence measure"
+
+    def test_with_extra_properties(self):
+        ivm = IndicatorValueMapping(
+            raw_value="Unemployment rate",
+            population_type="dcs:Person",
+            measured_property="dcs:unemploymentRate",
+            stat_type="measuredValue",
+            extra_properties=[
+                StatVarProperty(name="employmentStatus", value="dcs:BLS_Unemployed"),
+            ],
+            reason="Rate with employment constraint",
+        )
+        assert len(ivm.extra_properties) == 1
+        assert ivm.extra_properties[0].name == "employmentStatus"
+        assert ivm.extra_properties[0].value == "dcs:BLS_Unemployed"
+
+
+# ---------------------------------------------------------------------------
+# IndicatorColumn
+# ---------------------------------------------------------------------------
+
+class TestIndicatorColumn:
+    def test_with_multiple_value_mappings(self):
+        ic = IndicatorColumn(
+            column_name="indicator",
+            value_mappings=[
+                IndicatorValueMapping(
+                    raw_value="GDP",
+                    population_type="dcs:EconomicActivity",
+                    measured_property="dcs:amount",
+                    stat_type="measuredValue",
+                    reason="Gross domestic product",
+                ),
+                IndicatorValueMapping(
+                    raw_value="CPI",
+                    population_type="dcs:ConsumerGood",
+                    measured_property="dcs:consumerPriceIndex",
+                    stat_type="measuredValue",
+                    reason="Consumer price index",
+                ),
+            ],
+        )
+        assert ic.column_name == "indicator"
+        assert len(ic.value_mappings) == 2
+        assert ic.value_mappings[0].raw_value == "GDP"
+        assert ic.value_mappings[1].raw_value == "CPI"
+
+
+# ---------------------------------------------------------------------------
+# ObservationTemplate
+# ---------------------------------------------------------------------------
+
+class TestObservationTemplate:
+    def test_with_static_unit(self):
+        ot = ObservationTemplate(
+            about_column="country",
+            about_expression="dcid:country/{country}",
+            date_column="year",
+            date_expression="{year}",
+            value_column="value",
+            value_expression="{value}",
+            unit="dcs:USDollar",
+        )
+        assert ot.about_column == "country"
+        assert ot.about_expression == "dcid:country/{country}"
+        assert ot.unit == "dcs:USDollar"
+        assert ot.unit_column is None
+
+    def test_with_unit_column(self):
+        ot = ObservationTemplate(
+            about_column="geo",
+            about_expression="dcid:country/{geo}",
+            date_column="date",
+            date_expression="{date}",
+            value_column="obs_value",
+            value_expression="{obs_value}",
+            unit_column="unit_measure",
+        )
+        assert ot.unit is None
+        assert ot.unit_column == "unit_measure"
+
+    def test_defaults_are_none(self):
+        ot = ObservationTemplate(
+            about_column="place",
+            about_expression="{place}",
+            date_column="time",
+            date_expression="{time}",
+            value_column="val",
+            value_expression="{val}",
+        )
+        assert ot.unit is None
+        assert ot.unit_column is None
+
+
+# ---------------------------------------------------------------------------
+# MappingRule
+# ---------------------------------------------------------------------------
+
+class TestMappingRule:
+    def test_with_pvmap_rows(self):
+        mr = MappingRule(
+            rule_id="rule_1",
+            measure_column="value",
+            description="Map GDP values by country and year",
+            observation=ObservationTemplate(
+                about_column="country",
+                about_expression="dcid:country/{country}",
+                date_column="year",
+                date_expression="{year}",
+                value_column="value",
+                value_expression="{value}",
+            ),
+            indicator_column="indicator",
+            constraint_columns=["gender", "age"],
+            static_properties=[
+                StatVarProperty(name="populationType", value="dcs:Person"),
+            ],
+            pvmap_rows=[
+                "country,observationAbout,dcid:country/{country}",
+                "year,observationDate,{year}",
+                "value,value,{value}",
+            ],
+        )
+        assert mr.rule_id == "rule_1"
+        assert mr.measure_column == "value"
+        assert mr.indicator_column == "indicator"
+        assert len(mr.constraint_columns) == 2
+        assert len(mr.static_properties) == 1
+        assert mr.static_properties[0].name == "populationType"
+        assert len(mr.pvmap_rows) == 3
+        assert "observationAbout" in mr.pvmap_rows[0]
+
+    def test_defaults(self):
+        mr = MappingRule(
+            rule_id="rule_2",
+            measure_column="amount",
+            description="Simple measure",
+            observation=ObservationTemplate(
+                about_column="geo",
+                about_expression="{geo}",
+                date_column="date",
+                date_expression="{date}",
+                value_column="amount",
+                value_expression="{amount}",
+            ),
+        )
+        assert mr.indicator_column is None
+        assert mr.constraint_columns == []
+        assert mr.static_properties == []
+        assert mr.pvmap_rows == []
+
+
+# ---------------------------------------------------------------------------
+# JSON roundtrip with new models
+# ---------------------------------------------------------------------------
+
+class TestNewModelsJsonRoundtrip:
+    def test_enriched_plan_with_new_fields(self, base_mapping_plan_kwargs, sample_statvar_blueprint):
+        emp = EnrichedMappingPlan(
+            **base_mapping_plan_kwargs,
+            statvar_blueprint=sample_statvar_blueprint,
+            indicator_columns=[
+                IndicatorColumn(
+                    column_name="indicator",
+                    value_mappings=[
+                        IndicatorValueMapping(
+                            raw_value="GDP",
+                            population_type="dcs:EconomicActivity",
+                            measured_property="dcs:amount",
+                            stat_type="measuredValue",
+                            extra_properties=[
+                                StatVarProperty(name="activitySource", value="dcs:IMF"),
+                            ],
+                            reason="GDP measure",
+                        ),
+                    ],
+                ),
+            ],
+            mapping_rules=[
+                MappingRule(
+                    rule_id="rule_1",
+                    measure_column="value",
+                    description="GDP by country",
+                    observation=ObservationTemplate(
+                        about_column="country",
+                        about_expression="dcid:country/{country}",
+                        date_column="year",
+                        date_expression="{year}",
+                        value_column="value",
+                        value_expression="{value}",
+                        unit="dcs:USDollar",
+                    ),
+                    indicator_column="indicator",
+                    constraint_columns=["gender"],
+                    static_properties=[
+                        StatVarProperty(name="populationType", value="dcs:Person"),
+                    ],
+                    pvmap_rows=["country,observationAbout,dcid:country/{country}"],
+                ),
+            ],
+        )
+
+        # Serialize
+        json_str = emp.model_dump_json()
+        data = json.loads(json_str)
+
+        # Deserialize
+        restored = EnrichedMappingPlan.model_validate(data)
+
+        # Verify indicator_columns
+        assert len(restored.indicator_columns) == 1
+        ic = restored.indicator_columns[0]
+        assert ic.column_name == "indicator"
+        assert len(ic.value_mappings) == 1
+        assert ic.value_mappings[0].raw_value == "GDP"
+        assert ic.value_mappings[0].population_type == "dcs:EconomicActivity"
+        assert ic.value_mappings[0].extra_properties[0].name == "activitySource"
+
+        # Verify mapping_rules
+        assert len(restored.mapping_rules) == 1
+        mr = restored.mapping_rules[0]
+        assert mr.rule_id == "rule_1"
+        assert mr.observation.unit == "dcs:USDollar"
+        assert mr.observation.about_expression == "dcid:country/{country}"
+        assert mr.indicator_column == "indicator"
+        assert mr.constraint_columns == ["gender"]
+        assert mr.static_properties[0].value == "dcs:Person"
+        assert len(mr.pvmap_rows) == 1

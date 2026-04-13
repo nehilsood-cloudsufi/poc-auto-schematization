@@ -152,6 +152,46 @@ class TransformationStrategy(BaseModel):
     value_vars: list[str] = Field(default_factory=list)
 
 
+class IndicatorValueMapping(BaseModel):
+    """Maps a single indicator value to StatVar properties."""
+    raw_value: str
+    population_type: str
+    measured_property: str
+    stat_type: str
+    extra_properties: list[StatVarProperty] = Field(default_factory=list)
+    reason: str
+
+
+class IndicatorColumn(BaseModel):
+    """Column whose distinct values each define a different StatVar."""
+    column_name: str
+    value_mappings: list[IndicatorValueMapping]
+
+
+class ObservationTemplate(BaseModel):
+    """How to extract the observation triple (about, date, value)."""
+    about_column: str
+    about_expression: str
+    date_column: str
+    date_expression: str
+    value_column: str
+    value_expression: str
+    unit: Optional[str] = None
+    unit_column: Optional[str] = None
+
+
+class MappingRule(BaseModel):
+    """One logical mapping rule that produces a set of PVMAP rows."""
+    rule_id: str
+    measure_column: str
+    description: str
+    observation: ObservationTemplate
+    indicator_column: Optional[str] = None
+    constraint_columns: list[str] = Field(default_factory=list)
+    static_properties: list[StatVarProperty] = Field(default_factory=list)
+    pvmap_rows: list[str] = Field(default_factory=list)
+
+
 class EnrichedMappingPlan(MappingPlan):
     """MappingPlan extended with Phase A analysis + Phase B reasoning."""
     column_relationships: list[ColumnRelationship] = Field(default_factory=list)
@@ -161,3 +201,5 @@ class EnrichedMappingPlan(MappingPlan):
     time_resolution: Optional[TimeResolution] = None
     composite_key: list[str] = Field(default_factory=list)
     transformation_strategy: Optional[TransformationStrategy] = None
+    indicator_columns: list[IndicatorColumn] = Field(default_factory=list)
+    mapping_rules: list[MappingRule] = Field(default_factory=list)
