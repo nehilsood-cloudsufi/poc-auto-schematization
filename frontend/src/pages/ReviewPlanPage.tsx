@@ -20,7 +20,7 @@ import { StaticProperties } from "@/components/PlanReview/StaticProperties";
 import { IgnoredColumns } from "@/components/PlanReview/IgnoredColumns";
 import { PlanFeedback } from "@/components/PlanReview/PlanFeedback";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { getPlan, approvePlan, generatePvmap, stopRun, regeneratePlan, addPlanNote, updatePlan } from "@/lib/api";
+import { getPlan, approvePlan, generatePvmap, stopRun, regeneratePlan, addPlanNote, updatePlan, getRun } from "@/lib/api";
 import { toast } from "sonner";
 import { PLAN_PHASES } from "@/types";
 import type { MappingPlan, ColumnMapping } from "@/types";
@@ -60,6 +60,7 @@ export function ReviewPlanPage({
   const [jsonDirty, setJsonDirty] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [savingJson, setSavingJson] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
 
   const skeletonWidths8 = useMemo(() => Array.from({ length: 8 }, () => `${50 + Math.random() * 50}%`), []);
   const skeletonWidths12 = useMemo(() => Array.from({ length: 12 }, () => `${40 + Math.random() * 60}%`), []);
@@ -100,7 +101,18 @@ export function ReviewPlanPage({
           setPlanReady(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Plan not found — check if the run already finished (pipeline completed but plan generation failed)
+        getRun(runId)
+          .then((run) => {
+            if (run.status === "plan_ready" || run.status === "stopped" || run.status === "error") {
+              // Pipeline finished but no plan was produced — show error instead of spinner
+              setPlanReady(true);
+              setPlanError("Plan generation failed. This usually means the Gemini API call failed (quota exceeded or network error). Try clicking 'Regenerate' below.");
+            }
+          })
+          .catch(() => {});
+      });
   }, [runId]);
 
   // --- Sync JSON text when plan loads or changes from structured edits ---
@@ -248,20 +260,39 @@ export function ReviewPlanPage({
     );
   }
 
-  // --- Render: loading plan data ---
+  // --- Render: loading plan data or error ---
   if (loadingPlan || !plan) {
     return (
       <div className="p-8 max-w-4xl mx-auto">
         <WizardStepper currentStep={2} />
-        <Card className="shadow-sm mt-6">
-          <CardContent className="pt-6">
-            <div className="space-y-3">
-              {skeletonWidths12.map((w, i) => (
-                <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: w }} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {planError ? (
+          <Card className="shadow-sm mt-6 border-destructive/50">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-destructive mt-0.5 shrink-0" />
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-destructive">{planError}</p>
+                  <PlanFeedback
+                    notes={[]}
+                    onRegenerate={handleRegenerate}
+                    onAddNote={() => {}}
+                    regenerating={regenerating}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="shadow-sm mt-6">
+            <CardContent className="pt-6">
+              <div className="space-y-3">
+                {skeletonWidths12.map((w, i) => (
+                  <div key={i} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: w }} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
