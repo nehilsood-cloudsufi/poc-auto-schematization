@@ -360,6 +360,7 @@ def run_validation(
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     if metadata_file and not Path(metadata_file).exists():
@@ -369,6 +370,7 @@ def run_validation(
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     if not pvmap_path or not Path(pvmap_path).exists():
@@ -378,6 +380,7 @@ def run_validation(
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     # Build command and environment (with debug=True for detailed error context)
@@ -488,6 +491,7 @@ def run_validation(
                     "stderr": result.stderr,
                     "returncode": result.returncode,
                     "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
+                    "filtered_logs": filtered_logs,
                 }
 
             # Validation passed
@@ -511,6 +515,7 @@ def run_validation(
                 "returncode": result.returncode,
                 "counter_summary": counter_summary,
                 "statvar_analysis": statvar_analysis,
+                "filtered_logs": filtered_logs,
             }
 
         else:
@@ -555,6 +560,7 @@ def run_validation(
                 "stderr": result.stderr,
                 "returncode": result.returncode,
                 "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
+                "filtered_logs": filtered_logs,
             }
 
     except subprocess.TimeoutExpired:
@@ -568,6 +574,7 @@ def run_validation(
             "data_rows": 0,
             "returncode": -1,
             "counter_summary": "",
+            "filtered_logs": None,
         }
     except Exception as e:
         return {
@@ -579,4 +586,5 @@ def run_validation(
             "data_rows": 0,
             "returncode": -1,
             "counter_summary": "",
+            "filtered_logs": None,
         }
