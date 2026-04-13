@@ -20,6 +20,10 @@ from src.api.models.plan import (
     RelationshipType,
     PlaceResolution,
     TimeResolution,
+    IndicatorValueMapping,
+    IndicatorColumn,
+    ObservationTemplate,
+    MappingRule,
 )
 
 
@@ -237,3 +241,146 @@ class TestBasePlanNoEnrichedSections:
         assert "## Column Relationships" not in md
         assert "## Place Resolution" not in md
         assert "## Time Resolution" not in md
+        assert "## Indicator Columns" not in md
+        assert "## Mapping Rules" not in md
+
+
+class TestIndicatorColumnsMarkdown:
+    """_plan_to_markdown() renders Indicator Columns section."""
+
+    def test_enriched_plan_includes_indicator_columns(self):
+        base = _make_base_plan()
+        plan = EnrichedMappingPlan(
+            **base.model_dump(),
+            statvar_blueprint=StatVarBlueprint(
+                base_properties=[
+                    StatVarProperty(name="populationType", value="dcid:Person"),
+                ],
+                constraint_columns=[],
+                measure_columns=["Value"],
+            ),
+            indicator_columns=[
+                IndicatorColumn(
+                    column_name="Metric",
+                    value_mappings=[
+                        IndicatorValueMapping(
+                            raw_value="Population",
+                            population_type="dcid:Person",
+                            measured_property="dcid:count",
+                            stat_type="measuredValue",
+                            reason="Total population count",
+                        ),
+                        IndicatorValueMapping(
+                            raw_value="GDP",
+                            population_type="dcid:EconomicActivity",
+                            measured_property="dcid:amount",
+                            stat_type="measuredValue",
+                            reason="Gross domestic product",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        md = _plan_to_markdown(plan)
+
+        # Section header
+        assert "## Indicator Columns" in md
+        assert "These columns change the core StatVar definition" in md
+
+        # Column sub-header
+        assert "### `Metric`" in md
+
+        # Table header
+        assert "| Value | populationType | measuredProperty | statType | Reason |" in md
+
+        # Row content
+        assert "| `Population` | `dcid:Person` | `dcid:count` | `measuredValue` | Total population count |" in md
+        assert "| `GDP` | `dcid:EconomicActivity` | `dcid:amount` | `measuredValue` | Gross domestic product |" in md
+
+
+class TestMappingRulesMarkdown:
+    """_plan_to_markdown() renders Mapping Rules section."""
+
+    def test_enriched_plan_includes_mapping_rules(self):
+        base = _make_base_plan()
+        plan = EnrichedMappingPlan(
+            **base.model_dump(),
+            statvar_blueprint=StatVarBlueprint(
+                base_properties=[
+                    StatVarProperty(name="populationType", value="dcid:Person"),
+                ],
+                constraint_columns=["Gender"],
+                measure_columns=["Value"],
+            ),
+            mapping_rules=[
+                MappingRule(
+                    rule_id="R1",
+                    measure_column="Value",
+                    description="Map population value by gender",
+                    observation=ObservationTemplate(
+                        about_column="Country",
+                        about_expression="[Country]",
+                        date_column="Year",
+                        date_expression="[Year]",
+                        value_column="Value",
+                        value_expression="[Value]",
+                        unit="dcid:SDG_GH",
+                        unit_column=None,
+                    ),
+                    indicator_column="Metric",
+                    constraint_columns=["Gender"],
+                    pvmap_rows=[
+                        "Country,observationAbout,[Country]",
+                        "Year,observationDate,[Year]",
+                        "Value,value,[Value]",
+                    ],
+                ),
+                MappingRule(
+                    rule_id="R2",
+                    measure_column="Amount",
+                    description="Map amount with unit column",
+                    observation=ObservationTemplate(
+                        about_column="Region",
+                        about_expression="[Region]",
+                        date_column="Date",
+                        date_expression="[Date]",
+                        value_column="Amount",
+                        value_expression="[Amount]",
+                        unit=None,
+                        unit_column="UnitCol",
+                    ),
+                    indicator_column=None,
+                    constraint_columns=[],
+                    pvmap_rows=[],
+                ),
+            ],
+        )
+        md = _plan_to_markdown(plan)
+
+        # Section header
+        assert "## Mapping Rules" in md
+
+        # Rule 1 details
+        assert "### Rule: `R1` — Map population value by gender" in md
+        assert "**Measure column:** `Value`" in md
+        assert "**observationAbout:** `Country` = `[Country]`" in md
+        assert "**observationDate:** `Year` = `[Year]`" in md
+        assert "**value:** `Value` = `[Value]`" in md
+        assert "**unit:** `dcid:SDG_GH`" in md
+        assert "**indicator column:** `Metric`" in md
+        assert "**constraints:** `Gender`" in md
+
+        # PVMAP rows in code block
+        assert "**Target PVMAP rows:**" in md
+        assert "```csv" in md
+        assert "Country,observationAbout,[Country]" in md
+        assert "Value,value,[Value]" in md
+
+        # Rule 2 details
+        assert "### Rule: `R2` — Map amount with unit column" in md
+        assert "**unit (from column):** `UnitCol`" in md
+
+        # Rule 2 should NOT have indicator or constraints
+        r2_section = md.split("### Rule: `R2`")[1]
+        assert "**indicator column:**" not in r2_section
+        assert "**constraints:**" not in r2_section

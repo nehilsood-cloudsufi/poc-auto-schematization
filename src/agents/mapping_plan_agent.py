@@ -182,6 +182,49 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
         lines.append(f"- **Normalization rule:** {tr.normalization_rule}")
         lines.append("")
 
+    # Indicator Columns
+    if hasattr(plan, "indicator_columns") and plan.indicator_columns:
+        lines.append("## Indicator Columns")
+        lines.append("")
+        lines.append("These columns change the core StatVar definition per-value (not just add a constraint).")
+        lines.append("")
+        for ic in plan.indicator_columns:
+            lines.append(f"### `{ic.column_name}`")
+            lines.append("")
+            lines.append("| Value | populationType | measuredProperty | statType | Reason |")
+            lines.append("|-------|---------------|-----------------|----------|--------|")
+            for ivm in ic.value_mappings:
+                lines.append(f"| `{ivm.raw_value}` | `{ivm.population_type}` | `{ivm.measured_property}` | `{ivm.stat_type}` | {ivm.reason} |")
+            lines.append("")
+
+    # Mapping Rules
+    if hasattr(plan, "mapping_rules") and plan.mapping_rules:
+        lines.append("## Mapping Rules")
+        lines.append("")
+        for rule in plan.mapping_rules:
+            lines.append(f"### Rule: `{rule.rule_id}` — {rule.description}")
+            lines.append(f"- **Measure column:** `{rule.measure_column}`")
+            obs = rule.observation
+            lines.append(f"- **observationAbout:** `{obs.about_column}` = `{obs.about_expression}`")
+            lines.append(f"- **observationDate:** `{obs.date_column}` = `{obs.date_expression}`")
+            lines.append(f"- **value:** `{obs.value_column}` = `{obs.value_expression}`")
+            if obs.unit:
+                lines.append(f"- **unit:** `{obs.unit}`")
+            if obs.unit_column:
+                lines.append(f"- **unit (from column):** `{obs.unit_column}`")
+            if rule.indicator_column:
+                lines.append(f"- **indicator column:** `{rule.indicator_column}`")
+            if rule.constraint_columns:
+                lines.append(f"- **constraints:** {', '.join(f'`{c}`' for c in rule.constraint_columns)}")
+            if rule.pvmap_rows:
+                lines.append("")
+                lines.append("**Target PVMAP rows:**")
+                lines.append("```csv")
+                for row in rule.pvmap_rows:
+                    lines.append(row)
+                lines.append("```")
+            lines.append("")
+
     return "\n".join(lines)
 
 
