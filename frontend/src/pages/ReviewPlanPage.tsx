@@ -404,9 +404,9 @@ export function ReviewPlanPage({
         </>
       ) : (
         <>
-          {/* Structured View (existing sections) */}
+          {/* Structured View */}
 
-          {/* Section 1: Dataset Understanding (read-only) */}
+          {/* Section 1: Dataset Understanding + Composite Key */}
           <Card className="shadow-sm mb-4">
             <CardContent className="pt-5 pb-4">
               <h2 className="text-sm font-semibold mb-3">Dataset Understanding</h2>
@@ -417,16 +417,68 @@ export function ReviewPlanPage({
                 <dd>{plan.understanding.observation_grain}</dd>
                 <dt className="text-muted-foreground">Key Insight</dt>
                 <dd>{plan.understanding.key_insight}</dd>
+                {(plan as any).composite_key?.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">Composite Key</dt>
+                    <dd className="flex flex-wrap gap-1">
+                      {(plan as any).composite_key.map((col: string) => (
+                        <code key={col} className="text-xs bg-muted px-1.5 py-0.5 rounded">{col}</code>
+                      ))}
+                    </dd>
+                  </>
+                )}
               </dl>
             </CardContent>
           </Card>
 
-          {/* Section 2: Active Column Mappings */}
+          {/* Section 2: StatVar Blueprint (enriched plans only) */}
+          {(plan as any).statvar_blueprint && (
+            <Card className="shadow-sm mb-4">
+              <CardContent className="pt-5 pb-4">
+                <h2 className="text-sm font-semibold mb-3">StatVar Blueprint</h2>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-xs uppercase tracking-wide">Base Properties</span>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {(plan as any).statvar_blueprint.base_properties?.map((p: any, i: number) => (
+                        <span key={i} className="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs px-2 py-1 rounded">
+                          <span className="font-medium">{p.name}:</span> {p.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-8">
+                    <div>
+                      <span className="text-muted-foreground text-xs uppercase tracking-wide">Constraint Columns</span>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(plan as any).statvar_blueprint.constraint_columns?.map((c: string) => (
+                          <code key={c} className="text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">{c}</code>
+                        ))}
+                        {(plan as any).statvar_blueprint.constraint_columns?.length === 0 && (
+                          <span className="text-xs text-muted-foreground italic">none</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs uppercase tracking-wide">Measure Columns</span>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(plan as any).statvar_blueprint.measure_columns?.map((c: string) => (
+                          <code key={c} className="text-xs bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">{c}</code>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Section 3: Active Column Mappings */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-2">
               <h2 className="text-sm font-semibold">Column Mappings</h2>
               <span className="text-xs text-muted-foreground">
-                {plan.active_columns.length} columns
+                {plan.active_columns.length} active
               </span>
               {ambiguousCount > 0 && (
                 <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
@@ -441,7 +493,41 @@ export function ReviewPlanPage({
             />
           </div>
 
-          {/* Section 3: Static Properties */}
+          {/* Section 4: Value Dictionaries (enriched plans only) */}
+          {(plan as any).value_dictionaries?.length > 0 && (
+            <Card className="shadow-sm mb-4">
+              <CardContent className="pt-5 pb-4">
+                <h2 className="text-sm font-semibold mb-3">Value Dictionaries</h2>
+                <div className="space-y-4">
+                  {(plan as any).value_dictionaries.map((vd: any) => (
+                    <div key={vd.column_name}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <code className="text-xs font-semibold bg-muted px-1.5 py-0.5 rounded">{vd.column_name}</code>
+                        <span className="text-xs text-muted-foreground">property: {vd.dc_property}</span>
+                      </div>
+                      <div className="ml-2 grid grid-cols-[auto_auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        {vd.mappings?.map((m: any, i: number) => (
+                          <div key={i} className="contents">
+                            <span className="font-mono">{m.raw_value}</span>
+                            <span className="text-muted-foreground">&rarr;</span>
+                            {m.action === "DROP_CONSTRAINT" ? (
+                              <span className="text-amber-600 dark:text-amber-400 italic">DROP (total/aggregate)</span>
+                            ) : m.action === "DROP_ROW" ? (
+                              <span className="text-red-600 dark:text-red-400 italic">DROP ROW</span>
+                            ) : (
+                              <code className="text-green-700 dark:text-green-300">{m.dcid}</code>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Section 5: Static Properties */}
           {plan.static_properties.length > 0 && (
             <Card className="shadow-sm mb-4">
               <CardContent className="pt-5 pb-4">
@@ -454,14 +540,44 @@ export function ReviewPlanPage({
             </Card>
           )}
 
-          {/* Section 4: Ignored Columns */}
+          {/* Section 6: Column Relationships (enriched plans only) */}
+          {(plan as any).column_relationships?.length > 0 && (
+            <Card className="shadow-sm mb-4">
+              <CardContent className="pt-5 pb-4">
+                <h2 className="text-sm font-semibold mb-3">Column Relationships</h2>
+                <div className="space-y-1.5 text-xs">
+                  {(plan as any).column_relationships
+                    .filter((r: any) => r.relationship !== "independent")
+                    .map((r: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2 py-1 px-2 rounded bg-muted/30">
+                        <code className="font-semibold">{r.column_a}</code>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${
+                          r.relationship === "co_referent" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" :
+                          r.relationship === "cross_product" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                          r.relationship === "hierarchical" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" :
+                          r.relationship === "qualifier" ? "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" :
+                          r.relationship === "value_error" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
+                          "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300"
+                        }`}>
+                          {r.relationship.replace("_", " ")}
+                        </span>
+                        <code className="font-semibold">{r.column_b}</code>
+                        <span className="text-muted-foreground ml-auto">{r.evidence}</span>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Section 7: Ignored Columns */}
           {plan.ignored_columns.length > 0 && (
             <div className="mb-4">
               <IgnoredColumns columns={plan.ignored_columns} />
             </div>
           )}
 
-          {/* Section 5: Global Notes / Warnings */}
+          {/* Section 8: Global Notes / Warnings */}
           {plan.global_notes.length > 0 && (
             <Card className="shadow-sm mb-4">
               <CardContent className="pt-5 pb-4">
