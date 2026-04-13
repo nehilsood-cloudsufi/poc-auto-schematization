@@ -59,6 +59,7 @@ export function ConfigurePage({
       navigate(`/runs/${runId}/plan`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start run");
+    } finally {
       setStarting(false);
     }
   };

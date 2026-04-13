@@ -131,9 +131,9 @@ class TestDefaults:
         args = parse_args([])
         assert args.structured_output is True
 
-    def test_no_structured_output_default_false(self):
+    def test_no_structured_output_default_true(self):
         args = parse_args([])
-        assert args.no_structured_output is False
+        assert args.structured_output is True
 
     def test_verbose_default_false(self):
         args = parse_args([])
@@ -254,7 +254,7 @@ class TestIndividualFlags:
 
     def test_no_structured_output(self):
         args = parse_args(["--no-structured-output"])
-        assert args.no_structured_output is True
+        assert args.structured_output is False
 
     def test_verbose(self):
         args = parse_args(["--verbose"])
@@ -399,10 +399,9 @@ class TestFlagCombinations:
         assert args.force_schema_selection is True
 
     def test_structured_output_and_no_structured_output(self):
-        """Both flags can technically be set; consumer code decides precedence."""
+        """Last flag wins with BooleanOptionalAction."""
         args = parse_args(["--structured-output", "--no-structured-output"])
-        assert args.structured_output is True
-        assert args.no_structured_output is True
+        assert args.structured_output is False
 
     def test_all_ground_truth_options(self):
         args = parse_args([
@@ -480,7 +479,7 @@ class TestHelperFunctions:
             "enable_mcp", "enable_schemaorg_mcp",
             "no_schema_examples",
             "input_file", "use_metadata", "metadata_file_path", "schema_file",
-            "structured_output", "no_structured_output",
+            "structured_output",
             "verbose",
             "skip_column_discovery",
             "prompt_version",

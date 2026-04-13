@@ -10,7 +10,7 @@ Your task: Analyze the PVMAP's issues and provide SPECIFIC, ACTIONABLE feedback 
 
 ## Quality Metrics (if validation passed but quality low)
 Score: {quality_score}/100
-{quality_metrics}
+{quality_metrics_display}
 
 ## Quality Issues (if validation passed but quality low)
 {quality_diff_summary}
@@ -252,7 +252,7 @@ Be CONCRETE and SPECIFIC:
 **Say:** "Change key 'year' to 'Year' to match the exact column header in the data"
 
 **Instead of:** "Add observationAbout mapping"
-**Say:** "Add a mapping for the 'State FIPS' column: key='State FIPS', property='observationAbout', value='dcid:geoId/[DATA]'"
+**Say:** "Add a mapping for the 'State FIPS' column: key='State FIPS', property='observationAbout', value='geoId/[DATA]'"
 
 ## 4. Pattern Detection
 

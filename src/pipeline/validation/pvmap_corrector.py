@@ -33,6 +33,7 @@ from src.pipeline.validation.log_filter import (
     detect_systematic_patterns,
     _detect_format_pattern,
 )
+from src.pipeline.validation.pvmap_repair import _split_column_value, load_input_headers as _load_repair_headers
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def _load_headers_from_path(input_data_path: Path) -> List[str]:
         with open(input_data_path, 'r', encoding='utf-8', errors='replace') as f:
             reader = csv.reader(f)
             headers = next(reader, [])
-            return [re.sub(r'\\s+', ' ', h).strip() for h in headers]
+            return [re.sub(r'\s+', ' ', h).strip() for h in headers]
     except Exception:
         return []
 
@@ -206,7 +207,7 @@ def _apply_key_mismatch(pvmap_csv: str, filtered_logs: FilteredLogs, ctx: dict) 
     replacements: Dict[str, str] = {}
     for bad_key in unmatched:
         # For COLUMN:VALUE syntax, only match the column part
-        col_part = bad_key.split(':')[0] if ':' in bad_key else bad_key
+        col_part, _ = _split_column_value(bad_key, headers) if ':' in bad_key else (bad_key, "")
 
         # 1. Exact case-insensitive match
         if col_part.lower() in headers_lower:
@@ -234,7 +235,9 @@ def _apply_key_mismatch(pvmap_csv: str, filtered_logs: FilteredLogs, ctx: dict) 
         key = row[0]
         # Check for COLUMN:VALUE syntax
         if ':' in key:
-            col_part, _, value_part = key.partition(':')
+            col_part, value_part_sv = _split_column_value(key, headers)
+            # _split_column_value returns (col, ":val") — strip leading colon
+            value_part = value_part_sv.lstrip(':') if value_part_sv else ""
             if key in replacements:
                 # Full key was unmatched, replace column part only
                 new_key = replacements[key]

@@ -108,7 +108,10 @@ async def update_file(run_id: str, filename: str, body: dict, request: Request):
         raise HTTPException(status_code=404, detail=f"File {filename} not found")
 
     if "rows" in body and filename.endswith(".csv"):
-        df = pd.DataFrame(body["rows"])
+        rows = body["rows"]
+        if not isinstance(rows, list):
+            raise HTTPException(status_code=400, detail="'rows' must be a non-null list")
+        df = pd.DataFrame(rows)
         df.to_csv(fpath, index=False)
     elif "content" in body:
         fpath.write_text(body["content"], encoding="utf-8")
@@ -124,12 +127,20 @@ async def download_zip(run_id: str, request: Request):
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Output directory not found")
 
+    import re as _re
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for fpath in sorted(output_dir.rglob("*")):
-            if fpath.is_file():
-                arcname = fpath.relative_to(output_dir)
-                zf.write(fpath, arcname)
+            if not fpath.is_file():
+                continue
+            # Skip versioned snapshot directories (v1/, v2/, ...) and feedback dirs
+            rel = fpath.relative_to(output_dir)
+            parts = rel.parts
+            if parts and _re.match(r'^v\d+$', parts[0]):
+                continue
+            if parts and parts[0] == "feedback":
+                continue
+            zf.write(fpath, rel)
 
     run = get_or_load_run(run_id, request.app.state.output_dir)
     zip_filename = f"{run.dataset_name}_outputs.zip" if run else f"{run_id}_outputs.zip"

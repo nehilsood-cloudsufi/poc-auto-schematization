@@ -19,6 +19,7 @@ Usage:
         result = runner.run(user_message="Find population variables for California")
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -256,20 +257,25 @@ async def run_mcp_query(mcp_url: str, agent: LlmAgent, query: str) -> str:
     session_id = f"mcp_{uuid.uuid4().hex[:8]}"
     user_message = types.Content(parts=[types.Part(text=query)])
 
-    result_text = ""
+    def _run_sync():
+        text = ""
+        try:
+            for event in runner.run(
+                user_id="mcp_user",
+                session_id=session_id,
+                new_message=user_message
+            ):
+                if hasattr(event, 'content') and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text += part.text
+        except Exception as e:
+            logger.warning(f"MCP query failed: {e}")
+            text = f"(MCP query failed: {str(e)[:200]})"
+        return text
+
     try:
-        for event in runner.run(
-            user_id="mcp_user",
-            session_id=session_id,
-            new_message=user_message
-        ):
-            if hasattr(event, 'content') and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        result_text += part.text
-    except Exception as e:
-        logger.warning(f"MCP query failed: {e}")
-        result_text = f"(MCP query failed: {str(e)[:200]})"
+        result_text = await asyncio.to_thread(_run_sync)
     finally:
         # Close MCP toolsets to prevent session leak warnings
         for tool in getattr(agent, 'tools', []) or []:

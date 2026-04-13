@@ -450,7 +450,12 @@ def strip_ignore_rows(pvmap_csv: str) -> Tuple[str, List[str]]:
         stripped = line.strip()
         if not stripped:
             continue
-        parts = stripped.split(",")
+        try:
+            reader = csv.reader(io.StringIO(stripped))
+            parts = next(reader, [])
+        except Exception:
+            kept.append(line)
+            continue
         if len(parts) >= 2 and parts[1].strip().lower() == "#ignore":
             changes.append(f"Removed #ignore for column '{parts[0].strip()}'")
             continue

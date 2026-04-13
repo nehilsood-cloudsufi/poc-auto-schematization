@@ -23,6 +23,12 @@ MAX_DIMENSION_VALUES = 100
 # Maximum total rows in skeleton (prevent token explosion on wide datasets)
 MAX_SKELETON_ROWS = 300
 
+# Dimension cardinality threshold for passthrough vs enumeration.
+# Dimensions with more unique values than this use {Data} passthrough
+# instead of COLUMN:VALUE enumeration. Compact PVMAPs (6-13 rows) succeed
+# far more reliably than verbose ones (100+ rows).
+PASSTHROUGH_CARDINALITY_THRESHOLD = 10
+
 # Geo format to DCID template mapping (mirrors context_assembler.py GEO_FORMAT_MAP)
 GEO_DCID_TEMPLATES = {
     "FIPS_STATE": "geoId/{Data}",
@@ -176,17 +182,19 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
             rows.append(row)
 
         elif role == "dimension":
-            # Enumerate COLUMN:VALUE rows.
             # Use dc_property from RelationalSkeleton if available (e.g., "gender", "age").
             # Otherwise leave empty for LLM to fill.
             dc_prop = entry.get("dc_property", "")
             domain = entry.get("domain_values", [])
-            if domain:
+            if domain and len(domain) <= PASSTHROUGH_CARDINALITY_THRESHOLD:
+                # Low-cardinality: enumerate COLUMN:VALUE rows
                 for val in domain:
                     val_str = str(val)
                     rows.append([f"{col}:{val_str}", dc_prop, val_str])
             else:
-                # No domain values known — single placeholder row
+                # High-cardinality (>threshold) or no domain: passthrough pattern.
+                # Compact PVMAPs with passthrough are far more reliable than
+                # verbose 100+ row enumerations.
                 rows.append([col, dc_prop, "{Data}"])
 
         else:
@@ -205,7 +213,24 @@ def generate_pvmap_skeleton(manifest: dict, data_context: dict) -> str:
             "Skeleton rows (%d) exceeds MAX_SKELETON_ROWS (%d), truncating",
             len(rows), MAX_SKELETON_ROWS,
         )
-        rows = rows[:MAX_SKELETON_ROWS]
+        # Dimension-aware truncation: keep non-enumeration rows and at least
+        # one representative row per dimension column so no dimension is lost.
+        base_rows = [r for r in rows if ":" not in r[0]]
+        enum_rows = [r for r in rows if ":" in r[0]]
+        # Collect one row per dimension prefix (first seen)
+        seen_dims: set = set()
+        representative: list = []
+        overflow: list = []
+        for r in enum_rows:
+            dim = r[0].split(":")[0]
+            if dim not in seen_dims:
+                seen_dims.add(dim)
+                representative.append(r)
+            else:
+                overflow.append(r)
+        # Fill remaining budget with overflow enum rows
+        budget = MAX_SKELETON_ROWS - len(base_rows) - len(representative)
+        rows = base_rows + representative + overflow[:max(0, budget)]
 
     # Determine max columns needed (some rows have p1,v1 pairs)
     max_cols = max(len(r) for r in rows)

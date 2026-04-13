@@ -68,6 +68,8 @@ export function SpreadsheetEditor({
 
   // Change tracking
   const [changeCount, setChangeCount] = useState(0);
+  const [undoDepth, setUndoDepth] = useState(0);
+  const [redoDepth, setRedoDepth] = useState(0);
 
   const pushSnapshot = useCallback(() => {
     undoStack.current.push({
@@ -78,6 +80,8 @@ export function SpreadsheetEditor({
       undoStack.current.shift();
     }
     redoStack.current = [];
+    setUndoDepth(undoStack.current.length);
+    setRedoDepth(0);
   }, [currentRows, currentColumns]);
 
   const computeChangeCount = useCallback(
@@ -225,6 +229,8 @@ export function SpreadsheetEditor({
       prev.rows.map((r) => ({ ...r })),
       [...prev.columns],
     );
+    setUndoDepth(undoStack.current.length);
+    setRedoDepth(redoStack.current.length);
   }, [currentRows, currentColumns, applyState]);
 
   const redo = useCallback(() => {
@@ -238,11 +244,15 @@ export function SpreadsheetEditor({
       next.rows.map((r) => ({ ...r })),
       [...next.columns],
     );
+    setUndoDepth(undoStack.current.length);
+    setRedoDepth(redoStack.current.length);
   }, [currentRows, currentColumns, applyState]);
 
   const discard = useCallback(() => {
     undoStack.current = [];
     redoStack.current = [];
+    setUndoDepth(0);
+    setRedoDepth(0);
     applyState(
       originalSnapshot.current.rows.map((r) => ({ ...r })),
       [...originalSnapshot.current.columns],
@@ -260,6 +270,8 @@ export function SpreadsheetEditor({
     setChangeCount(0);
     undoStack.current = [];
     redoStack.current = [];
+    setUndoDepth(0);
+    setRedoDepth(0);
   }, [initialRows, initialColumns]);
 
   // Keyboard shortcuts
@@ -322,7 +334,7 @@ export function SpreadsheetEditor({
             variant="outline"
             size="sm"
             onClick={undo}
-            disabled={undoStack.current.length === 0}
+            disabled={undoDepth === 0}
             title="Undo (Ctrl+Z)"
           >
             <Undo2 className="h-3 w-3" />
@@ -331,7 +343,7 @@ export function SpreadsheetEditor({
             variant="outline"
             size="sm"
             onClick={redo}
-            disabled={redoStack.current.length === 0}
+            disabled={redoDepth === 0}
             title="Redo (Ctrl+Y)"
           >
             <Redo2 className="h-3 w-3" />

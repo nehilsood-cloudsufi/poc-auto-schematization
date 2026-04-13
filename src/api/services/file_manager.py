@@ -1,7 +1,9 @@
 """File management for API runs with output versioning (framework-agnostic)."""
 import json
 import logging
+import re as _re
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -11,6 +13,9 @@ import pandas as pd
 from src.api.config import UI_OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
+
+_snapshot_locks: dict[str, threading.Lock] = {}
+_snapshot_lock_lock = threading.Lock()
 
 
 def create_run_directory(run_id: str, base_dir: Optional[Path] = None) -> Path:
@@ -56,20 +61,30 @@ def get_output_files(output_dir: Path) -> Dict[str, Path]:
 
 def snapshot_version(output_dir: Path, version: int) -> Path:
     """Copy current output files to a versioned snapshot directory."""
-    version_dir = output_dir / f"v{version}"
-    version_dir.mkdir(parents=True, exist_ok=True)
+    dir_key = str(output_dir)
+    with _snapshot_lock_lock:
+        if dir_key not in _snapshot_locks:
+            _snapshot_locks[dir_key] = threading.Lock()
+        lock = _snapshot_locks[dir_key]
 
-    copied = 0
-    for item in output_dir.iterdir():
-        if item.is_file():
-            shutil.copy2(item, version_dir / item.name)
-            copied += 1
-        elif item.is_dir() and item.name == "generated_response":
-            shutil.copytree(item, version_dir / item.name, dirs_exist_ok=True)
-            copied += 1
+    with lock:
+        version_dir = output_dir / f"v{version}"
+        version_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Snapshot v%d: copied %d items to %s", version, copied, version_dir)
-    return version_dir
+        copied = 0
+        for item in output_dir.iterdir():
+            # Skip version directories and feedback dirs
+            if item.is_dir() and (_re.match(r'^v\d+$', item.name) or item.name == "feedback"):
+                continue
+            if item.is_file():
+                shutil.copy2(item, version_dir / item.name)
+                copied += 1
+            elif item.is_dir() and item.name == "generated_response":
+                shutil.copytree(item, version_dir / item.name, dirs_exist_ok=True)
+                copied += 1
+
+        logger.info("Snapshot v%d: copied %d items to %s", version, copied, version_dir)
+        return version_dir
 
 
 def save_run_manifest(

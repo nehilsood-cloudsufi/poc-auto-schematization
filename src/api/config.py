@@ -6,8 +6,10 @@ from pathlib import Path
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", "8000"))
 
-# Output directory for UI runs (matches old Streamlit config)
-UI_OUTPUT_DIR = Path(os.environ.get("UI_OUTPUT_DIR", "ui_output"))
+# Output directory for UI runs (matches old Streamlit config).
+# Resolve to absolute path at import time so all derived paths are
+# CWD-independent (pipeline threads, subprocesses, etc.)
+UI_OUTPUT_DIR = Path(os.environ.get("UI_OUTPUT_DIR", "ui_output")).resolve()
 
 # Default pipeline settings
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
@@ -29,6 +31,9 @@ PHASE_LABELS = {
     "StatePrep": "Preparing state",
     "Sampling": "Sampling data",
     "SchemaSelectionAgent": "Selecting schema",
+    "SchemaOrgEnrichment": "Enriching with Schema.org",
+    "MappingPlan": "Generating mapping plan",
+    "PlanGate": "Plan approval",
     "StatVarDiscovery": "Discovering StatVars (MCP)",
     "Generator": "Generating PVMAP",
     "MetadataGenerator": "Generating metadata config",

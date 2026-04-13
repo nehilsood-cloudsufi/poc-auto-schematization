@@ -1,7 +1,7 @@
 /**
  * Configurable data preview with adjustable row count.
  */
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,9 @@ export function DataExplorer({ runId }: DataExplorerProps) {
   const [data, setData] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const skeletonWidths = useMemo(() => Array.from({ length: 5 }, () =>
+    Array.from({ length: 4 }, () => `${60 + Math.random() * 80}px`)
+  ), []);
 
   useEffect(() => {
     if (!runId) return;
@@ -75,10 +78,10 @@ export function DataExplorer({ runId }: DataExplorerProps) {
             <div className="bg-muted/30 px-3 py-2 border-b">
               <div className="h-4 w-24 bg-muted animate-pulse rounded" />
             </div>
-            {Array.from({ length: 5 }).map((_, i) => (
+            {skeletonWidths.map((rowWidths, i) => (
               <div key={i} className="flex gap-4 px-3 py-2.5 border-b border-border/50">
-                {Array.from({ length: 4 }).map((_, j) => (
-                  <div key={j} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: `${60 + Math.random() * 80}px` }} />
+                {rowWidths.map((w, j) => (
+                  <div key={j} className="h-3.5 bg-muted animate-pulse rounded" style={{ width: w }} />
                 ))}
               </div>
             ))}

@@ -272,7 +272,7 @@ class TestGeneratePvmapSkeleton:
         assert any("Total" in r[0] for r in gender_rows)
 
     def test_skeleton_dimension_cardinality_cap(self, basic_data_context):
-        """Dimensions with >100 values should be capped in skeleton."""
+        """High-cardinality dimensions (>threshold) use passthrough, not enumeration."""
         big_domain = [f"val_{i}" for i in range(150)]
         basic_data_context["dimension_domains"]["BigDim"] = big_domain
         basic_data_context["all_columns"].append("BigDim")
@@ -284,8 +284,12 @@ class TestGeneratePvmapSkeleton:
 
         reader = csv.reader(io.StringIO(skeleton))
         rows = list(reader)
+        # High-cardinality dims get a single passthrough row, not COLUMN:VALUE enumeration
         big_dim_rows = [r for r in rows if r[0].startswith("BigDim:")]
-        assert len(big_dim_rows) == MAX_DIMENSION_VALUES
+        assert len(big_dim_rows) == 0, "High-cardinality dims should NOT enumerate"
+        passthrough_rows = [r for r in rows if r[0] == "BigDim"]
+        assert len(passthrough_rows) == 1, "Should have one passthrough row"
+        assert passthrough_rows[0][2] == "{Data}"
 
     def test_skeleton_metadata_omitted(self, basic_data_context):
         """can-ignore columns should NOT appear in skeleton (no #ignore rows)."""

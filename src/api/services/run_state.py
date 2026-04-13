@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+_lock = threading.Lock()
 _runs: dict[str, "RunState"] = {}
 
 
@@ -49,13 +50,15 @@ def create_run(
         run_dir=run_dir,
         config=config,
     )
-    _runs[run_id] = run
+    with _lock:
+        _runs[run_id] = run
     return run
 
 
 def get_run(run_id: str) -> Optional[RunState]:
     """Get a run by ID, or None if not found."""
-    return _runs.get(run_id)
+    with _lock:
+        return _runs.get(run_id)
 
 
 def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
@@ -65,9 +68,10 @@ def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
     on disk and, if the directory structure looks valid, reconstructs a
     RunState with status='complete' and registers it in memory.
     """
-    run = _runs.get(run_id)
-    if run is not None:
-        return run
+    with _lock:
+        run = _runs.get(run_id)
+        if run is not None:
+            return run
 
     # Check disk
     run_dir = base_dir / run_id
@@ -142,18 +146,25 @@ def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
         status=status,
         result=result,
     )
-    _runs[run_id] = run
+    with _lock:
+        # Re-check in case another thread loaded it while we were reading disk
+        existing = _runs.get(run_id)
+        if existing is not None:
+            return existing
+        _runs[run_id] = run
     return run
 
 
 def list_runs() -> list[RunState]:
     """List all tracked runs."""
-    return list(_runs.values())
+    with _lock:
+        return list(_runs.values())
 
 
 def delete_run(run_id: str) -> bool:
     """Remove a run from tracking. Returns True if it existed."""
-    return _runs.pop(run_id, None) is not None
+    with _lock:
+        return _runs.pop(run_id, None) is not None
 
 
 def read_run_info(run_dir: Path) -> dict:

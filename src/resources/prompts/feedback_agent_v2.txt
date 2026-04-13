@@ -89,7 +89,7 @@ Only suggest deviating from the plan if the approved mapping is provably incorre
 
 ## Quality Metrics
 Score: {quality_score}/100
-{quality_metrics}
+{quality_metrics_display}
 
 ## Quality Issues
 {quality_diff_summary}

@@ -119,4 +119,4 @@ class TestHistoricalRunFiles:
         assert response.status_code == 200
         data = response.json()
         assert data["type"] == "csv"
-        assert data["rows"][0]["a"] == 1
+        assert data["rows"][0]["a"] == "1"

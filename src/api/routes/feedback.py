@@ -88,13 +88,16 @@ async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
         ))
 
     # Build human feedback string (for backward compat)
-    human_feedback = (
-        f"USER FEEDBACK: {req.text or ''}\n"
-        f"CATEGORY: {req.category or 'Other'}\n"
-        f"SEVERITY: {req.severity}\n\n"
-        f"Previous run: {run.result.get('retry_count', 0) + 1} attempts, "
-        f"exit reason: {run.result.get('exit_reason', 'unknown')}"
-    )
+    if req.text:
+        human_feedback = (
+            f"USER FEEDBACK: {req.text}\n"
+            f"CATEGORY: {req.category or 'Other'}\n"
+            f"SEVERITY: {req.severity}\n\n"
+            f"Previous run: {run.result.get('retry_count', 0) + 1} attempts, "
+            f"exit reason: {run.result.get('exit_reason', 'unknown')}"
+        )
+    else:
+        human_feedback = ""
 
     # Save feedback JSON + ledger
     feedback_entry = {

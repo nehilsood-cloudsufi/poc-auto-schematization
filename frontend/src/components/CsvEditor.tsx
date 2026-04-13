@@ -20,7 +20,15 @@ export function CsvEditor({ columns, rows, editable = false, onChange }: CsvEdit
   const [editing, setEditing] = useState(false);
   const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
-  const [originalRows] = useState(() => rows.map((r) => ({ ...r })));
+  const [originalRows, setOriginalRows] = useState(() => rows.map((r) => ({ ...r })));
+
+  // Reset original rows when the source data changes (e.g., different file loaded)
+  const [prevRowCount, setPrevRowCount] = useState(rows.length);
+  if (rows.length !== prevRowCount && !editing) {
+    setOriginalRows(rows.map((r) => ({ ...r })));
+    setChangedCells(new Set());
+    setPrevRowCount(rows.length);
+  }
 
   const handleCellChange = useCallback((rowIdx: number, col: string, value: string) => {
     if (!onChange) return;

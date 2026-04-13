@@ -74,7 +74,10 @@ class ProgrammaticSamplingAgent(BaseAgent):
         if skip_sampling:
             yield self._emit("Sampling skipped per skip_sampling flag")
             ctx.session.state["sampling_success"] = True
-            ctx.session.state["skeleton_summary"] = ""
+            # Preserve existing skeleton_summary from Phase 1 state (if injected
+            # via extra_initial_state). Only set to empty if not already present.
+            if not ctx.session.state.get("skeleton_summary"):
+                ctx.session.state["skeleton_summary"] = ""
             return
 
         current_dataset = ctx.session.state.get("current_dataset")

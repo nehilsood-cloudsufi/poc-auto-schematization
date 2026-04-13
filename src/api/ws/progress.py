@@ -1,7 +1,9 @@
 """WebSocket endpoint for real-time pipeline progress."""
 import asyncio
+import json
 import logging
 import queue
+from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -9,6 +11,29 @@ from src.api.services.run_state import get_run
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _safe_serialize(obj, _depth: int = 0):
+    """Make an object JSON-serializable by converting non-standard types."""
+    if _depth > 20:
+        return str(obj)
+    if isinstance(obj, float) and (obj != obj or obj == float("inf") or obj == float("-inf")):
+        return None  # NaN/inf are not valid JSON
+    if isinstance(obj, dict):
+        return {k: _safe_serialize(v, _depth + 1) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(item, _depth + 1) for item in obj]
+    if isinstance(obj, Path):
+        return str(obj)
+    if hasattr(obj, "get_file_summary"):
+        return obj.get_file_summary()
+    if hasattr(obj, "__dict__") and not isinstance(obj, (str, int, float, bool)):
+        return {k: _safe_serialize(v, _depth + 1) for k, v in obj.__dict__.items() if not k.startswith("_")}
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        return str(obj)
 
 
 @router.websocket("/ws/progress/{run_id}")
@@ -36,9 +61,21 @@ async def progress_stream(websocket: WebSocket, run_id: str):
                                 "message": event.message,
                                 "traceback": event.metadata.get("traceback", ""),
                             })
+                        elif event.metadata.get("exit_reason") == "user_cancelled":
+                            # Don't overwrite "stopped" status set by stop_run()
+                            if run.status != "stopped":
+                                run.status = "stopped"
+                            await websocket.send_json({
+                                "type": "complete",
+                                "agent": event.agent_name,
+                                "message": event.message,
+                            })
                         else:
-                            run.status = "complete"
-                            run.result = event.metadata.get("result", {})
+                            result = _safe_serialize(event.metadata.get("result", {}))
+                            is_plan_only = isinstance(result, dict) and result.get("phase") == "plan"
+                            if run.status != "stopped":
+                                run.status = "plan_ready" if is_plan_only else "complete"
+                            run.result = result
                             await websocket.send_json({
                                 "type": "complete",
                                 "agent": event.agent_name,
@@ -60,6 +97,22 @@ async def progress_stream(websocket: WebSocket, run_id: str):
                     break
 
             await asyncio.sleep(0.5)
+
+            # Guard against zombie connections: if the pipeline thread has
+            # exited and the queue is empty, close the WebSocket.
+            thread_dead = run.thread is not None and not run.thread.is_alive()
+            thread_absent = run.thread is None and run.status in ("complete", "error", "stopped", "plan_ready")
+            if (thread_dead or thread_absent) and run.progress_queue.empty():
+                if run.status == "running":
+                    run.status = "error"
+                    run.error = "Pipeline thread exited unexpectedly"
+                    await websocket.send_json({
+                        "type": "error",
+                        "agent": "system",
+                        "message": "Pipeline thread exited unexpectedly",
+                    })
+                await websocket.close()
+                return
 
     except WebSocketDisconnect:
         pass

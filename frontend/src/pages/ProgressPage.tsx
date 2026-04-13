@@ -43,13 +43,14 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
   const [showLog, setShowLog] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { events } = useWebSocket({
     runId: runId ?? null,
     onComplete: (event) => {
       onComplete(event);
       toast.success("Pipeline complete!");
-      setTimeout(() => navigate(`/runs/${runId}/results`), 1500);
+      navTimerRef.current = setTimeout(() => navigate(`/runs/${runId}/results`), 1500);
     },
     onError: (event) => {
       onError(event);
@@ -63,6 +64,12 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
     }, 1000);
     return () => clearInterval(interval);
   }, [startTime]);
+
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current) clearTimeout(navTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (logRef.current && showLog) {

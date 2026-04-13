@@ -31,27 +31,47 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
 
   const isNameValid = datasetName.trim().length >= 2;
 
-  const handleInputSelect = async (file: File) => {
+  const handleInputSelect = (file: File) => {
     setInputFile(file);
     setError(null);
+    setPreview(null);
     const name = file.name.replace(".csv", "").replace(/\s+/g, "_");
     if (!datasetName) setDatasetName(name);
 
-    try {
-      setUploading(true);
-      const response = await uploadFiles(file, metadataFile ?? undefined, name || undefined);
-      setPreview(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-      toast.error("Failed to upload file");
-    } finally {
-      setUploading(false);
-    }
+    // Client-side preview only — no server upload yet.
+    // This avoids creating an orphaned run when the user changes the dataset name.
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+      const lines = text.split("\n").filter((l) => l.trim());
+      const headers = lines[0]?.split(",").map((h) => h.trim().replace(/^"|"$/g, "")) ?? [];
+      const previewRows = lines.slice(1, 11).map((line) => {
+        const vals = line.split(",");
+        const row: Record<string, string> = {};
+        headers.forEach((h, i) => (row[h] = (vals[i] ?? "").trim().replace(/^"|"$/g, "")));
+        return row;
+      });
+      setPreview({
+        run_id: "",
+        dataset_name: name,
+        run_dir: "",
+        input_path: "",
+        metadata_path: null,
+        rows: lines.length - 1,
+        columns: headers.length,
+        column_names: headers,
+        preview: previewRows,
+      });
+    };
+    reader.readAsText(file);
   };
 
   const handleNext = async () => {
-    if (!inputFile) return;
+    if (!inputFile || uploading) return;
     const finalName = datasetName.trim() || inputFile.name.replace(".csv", "").replace(/\s+/g, "_");
+
+    // Single upload with the final name — creates exactly one run
     try {
       setUploading(true);
       setError(null);

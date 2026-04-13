@@ -50,7 +50,12 @@ export function useWebSocket({
     };
 
     ws.onmessage = (messageEvent) => {
-      const event = JSON.parse(messageEvent.data as string) as ProgressEvent;
+      let event: ProgressEvent;
+      try {
+        event = JSON.parse(messageEvent.data as string) as ProgressEvent;
+      } catch {
+        return; // ignore malformed messages
+      }
       setEvents((prev) => [...prev, event]);
       onEventRef.current?.(event);
 

@@ -15,7 +15,7 @@ class TestPipelineConfig:
             output_dir="/tmp/output",
         )
         assert config.model == "gemini-3.1-pro-preview"
-        assert config.enable_mcp is True
+        assert config.enable_mcp is False
         assert config.skip_evaluation is True
         assert config.max_retries == 1
 

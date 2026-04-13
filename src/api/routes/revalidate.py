@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.post("/runs/{run_id}/revalidate")
-async def revalidate(run_id: str, request: Request):
+def revalidate(run_id: str, request: Request):
     """Run stat_var_processor validation on the current PVMAP."""
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:

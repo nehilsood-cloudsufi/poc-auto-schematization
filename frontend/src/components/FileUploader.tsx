@@ -28,9 +28,16 @@ export function FileUploader({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) onFileSelect(file);
+      if (file) {
+        // Validate file extension matches accept attribute (drag-drop bypasses <input accept>)
+        const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+        if (accept && !accept.split(",").some((a) => a.trim().toLowerCase() === ext)) {
+          return; // silently reject non-matching files
+        }
+        onFileSelect(file);
+      }
     },
-    [onFileSelect]
+    [onFileSelect, accept]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

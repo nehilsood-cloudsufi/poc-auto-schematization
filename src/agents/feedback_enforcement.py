@@ -38,7 +38,9 @@ def _split_lines(pvmap_csv: str) -> list[str]:
 
 def _key_of(row: str) -> str:
     """Return the first column value (the key) from a CSV row."""
-    return row.split(",", 1)[0]
+    import csv, io
+    parsed = next(csv.reader(io.StringIO(row)), [])
+    return parsed[0] if parsed else ""
 
 
 def _join_lines(lines: list[str]) -> str:

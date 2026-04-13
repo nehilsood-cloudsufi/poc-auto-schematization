@@ -22,4 +22,4 @@ Classify each input column and determine mapped_columns = the 1-based position o
 If there are no DIMENSION columns (all keys are direct header matches), set mapped_columns to 0.
 
 Output ONLY valid JSON:
-{{"mapped_columns": N, "dimension_columns": ["col1", "col2"], "reasoning": "brief explanation"}}
+<mapped_columns: N, dimension_columns: ["col1", "col2"], reasoning: "brief explanation">

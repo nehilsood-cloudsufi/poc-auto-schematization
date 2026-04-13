@@ -8,6 +8,7 @@ import { CsvEditor } from "./CsvEditor";
 import { CodeViewer } from "./CodeViewer";
 import { listFiles, getFile } from "@/lib/api";
 import DOMPurify from "dompurify";
+import { toast } from "sonner";
 import {
   Table2,
   FileText,
@@ -102,9 +103,9 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
     setAvailableFiles([]);
     setFileData({});
     setActiveTab("");
-    listFiles(runId).then((resp) => {
-      setAvailableFiles(resp.files);
-    });
+    listFiles(runId)
+      .then((resp) => { setAvailableFiles(resp.files); })
+      .catch(() => { toast.error("Failed to load output files"); });
   }, [runId]);
 
   useEffect(() => {

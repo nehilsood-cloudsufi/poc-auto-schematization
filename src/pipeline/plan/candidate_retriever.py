@@ -348,3 +348,122 @@ class CandidateRetriever:
         for col_name, col_dict in columns.items():
             results[col_name] = self.retrieve_for_column(col_dict, schema_vocab)
         return results
+
+
+# --- ADK Agent Wrapper ---
+from google.adk.agents import BaseAgent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from google.genai import types as genai_types
+
+
+class CandidateRetrieverAgent(BaseAgent):
+    """ADK agent wrapper for CandidateRetriever. Runs before MappingPlanAgent."""
+
+    def __init__(self, name: str = "CandidateRetriever"):
+        super().__init__(name=name)
+
+    async def _run_async_impl(self, ctx: InvocationContext):
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text="Retrieving grounding candidates per column...")]
+        ))
+
+        retriever = CandidateRetriever()
+
+        # Parse column profiles from skeleton_summary
+        skeleton = ctx.session.state.get("skeleton_summary", "")
+        columns = _parse_columns_from_skeleton(skeleton)
+
+        schema_vocab = ctx.session.state.get("schema_vocab_content", "")
+
+        results = retriever.retrieve_all(columns, schema_vocab)
+
+        # Format as JSON for the plan agent
+        import json as _json
+        pool = {}
+        for col_name, (role, candidates, evidence) in results.items():
+            pool[col_name] = {
+                "proposed_role": role.value,
+                "evidence": evidence,
+                "candidates": [c.model_dump() for c in candidates],
+            }
+
+        ctx.session.state["candidate_pool"] = _json.dumps(pool, indent=2)
+        logger.info("Candidate retrieval complete: %d columns, %d total candidates",
+                    len(pool), sum(len(v["candidates"]) for v in pool.values()))
+
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text=f"Retrieved candidates for {len(pool)} columns")]
+        ))
+
+
+def _parse_columns_from_skeleton(skeleton: str) -> dict:
+    """Parse column info from skeleton_summary markdown table into dict format for retrieve_all.
+
+    The skeleton has a markdown table like:
+    | Column | Type | Unique | ...
+    Returns dict keyed by column name with profile info.
+    """
+    columns = {}
+    in_table = False
+    for line in skeleton.split("\n"):
+        if "|" not in line:
+            if in_table:
+                break  # End of first table — stop parsing
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        cells = [c for c in cells if c]
+        if not cells:
+            continue
+        if cells[0] == "Column" or cells[0] == "Column Header (EXACT)":
+            if in_table:
+                break  # Hit a second table header — stop
+            in_table = True
+            continue
+        if cells[0].startswith("---"):
+            # Separator row — skip but don't change in_table state
+            continue
+        if not in_table:
+            continue
+        if len(cells) >= 2:
+            name = cells[0].strip("`")
+            dtype = cells[1] if len(cells) > 1 else "String"
+            cardinality = 0
+            if len(cells) > 2:
+                try:
+                    cardinality = int(cells[2])
+                except ValueError:
+                    pass
+
+            # Detect semantic type
+            semantic = cells[3] if len(cells) > 3 and cells[3] != "-" else None
+            sem_type = None
+            if semantic:
+                sem_lower = semantic.lower()
+                if any(k in sem_lower for k in ["place", "geo", "country", "state", "fips", "iso"]):
+                    sem_type = "place"
+                elif any(k in sem_lower for k in ["date", "year", "time", "period"]):
+                    sem_type = "date"
+
+            # Use cardinality to estimate ratio: low cardinality (<=20 unique)
+            # suggests a categorical column even if the dtype is numeric.
+            if sem_type:
+                cardinality_ratio = 0.05  # semantic type detected — likely dimension
+            elif dtype in ("Float", "Integer") and cardinality > 20:
+                cardinality_ratio = 0.5  # likely continuous measure
+            elif dtype in ("Float", "Integer") and cardinality > 0:
+                cardinality_ratio = 0.05  # low-cardinality numeric — likely coded dimension
+            else:
+                cardinality_ratio = 0.5 if dtype in ("Float", "Integer") else 0.05
+            samples = cells[4].split(", ")[:3] if len(cells) > 4 else []
+
+            columns[name] = {
+                "name": name,
+                "dtype": dtype,
+                "semantic_type": sem_type,
+                "cardinality": cardinality,
+                "cardinality_ratio": cardinality_ratio,
+                "sample_values": samples,
+            }
+
+    return columns

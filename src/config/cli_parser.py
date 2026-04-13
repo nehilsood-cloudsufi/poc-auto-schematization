@@ -207,14 +207,9 @@ def create_parser() -> argparse.ArgumentParser:
     # Structured output
     parser.add_argument(
         '--structured-output',
-        action='store_true',
+        action=argparse.BooleanOptionalAction,
         default=True,
         help='Use structured output (deterministic CSV) [default: True]'
-    )
-    parser.add_argument(
-        '--no-structured-output',
-        action='store_true',
-        help='Disable structured output'
     )
 
     # Verbose

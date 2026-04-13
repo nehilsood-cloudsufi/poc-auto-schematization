@@ -15,14 +15,21 @@ export function ConfirmDeleteModal({
 }: ConfirmDeleteModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Focus dialog on mount only
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  // Keyboard handler — use ref to avoid re-subscription on prop change
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") onCancelRef.current();
     };
     window.addEventListener("keydown", handler);
-    dialogRef.current?.focus();
     return () => window.removeEventListener("keydown", handler);
-  }, [onCancel]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">

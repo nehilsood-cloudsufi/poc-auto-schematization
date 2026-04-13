@@ -49,6 +49,9 @@ def create_app(output_dir: Optional[Path] = None) -> FastAPI:
     from src.api.routes.revalidate import router as revalidate_router
     app.include_router(revalidate_router, prefix="/api")
 
+    from src.api.routes.plan import router as plan_router
+    app.include_router(plan_router, prefix="/api")
+
     from src.api.ws.progress import router as ws_router
     app.include_router(ws_router)
 

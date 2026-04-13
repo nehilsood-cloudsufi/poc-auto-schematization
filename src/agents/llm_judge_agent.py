@@ -213,14 +213,13 @@ class LLMJudgeAgent(BaseAgent):
 
         # --- Build prompt ---
         prompt_template = load_prompt("llm_judge_prompt.txt")
-        prompt = prompt_template.format(
-            generated_pvmap=generated_pvmap,
-            ground_truth_pvmap=gt_pvmap_content,
-            diff_text=_truncate_diff(diff_text),
-            eval_metrics=json.dumps(eval_metrics, indent=2, default=str),
-            data_context_summary=_build_data_context_summary(data_context),
-            skeleton_summary=_truncate_skeleton(skeleton_summary) if skeleton_summary else "Not available",
-        )
+        prompt = prompt_template
+        prompt = prompt.replace("{generated_pvmap}", generated_pvmap)
+        prompt = prompt.replace("{ground_truth_pvmap}", gt_pvmap_content)
+        prompt = prompt.replace("{diff_text}", _truncate_diff(diff_text))
+        prompt = prompt.replace("{eval_metrics}", json.dumps(eval_metrics, indent=2, default=str))
+        prompt = prompt.replace("{data_context_summary}", _build_data_context_summary(data_context))
+        prompt = prompt.replace("{skeleton_summary}", _truncate_skeleton(skeleton_summary) if skeleton_summary else "Not available")
 
         # --- Call Gemini ---
         try:

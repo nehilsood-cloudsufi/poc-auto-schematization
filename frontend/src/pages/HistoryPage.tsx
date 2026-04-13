@@ -68,10 +68,15 @@ export function HistoryPage() {
                 <Badge variant={
                   run.status === "plan_ready" ? "outline" :
                   run.status === "stopped" ? "secondary" :
+                  run.status === "running" || run.status === "pending" ? "secondary" :
+                  run.status === "error" ? "destructive" :
                   run.validation_passed ? "default" : "destructive"
                 }>
                   {run.status === "plan_ready" ? "Plan Ready" :
                    run.status === "stopped" ? "Stopped" :
+                   run.status === "running" ? "Running" :
+                   run.status === "pending" ? "Pending" :
+                   run.status === "error" ? "Error" :
                    run.validation_passed ? "Passed" : "Failed"}
                 </Badge>
                 <Button variant="ghost" size="sm"

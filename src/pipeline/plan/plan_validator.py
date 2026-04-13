@@ -86,7 +86,8 @@ class PlanValidator:
                 # property exists the key will be present with arcs.
                 node_key = f"dcid:{property_name}"
                 exists = bool(data.get("data", {}).get(node_key))
-                _property_cache[property_name] = exists
+                if exists:
+                    _property_cache[property_name] = exists
                 return exists
         except Exception:
             logger.debug(
@@ -122,36 +123,44 @@ class PlanValidator:
         error note -- the plan is always returned.
         """
 
-        # Collect (candidate, future) pairs so we can assign results back.
-        tasks: list[tuple[PropertyValueCandidate, asyncio.Task]] = []
-
+        # Deduplicate property checks to avoid cache-miss thundering herd.
+        all_candidates: list[PropertyValueCandidate] = []
         for col in plan.active_columns:
-            for cand in col.candidates:
-                tasks.append((cand, self._validate_candidate(cand)))
-
+            all_candidates.extend(col.candidates)
         for sp in plan.static_properties:
-            for cand in sp.candidates:
-                tasks.append((cand, self._validate_candidate(cand)))
+            all_candidates.extend(sp.candidates)
 
-        if not tasks:
+        if not all_candidates:
             return plan
 
-        candidates, coros = zip(*tasks)
-        results = await asyncio.gather(*coros, return_exceptions=True)
+        # Collect unique property names and validate each once
+        unique_props = list({c.property for c in all_candidates})
+        prop_results = await asyncio.gather(
+            *[self._check_property_exists(p) for p in unique_props],
+            return_exceptions=True,
+        )
+        prop_map: dict[str, bool] = {}
+        for prop, result in zip(unique_props, prop_results):
+            prop_map[prop] = result if isinstance(result, bool) else False
 
-        for cand, result in zip(candidates, results):
-            if isinstance(result, BaseException):
-                logger.warning(
-                    "Validation failed for candidate %s: %s",
-                    cand.property,
-                    result,
-                )
-                cand.validation = CandidateValidation(
-                    property_exists=False,
-                    notes=f"Validation error: {result}",
-                )
-            else:
-                cand.validation = result
+        # Assign validation results to each candidate
+        results = []
+        for cand in all_candidates:
+            exists = prop_map.get(cand.property, False)
+            notes = "" if exists else f"Property '{cand.property}' not found in Data Commons"
+            results.append(CandidateValidation(property_exists=exists, notes=notes))
+
+        for cand, result in zip(all_candidates, results):
+            cand.validation = result
+
+        # Log properties that failed lookup (for debugging)
+        failed_props = [p for p, exists in prop_map.items() if not exists]
+        if failed_props:
+            logger.info(
+                "DC API: %d/%d properties not found: %s",
+                len(failed_props), len(unique_props),
+                ", ".join(failed_props[:10]),
+            )
 
         return plan
 
@@ -159,3 +168,52 @@ class PlanValidator:
 def clear_property_cache() -> None:
     """Clear the module-level property cache (useful in tests)."""
     _property_cache.clear()
+
+
+# --- ADK Agent Wrapper ---
+from pathlib import Path
+from google.adk.agents import BaseAgent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from google.genai import types as genai_types
+
+
+class PlanValidatorAgent(BaseAgent):
+    """ADK agent wrapper for PlanValidator. Runs after MappingPlanAgent."""
+
+    def __init__(self, name: str = "PlanValidator"):
+        super().__init__(name=name)
+
+    async def _run_async_impl(self, ctx: InvocationContext):
+        plan_json = ctx.session.state.get("mapping_plan_json", "")
+        if not plan_json:
+            yield Event(author=self.name, content=genai_types.Content(
+                parts=[genai_types.Part(text="No plan to validate — skipping")]
+            ))
+            return
+
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text="Validating plan against DC API...")]
+        ))
+
+        plan = MappingPlan.model_validate_json(plan_json)
+
+        validator = PlanValidator()
+        validated = await validator.validate(plan)
+
+        # Update state with validated plan
+        validated_json = validated.model_dump_json(indent=2)
+        ctx.session.state["mapping_plan"] = validated_json
+        ctx.session.state["mapping_plan_json"] = validated_json
+
+        # Overwrite the JSON file on disk
+        output_dir = Path(ctx.session.state.get("output_dir", "."))
+        json_path = output_dir / "mapping_plan.json"
+        if json_path.exists():
+            json_path.write_text(validated_json, encoding="utf-8")
+
+        logger.info("Plan validation complete")
+
+        yield Event(author=self.name, content=genai_types.Content(
+            parts=[genai_types.Part(text="Plan validation complete")]
+        ))

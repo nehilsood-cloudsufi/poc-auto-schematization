@@ -264,8 +264,9 @@ def _execute_stratified_with_coverage(
 
         valid_dims = [c for c in dimension_columns if c in df.columns]
         if not valid_dims:
-            # Fallback to random if no valid dimension columns
-            return _sample_random(file_path, output_path, target_rows)
+            # Fallback to random — use cleaned df (metadata rows excluded)
+            df.sample(n=min(target_rows, len(df))).to_csv(output_path, index=False)
+            return {"success": True, "rows_sampled": min(target_rows, len(df))}
 
         # PASS 1: Coverage guarantee — one representative row per unique value per dimension
         coverage_indices = set()

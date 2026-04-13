@@ -108,6 +108,16 @@ def calculate_heuristic_score(
     # Calculate total
     total = row_coverage + prop_coverage + column_coverage + format_score
 
+    # PVMAP efficiency diagnostic (informational, does not change score)
+    dimension_enumeration_count = sum(1 for k in mapped_keys if ':' in k)
+    details["pvmap_row_count"] = actual_rows
+    details["dimension_enumeration_count"] = dimension_enumeration_count
+    if dimension_enumeration_count > 50:
+        issues.append(
+            f"Verbose PVMAP: {dimension_enumeration_count} enumerated dimension values. "
+            f"Consider passthrough {{Data}} for high-cardinality dimensions."
+        )
+
     return {
         "total": round(total, 1),
         "row_coverage": round(row_coverage, 1),
@@ -266,6 +276,9 @@ def _check_value_formats(pvmap_csv: str) -> Tuple[float, List[str]]:
     dcid_matches = re.findall(dcid_pattern, pvmap_csv)
 
     # Check for likely DC identifiers missing dcid: prefix
+    # Exclude well-known bare values that are valid without dcid: prefix
+    # (e.g., measuredProperty,count or populationType,Person)
+    _VALID_BARE_VALUES = {"count", "median", "measuredValue", "percentile"}
     bare_dcid_patterns = [
         r'\b(Person|Household|HousingUnit|Establishment)\b',
         r'\b(count|median|measuredValue|percentile)\b',
@@ -273,13 +286,17 @@ def _check_value_formats(pvmap_csv: str) -> Tuple[float, List[str]]:
         r'\bcountry/[A-Z]{3}\b',
     ]
 
+    pvmap_keys = _get_keys_from_pvmap(pvmap_csv)
     for pattern in bare_dcid_patterns:
         matches = re.findall(pattern, pvmap_csv)
         for match in matches:
+            # Skip well-known values that are valid in property-value positions
+            if match in _VALID_BARE_VALUES:
+                continue
             # Check if this match is already prefixed with dcid:
             if f'dcid:{match}' not in pvmap_csv and f'dcid: {match}' not in pvmap_csv:
                 # Only flag if it's in a value position (not a key)
-                if match not in _get_keys_from_pvmap(pvmap_csv):
+                if match not in pvmap_keys:
                     issues.append(f"Missing dcid: prefix for '{match}'")
                     score -= 2
 

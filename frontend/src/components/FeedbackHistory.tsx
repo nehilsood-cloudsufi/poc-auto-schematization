@@ -41,7 +41,8 @@ export function FeedbackHistory({ runId }: FeedbackHistoryProps) {
   const entries = ledger?.entries ?? [];
   const activeCount = entries.filter((e) => !e.retracted && !e.superseded).length;
 
-  if (entries.length === 0 && !loading) return null;
+  const hasLoaded = ledger !== null;
+  if (hasLoaded && entries.length === 0 && !loading) return null;
 
   const byRound = new Map<number, FeedbackEntry[]>();
   for (const e of entries) {

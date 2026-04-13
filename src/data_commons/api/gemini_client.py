@@ -110,7 +110,7 @@ class GeminiClient:
             config=types.GenerateContentConfig(**config_params),
         )
 
-        return response.text
+        return response.text or ""
 
     def generate_content_with_metadata(
         self,

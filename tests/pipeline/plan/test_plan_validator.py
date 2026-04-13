@@ -259,7 +259,7 @@ class TestValidatePlan:
 
         with patch.object(
             validator,
-            "_validate_candidate",
+            "_check_property_exists",
             side_effect=RuntimeError("boom"),
         ):
             result = await validator.validate(plan)
@@ -269,7 +269,7 @@ class TestValidatePlan:
         validation = result.active_columns[0].candidates[0].validation
         assert validation is not None
         assert validation.property_exists is False
-        assert "boom" in validation.notes
+        assert "not found" in validation.notes
 
     @pytest.mark.asyncio
     async def test_empty_plan_returns_unchanged(self):
