@@ -216,19 +216,51 @@ def _clean_hallucinated_key(
     return key
 
 
+def _has_numeric_difference(s1: str, s2: str) -> bool:
+    """Check if two strings differ ONLY in their numeric segments.
+
+    Returns True if the non-numeric skeleton is identical but numbers differ.
+    This prevents matching 'Age 15-19' to 'Age 15-29'.
+    """
+    nums1 = re.findall(r'\d+', s1)
+    nums2 = re.findall(r'\d+', s2)
+    skel1 = re.sub(r'\d+', '', s1).strip()
+    skel2 = re.sub(r'\d+', '', s2).strip()
+    if skel1.lower() == skel2.lower() and nums1 != nums2:
+        return True
+    return False
+
+
+def _token_set_match(key: str, headers: List[str]) -> Optional[str]:
+    """Token-set-ratio matching: permutation-invariant word matching.
+
+    Tokenizes by non-alphanumeric splits, compares sorted token sets.
+    """
+    key_tokens = set(re.split(r'[^a-zA-Z0-9]+', key.lower()))
+    key_tokens.discard('')
+    if not key_tokens:
+        return None
+    for header in headers:
+        header_tokens = set(re.split(r'[^a-zA-Z0-9]+', header.lower()))
+        header_tokens.discard('')
+        if key_tokens == header_tokens:
+            return header
+    return None
+
+
 def match_key_to_header(
     key: str,
     key_index: Dict[str, str],
     headers: List[str],
 ) -> Optional[str]:
-    """Cascading match of a PVMAP key to an actual column header.
+    """Normalization-first key matching cascade with numeric safety guard.
 
     Match order:
-    1. Exact match
-    2. Case-insensitive match
-    3. Stripped whitespace match
-    4. Alphanumeric-only match
-    5. Fuzzy match (difflib, cutoff=0.85)
+    1. Exact match -> None (already correct)
+    2. Case-insensitive via key_index
+    3. Alphanumeric-only via key_index
+    4. Token-set-ratio (permutation-invariant)
+    5. Fuzzy match (difflib) WITH numeric guard
 
     For COLUMN:VALUE syntax, matches only the COLUMN portion.
 
@@ -258,22 +290,30 @@ def match_key_to_header(
         if matched != column_part:
             return matched
 
-    # 3. Stripped whitespace (already handled by lower match above)
-
-    # 4. Alphanumeric-only match
+    # 3. Alphanumeric-only match
     key_alnum = re.sub(r'[^a-z0-9]', '', key_lower)
     if key_alnum and key_alnum in key_index:
         matched = key_index[key_alnum]
         if matched != column_part:
             return matched
 
-    # 5. Fuzzy match (use appropriate cutoff based on key length)
+    # 4. Token-set-ratio (permutation-invariant)
+    token_match = _token_set_match(column_part, headers)
+    if token_match and token_match != column_part:
+        return token_match
+
+    # 5. Fuzzy match WITH numeric guard
     cutoff = 0.80 if len(column_part) > 15 else 0.85
-    matches = difflib.get_close_matches(
-        column_part, headers, n=1, cutoff=cutoff
-    )
+    matches = difflib.get_close_matches(column_part, headers, n=1, cutoff=cutoff)
     if matches and matches[0] != column_part:
-        return matches[0]
+        candidate = matches[0]
+        if _has_numeric_difference(column_part, candidate):
+            logger.debug(
+                "Rejecting fuzzy match %r -> %r (numeric difference)",
+                column_part, candidate,
+            )
+            return None
+        return candidate
 
     return None
 
