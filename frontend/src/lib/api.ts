@@ -173,6 +173,13 @@ export async function getPlan(
   return request(`/runs/${runId}/plan`);
 }
 
+export async function getPlanMarkdown(
+  runId: string
+): Promise<string> {
+  const data = await request<{ markdown: string }>(`/runs/${runId}/plan/markdown`);
+  return data.markdown;
+}
+
 export async function updatePlan(
   runId: string,
   plan: Record<string, unknown>
