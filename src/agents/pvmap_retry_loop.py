@@ -2442,11 +2442,13 @@ class TieredCorrectionAgent(BaseAgent):
                 if current_dataset.input_data_files:
                     input_data_path = Path(str(current_dataset.input_data_files[0]))
 
+                column_manifest = ctx.session.state.get("column_manifest")
                 corrected, changes = apply_correction_rules(
                     pvmap_csv=best_pvmap,
                     filtered_logs=filtered_logs,
                     key_match_report=key_match_report,
                     input_data_path=input_data_path,
+                    column_manifest=column_manifest,
                 )
 
                 if changes:

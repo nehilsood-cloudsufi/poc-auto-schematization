@@ -382,7 +382,73 @@ def _apply_place_prefix(pvmap_csv: str, filtered_logs: FilteredLogs, ctx: dict) 
 
 
 # ---------------------------------------------------------------------------
-# Rule 3: fix_duplicate_observations (diagnostic only)
+# Rule 3: fix_missing_required_from_manifest
+# ---------------------------------------------------------------------------
+
+def _condition_missing_required_from_manifest(filtered_logs: FilteredLogs, ctx: dict) -> bool:
+    """Check for missing required property errors when column_manifest is available."""
+    error_type = 'error-svobs-missing-property'
+    has_error = error_type in filtered_logs.errors and filtered_logs.errors[error_type] > 0
+    has_manifest = bool(ctx.get('column_manifest'))
+    if not has_error or not has_manifest:
+        return False
+    examples = filtered_logs.error_examples.get(error_type, [])
+    missing_props = {v.lower() for v, _ in examples}
+    return bool(missing_props & {'observationabout', 'observationdate', 'value'})
+
+
+def _apply_missing_required_from_manifest(pvmap_csv: str, filtered_logs: FilteredLogs, ctx: dict) -> str:
+    """Inject observationAbout/observationDate/value rows using column_manifest.
+
+    When validation reports missing required properties and the column_manifest
+    knows which input columns should fill those roles, inject the appropriate
+    PVMAP rows.
+    """
+    manifest = ctx.get('column_manifest', {})
+    if not manifest:
+        return pvmap_csv
+
+    examples = filtered_logs.error_examples.get('error-svobs-missing-property', [])
+    missing_props = {v.lower() for v, _ in examples}
+
+    rows = _parse_pvmap_rows(pvmap_csv)
+    existing_props = set()
+    for row in rows:
+        for cell in row[1:]:
+            existing_props.add(cell.strip().lower())
+
+    must_map = manifest.get('must_map', [])
+
+    if 'observationabout' in missing_props and 'observationabout' not in existing_props:
+        place_cols = [e for e in must_map if e.get('role') == 'place']
+        if place_cols:
+            col = place_cols[0]['column_name']
+            samples = place_cols[0].get('sample_values', [])
+            if samples and all(str(s).isdigit() for s in samples[:3]):
+                rows.append([col, 'observationAbout', 'dcid:geoId/{Data}'])
+            else:
+                rows.append([col, 'observationAbout', '{Data}'])
+
+    if 'observationdate' in missing_props and 'observationdate' not in existing_props:
+        time_cols = [e for e in must_map if e.get('role') == 'time']
+        if time_cols:
+            col = time_cols[0]['column_name']
+            rows.append([col, 'observationDate', '{Data}'])
+
+    if 'value' in missing_props and 'value' not in existing_props:
+        value_cols = [e for e in must_map if e.get('role') == 'value']
+        if value_cols:
+            col = value_cols[0]['column_name']
+            rows.append([col, 'value', '{Number}', 'populationType', 'Thing', 'measuredProperty', 'count'])
+
+    result = _rows_to_csv(rows)
+    if result != pvmap_csv:
+        return result
+    return pvmap_csv
+
+
+# ---------------------------------------------------------------------------
+# Rule 4: fix_duplicate_observations (diagnostic only)
 # ---------------------------------------------------------------------------
 
 def _condition_duplicate_observations(filtered_logs: FilteredLogs, ctx: dict) -> bool:
@@ -427,7 +493,7 @@ def _diagnostic_duplicate_observations(filtered_logs: FilteredLogs) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Rule 4: fix_missing_required_props
+# Rule 5: fix_missing_required_props
 # ---------------------------------------------------------------------------
 
 def _condition_missing_required_props(filtered_logs: FilteredLogs, ctx: dict) -> bool:
@@ -477,7 +543,7 @@ def _apply_missing_required_props(pvmap_csv: str, filtered_logs: FilteredLogs, c
 
 
 # ---------------------------------------------------------------------------
-# Rule 5: fix_aggregate_invalid
+# Rule 6: fix_aggregate_invalid
 # ---------------------------------------------------------------------------
 
 def _condition_aggregate_invalid(filtered_logs: FilteredLogs, ctx: dict) -> bool:
@@ -582,23 +648,30 @@ def _build_rules() -> List[CorrectionRule]:
             apply=_apply_place_prefix,
         ),
         CorrectionRule(
+            name='fix_missing_required_from_manifest',
+            error_type='error-svobs-missing-property',
+            priority=3,
+            condition=_condition_missing_required_from_manifest,
+            apply=_apply_missing_required_from_manifest,
+        ),
+        CorrectionRule(
             name='fix_duplicate_observations',
             error_type='error-mismatched-svobs',
-            priority=3,
+            priority=4,
             condition=_condition_duplicate_observations,
             apply=_apply_duplicate_observations,
         ),
         CorrectionRule(
             name='fix_missing_required_props',
             error_type='error-svobs-missing-property',
-            priority=4,
+            priority=5,
             condition=_condition_missing_required_props,
             apply=_apply_missing_required_props,
         ),
         CorrectionRule(
             name='fix_aggregate_invalid',
             error_type='error-aggregate-invalid-values',
-            priority=5,
+            priority=6,
             condition=_condition_aggregate_invalid,
             apply=_apply_aggregate_invalid,
         ),
@@ -610,6 +683,7 @@ def apply_correction_rules(
     filtered_logs: FilteredLogs,
     key_match_report: str,
     input_data_path: Optional[Path] = None,
+    column_manifest: Optional[dict] = None,
 ) -> Tuple[str, List[str]]:
     """Apply all matching correction rules in priority order.
 
@@ -618,6 +692,8 @@ def apply_correction_rules(
         filtered_logs: Enriched validation summary from log_filter.
         key_match_report: Key matching report text from pvmap_repair.
         input_data_path: Optional path to the input CSV for header lookup.
+        column_manifest: Optional column manifest with must_map/can_ignore
+            entries for injecting missing required property rows.
 
     Returns:
         Tuple of (corrected_pvmap_csv, list_of_change_descriptions).
@@ -628,6 +704,7 @@ def apply_correction_rules(
     ctx: dict = {
         'key_match_report': key_match_report,
         'input_data_path': input_data_path,
+        'column_manifest': column_manifest,
     }
 
     changes: List[str] = []
