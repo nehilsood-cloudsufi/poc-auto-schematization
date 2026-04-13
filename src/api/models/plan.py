@@ -131,9 +131,15 @@ class TimeResolution(BaseModel):
     normalization_rule: str
 
 
+class StatVarProperty(BaseModel):
+    """A single base property for the StatVar blueprint."""
+    name: str
+    value: str
+
+
 class StatVarBlueprint(BaseModel):
     """Base StatVar definition and how dimensions modify it."""
-    base_properties: dict[str, str]
+    base_properties: list[StatVarProperty]
     constraint_columns: list[str]
     measure_columns: list[str]
 

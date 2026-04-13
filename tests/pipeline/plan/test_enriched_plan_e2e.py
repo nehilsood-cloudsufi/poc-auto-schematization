@@ -7,6 +7,7 @@ from src.pipeline.plan.column_analyzer import analyze_columns
 from src.pipeline.plan.plan_mitigations import strip_total_indicators, apply_mitigations
 from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
 from src.api.models.plan import (
+    StatVarProperty,
     EnrichedMappingPlan, DatasetUnderstanding, ColumnMapping, ColumnRole,
     PropertyValueCandidate, CandidateSource, StaticProperty,
     StatVarBlueprint, ValueDictionary, ValueMapping,
@@ -62,7 +63,7 @@ def test_phase_a_to_skeleton_roundtrip(tmp_path):
         global_notes=[],
         column_relationships=analysis.relationships,
         statvar_blueprint=StatVarBlueprint(
-            base_properties={"populationType": "dcs:Person", "measuredProperty": "dcs:count"},
+            base_properties=[StatVarProperty(name="populationType", value="dcs:Person"), StatVarProperty(name="measuredProperty", value="dcs:count")],
             constraint_columns=["SEX"],
             measure_columns=["OBS_VALUE"],
         ),
@@ -118,7 +119,7 @@ def test_total_indicator_mitigation_e2e(tmp_path):
         static_properties=[],
         global_notes=[],
         statvar_blueprint=StatVarBlueprint(
-            base_properties={"populationType": "dcs:Person"},
+            base_properties=[StatVarProperty(name="populationType", value="dcs:Person")],
             constraint_columns=["SEX"], measure_columns=["VAL"],
         ),
         value_dictionaries=[

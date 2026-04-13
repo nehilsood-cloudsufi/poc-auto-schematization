@@ -521,6 +521,7 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["best_heuristic_score"] = 0
             ctx.session.state["best_pv_accuracy"] = None
             ctx.session.state["best_quality_metrics"] = {}
+            ctx.session.state["quality_metrics_display"] = ""
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
@@ -1196,7 +1197,7 @@ class StatePreparationAgent(BaseAgent):
             # --- Build {{STATVAR_BLUEPRINT}} ---
             bp = enriched_plan.statvar_blueprint
             bp_lines = [
-                f"Base: {bp.base_properties}",
+                f"Base: {', '.join(f'{p.name}: {p.value}' for p in bp.base_properties)}",
                 f"Constraint columns: {bp.constraint_columns}",
                 f"Measure columns: {bp.measure_columns}",
             ]
@@ -2553,6 +2554,13 @@ class TieredCorrectionAgent(BaseAgent):
 
                 async for event in self._patch_agent.run_async(ctx):
                     yield event
+
+                # Unescape placeholders that were escaped before the patch agent ran
+                from src.agents.template_utils import unescape_pvmap_placeholders
+                for key in ["pvmap_csv", "validation_counter_summary", "key_match_report"]:
+                    val = ctx.session.state.get(key, "")
+                    if val and isinstance(val, str):
+                        ctx.session.state[key] = unescape_pvmap_placeholders(val)
 
                 patched = ctx.session.state.get("pvmap_csv", "")
                 if patched and patched != best_pvmap:

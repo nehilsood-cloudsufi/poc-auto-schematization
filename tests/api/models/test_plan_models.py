@@ -4,6 +4,7 @@ import json
 import pytest
 
 from src.api.models.plan import (
+    StatVarProperty,
     ColumnRelationship,
     EnrichedMappingPlan,
     MappingPlan,
@@ -75,7 +76,10 @@ def base_mapping_plan_kwargs():
 @pytest.fixture
 def sample_statvar_blueprint():
     return StatVarBlueprint(
-        base_properties={"populationType": "dcs:Person", "measuredProperty": "dcs:count"},
+        base_properties=[
+            StatVarProperty(name="populationType", value="dcs:Person"),
+            StatVarProperty(name="measuredProperty", value="dcs:count"),
+        ],
         constraint_columns=["age", "gender"],
         measure_columns=["value"],
     )
@@ -244,8 +248,9 @@ class TestTimeResolution:
 class TestStatVarBlueprint:
     def test_base_properties(self, sample_statvar_blueprint):
         bp = sample_statvar_blueprint
-        assert bp.base_properties["populationType"] == "dcs:Person"
-        assert bp.base_properties["measuredProperty"] == "dcs:count"
+        assert bp.base_properties[0].name == "populationType"
+        assert bp.base_properties[0].value == "dcs:Person"
+        assert bp.base_properties[1].name == "measuredProperty"
         assert bp.constraint_columns == ["age", "gender"]
         assert bp.measure_columns == ["value"]
 
@@ -319,7 +324,7 @@ class TestEnrichedMappingPlan:
         assert len(emp.static_properties) == 1
         # New fields
         assert len(emp.column_relationships) == 1
-        assert emp.statvar_blueprint.base_properties["populationType"] == "dcs:Person"
+        assert emp.statvar_blueprint.base_properties[0].name == "populationType"
         assert len(emp.value_dictionaries) == 1
         assert emp.place_resolution.pad_zeros == 5
         assert emp.time_resolution.columns == ["year"]

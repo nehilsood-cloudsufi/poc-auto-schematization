@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from src.api.models.plan import (
+    StatVarProperty,
     CandidateSource,
     ColumnMapping,
     ColumnRole,
@@ -80,7 +81,7 @@ def _make_plan(
         static_properties=[],
         global_notes=[],
         statvar_blueprint=StatVarBlueprint(
-            base_properties={"populationType": "Person"},
+            base_properties=[StatVarProperty(name="populationType", value="Person")],
             constraint_columns=[],
             measure_columns=["col_a"],
         ),

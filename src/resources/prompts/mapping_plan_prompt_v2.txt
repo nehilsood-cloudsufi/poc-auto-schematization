@@ -222,7 +222,7 @@ Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of the
     }
   ],
   "statvar_blueprint": {
-    "base_properties": {"populationType": "dcs:Person", "measuredProperty": "dcs:count", "statType": "dcs:measuredValue"},
+    "base_properties": [{"name": "populationType", "value": "dcs:Person"}, {"name": "measuredProperty", "value": "dcs:count"}, {"name": "statType", "value": "dcs:measuredValue"}],
     "constraint_columns": ["age_group", "sex"],
     "measure_columns": ["estimate"]
   },

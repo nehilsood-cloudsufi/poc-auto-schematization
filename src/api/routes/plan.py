@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from src.api.models.plan import MappingPlan
-from src.api.services.run_state import get_run
+from src.api.services.run_state import get_run, get_or_load_run
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,9 +35,9 @@ class ApprovePlanRequest(BaseModel):
 
 
 @router.get("/runs/{run_id}/plan")
-async def get_plan(run_id: str):
+async def get_plan(run_id: str, request: Request):
     """Return the structured mapping plan as JSON."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -75,11 +75,11 @@ async def get_plan(run_id: str):
 
 
 @router.put("/runs/{run_id}/plan")
-async def update_plan(run_id: str, body: dict):
+async def update_plan(run_id: str, body: dict, request: Request):
     """Accept full plan edit from user (JSON editor)."""
     from src.api.models.plan import EnrichedMappingPlan
 
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -115,9 +115,9 @@ async def update_plan(run_id: str, body: dict):
 
 
 @router.post("/runs/{run_id}/plan/approve")
-async def approve_plan(run_id: str, body: ApprovePlanRequest):
+async def approve_plan(run_id: str, body: ApprovePlanRequest, request: Request):
     """Save the engineer's plan selections and prepare for Phase 2."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -145,9 +145,9 @@ class RegeneratePlanRequest(BaseModel):
 
 
 @router.post("/runs/{run_id}/plan/regenerate")
-async def regenerate_plan(run_id: str, body: RegeneratePlanRequest):
+async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Request):
     """Regenerate the mapping plan with engineer feedback."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -224,9 +224,9 @@ class AddNoteRequest(BaseModel):
 
 
 @router.post("/runs/{run_id}/plan/notes")
-async def add_plan_note(run_id: str, body: AddNoteRequest):
+async def add_plan_note(run_id: str, body: AddNoteRequest, request: Request):
     """Append a note to the plan's engineer_notes."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -258,9 +258,9 @@ async def add_plan_note(run_id: str, body: AddNoteRequest):
 
 
 @router.post("/runs/{run_id}/generate")
-async def generate_pvmap(run_id: str, body: GenerateRequest):
+async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
     """Start Phase 2: generate PVMAP from approved plan."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -335,9 +335,9 @@ async def generate_pvmap(run_id: str, body: GenerateRequest):
 
 
 @router.post("/runs/{run_id}/stop")
-async def stop_run(run_id: str):
+async def stop_run(run_id: str, request: Request):
     """Cancel a running pipeline."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -354,7 +354,7 @@ async def stop_run(run_id: str):
 @router.post("/runs/{run_id}/resume")
 async def resume_run(run_id: str, request: Request):
     """Resume a stopped/completed run from its last checkpoint."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -416,10 +416,10 @@ async def resume_run(run_id: str, request: Request):
 
 
 @router.get("/runs/{run_id}/preview")
-async def preview_data(run_id: str, rows: int = 100):
+async def preview_data(run_id: str, request: Request, rows: int = 100):
     rows = min(max(rows, 1), 5000)  # Bound to prevent OOM
     """Return a preview of the uploaded CSV data."""
-    run = get_run(run_id)
+    run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
