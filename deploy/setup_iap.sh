@@ -63,7 +63,7 @@ gcloud beta run deploy "${SERVICE}" \
 echo "[5/5] Granting IAP access to authorized domains..."
 
 # Allow all @google.com users
-gcloud iap web add-iam-policy-binding \
+gcloud beta iap web add-iam-policy-binding \
   --resource-type=cloud-run \
   --service="${SERVICE}" \
   --region="${REGION}" \
@@ -72,7 +72,7 @@ gcloud iap web add-iam-policy-binding \
   --project="${PROJECT_ID}"
 
 # Allow all @cloudsufi.com users
-gcloud iap web add-iam-policy-binding \
+gcloud beta iap web add-iam-policy-binding \
   --resource-type=cloud-run \
   --service="${SERVICE}" \
   --region="${REGION}" \
