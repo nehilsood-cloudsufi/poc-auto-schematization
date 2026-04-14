@@ -389,7 +389,7 @@ Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of the
 }
 ```
 
-Ensure column_relationships is populated from Phase A relationships (copy them through, adjusting pvmap_implication if your role assignments differ from the defaults).
+Ensure column_relationships includes ONLY non-trivial relationships from Phase A (co_referent, hierarchical, qualifier, cross_product, value_error, temporal, obs_status). Do NOT include "independent" relationships — they waste tokens and provide no mapping guidance.
 Ensure composite_key is copied directly from Phase A.
 Ensure place_resolution and time_resolution use Phase A detections (may be null if not detected).
 Ensure transformation_strategy is always present (action=null for no-transform datasets).
