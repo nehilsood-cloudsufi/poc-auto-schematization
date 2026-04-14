@@ -146,7 +146,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--enable-mcp',
         action='store_true',
-        help='Enable Data Commons MCP integration for StatVar discovery'
+        default=True,
+        help='Enable Data Commons MCP integration for StatVar discovery (default: on)'
     )
     parser.add_argument(
         '--enable-schemaorg-mcp',

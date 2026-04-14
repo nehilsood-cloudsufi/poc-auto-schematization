@@ -99,9 +99,9 @@ class TestDefaults:
         args = parse_args([])
         assert args.thinking_level == "high"
 
-    def test_enable_mcp_default_false(self):
+    def test_enable_mcp_default_true(self):
         args = parse_args([])
-        assert args.enable_mcp is False
+        assert args.enable_mcp is True
 
     def test_enable_schemaorg_mcp_default_false(self):
         args = parse_args([])

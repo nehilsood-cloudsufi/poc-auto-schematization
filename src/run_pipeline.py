@@ -173,9 +173,10 @@ async def _run_pipeline_async(runner, user_id, session_id, user_message, events_
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
-                _log.warning(
+                _log.error(
                     "No event received in 300s (%d events so far). "
-                    "Pipeline may be stalled — breaking event loop.",
+                    "Pipeline stalled — breaking event loop. "
+                    "This likely means an LLM API call exceeded the stall timeout.",
                     len(events_out),
                 )
                 break
@@ -375,7 +376,7 @@ def run_dataset_pipeline(
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
     model: str = "gemini-3.1-pro-preview",
-    enable_mcp: bool = False,
+    enable_mcp: bool = True,
     mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
     force_resample: bool = False,
@@ -886,8 +887,17 @@ def run_dataset_pipeline(
                 len(skeleton_summary), len(mapping_plan), sampled_data_path, schema_category,
             )
 
+            # Detect plan generation failure (pipeline stalled or agent crashed)
+            plan_status = "plan_generated" if (mapping_plan or mapping_plan_json) else "plan_failed"
+            if plan_status == "plan_failed":
+                logger.error(
+                    "Plan generation failed: no mapping_plan files found. "
+                    "The MappingPlanAgent likely stalled or crashed. "
+                    "Check logs for 'stall' or 'Unexpected error' messages."
+                )
+
             return {
-                "status": "plan_generated",
+                "status": plan_status,
                 "phase": "plan",
                 "plan_path": plan_path,
                 "dataset_name": dataset_name,
@@ -987,13 +997,13 @@ if __name__ == "__main__":
                         choices=["low", "medium", "high", "minimal", "none"],
                         default="high",
                         help="Thinking level for Gemini models (default: high). Use 'none' to disable.")
-    # MCP integration flags
-    parser.add_argument("--enable-mcp", action="store_true",
-                        help="Enable MCP integration for Data Commons StatVar discovery")
+    # MCP integration flags (enabled by default)
+    parser.add_argument("--enable-mcp", action="store_true", default=True,
+                        help="Enable MCP integration for Data Commons StatVar discovery (default: on)")
     parser.add_argument("--mcp-port", type=int, default=None,
                         help="MCP server port (default: from MCP_PORT env or 3000)")
     parser.add_argument("--no-mcp", action="store_true",
-                        help="Explicitly disable MCP (overrides --enable-mcp)")
+                        help="Disable MCP integration")
     # Sampling agent flags
     parser.add_argument("--skip-sampling", action="store_true",
                         help="Skip agentic sampling phase (use existing sampled files)")

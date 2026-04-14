@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
   dataset_name: "",
   model: "gemini-3.1-pro-preview",
   max_retries: 1,
-  enable_mcp: false,
+  enable_mcp: true,
   use_schema_examples: true,
   human_feedback: null,
 };

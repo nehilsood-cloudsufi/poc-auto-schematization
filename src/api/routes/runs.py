@@ -38,7 +38,7 @@ class StartRunRequest(BaseModel):
     dataset_name: str
     model: str = "gemini-3.1-pro-preview"
     max_retries: int = 1
-    enable_mcp: bool = False
+    enable_mcp: bool = True
     use_schema_examples: bool = True
     skip_sampling: bool = False
     use_metadata: bool = False
@@ -226,7 +226,11 @@ async def start_run(req: StartRunRequest, request: Request):
     run.config = config.__dict__
     run.status = "running"
 
+    # Persist running status so interrupted runs are detected after server restart
+    write_run_info(Path(run.run_dir), {"status": "running", "dataset_name": req.dataset_name})
+
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
-    run.thread = thread
+    run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
 
     return {"run_id": req.run_id, "status": "running"}

@@ -27,7 +27,7 @@ class PipelineConfig:
     output_dir: str
     input_file: Optional[str] = None
     model: str = "gemini-3.1-pro-preview"
-    enable_mcp: bool = False
+    enable_mcp: bool = True
     mcp_url: Optional[str] = None
     skip_sampling: bool = False
     force_resample: bool = False
@@ -60,7 +60,8 @@ def launch_pipeline(
         daemon=True,
         name=f"pipeline-{config.run_id}",
     )
-    thread.start()
+    # NOTE: Caller must assign thread to run.thread BEFORE calling thread.start()
+    # to avoid a race where a fast crash finds run.thread=None.
     return thread
 
 
