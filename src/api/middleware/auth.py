@@ -4,6 +4,9 @@ Extracts user email from the X-Goog-IAP-JWT-Assertion header injected by
 Google Identity-Aware Proxy. Sets request.state.user_email for downstream use
 and a contextvars tag for structured logging.
 
+Enforces domain-level access control: only @google.com and @cloudsufi.com
+emails are allowed. Returns 403 for all other domains.
+
 In local dev (no K_SERVICE env var), user_email defaults to "local-dev@localhost".
 """
 import contextvars
@@ -14,10 +17,15 @@ from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
 CLOUD_RUN = os.environ.get("K_SERVICE", "") != ""
+
+# Allowed email domains (enforced at app level since IAP domain: bindings
+# are unreliable on Cloud Run)
+ALLOWED_DOMAINS = {"google.com", "cloudsufi.com"}
 
 # ContextVar so all log lines in a request include the user email
 user_email_var: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -82,7 +90,7 @@ def _decode_iap_jwt(token: str) -> Optional[str]:
 
 
 class IAPAuthMiddleware(BaseHTTPMiddleware):
-    """Extract user identity from IAP JWT header."""
+    """Extract user identity from IAP JWT header and enforce domain access."""
 
     async def dispatch(self, request: Request, call_next):
         # Skip auth for health check
@@ -97,6 +105,16 @@ class IAPAuthMiddleware(BaseHTTPMiddleware):
                 email = _decode_iap_jwt(jwt_assertion) or "anonymous"
             else:
                 email = "anonymous"
+
+            # Enforce domain-level access control
+            if email != "anonymous":
+                domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+                if domain not in ALLOWED_DOMAINS:
+                    logger.warning("Access denied for %s (domain %s not in allowed list)", email, domain)
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": f"Access denied. Only @google.com and @cloudsufi.com domains are allowed."},
+                    )
 
         request.state.user_email = email
         user_email_var.set(email)
