@@ -71,9 +71,14 @@ async def upload_files(
         config={},
     )
 
-    # Persist custom dataset name for historical run discovery
-    run_info = {"dataset_name": dataset_name, "run_id": run_id}
+    # Persist custom dataset name + owner for historical run discovery
+    user_email = getattr(request.state, "user_email", "")
+    run_info = {"dataset_name": dataset_name, "run_id": run_id, "owner": user_email}
     (run_dir / "run_info.json").write_text(json.dumps(run_info))
+
+    # Log activity
+    from src.api.services.activity_log import log_activity
+    log_activity(output_dir, user_email, "upload", {"run_id": run_id, "dataset_name": dataset_name})
 
     return {
         "run_id": run_id,

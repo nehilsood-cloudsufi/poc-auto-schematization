@@ -2,7 +2,10 @@
 import json
 import logging
 import queue
+import shutil
 import threading
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -147,7 +150,18 @@ async def update_plan(run_id: str, body: dict, request: Request):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     plan_json_path = output_dir / "mapping_plan.json"
+
+    # Snapshot the original plan before overwriting
+    if plan_json_path.exists():
+        snapshot_name = f"mapping_plan_before_edit_{int(time.time())}.json"
+        shutil.copy2(plan_json_path, output_dir / snapshot_name)
+
     plan_json_path.write_text(plan.model_dump_json(indent=2))
+
+    # RLHF logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    log_interaction(run_dir, user_email, "plan_edited", {"snapshot": snapshot_name if plan_json_path.exists() else ""})
 
     # Also update phase1_state if it exists
     phase1_path = run_dir / "phase1_state.json"
@@ -188,6 +202,11 @@ async def approve_plan(run_id: str, body: ApprovePlanRequest, request: Request):
     from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
     skeleton_csv = plan_to_skeleton_csv(plan)
     (output_dir / "pvmap_skeleton.csv").write_text(skeleton_csv)
+
+    # RLHF logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    log_interaction(run_dir, user_email, "plan_approved", {"skeleton_rows": skeleton_csv.count("\n")})
 
     return {"status": "approved", "skeleton_rows": skeleton_csv.count("\n")}
 
@@ -266,6 +285,21 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
 
     config.extra_state = extra_state
 
+    # Persist regen feedback to disk (survives pipeline crashes)
+    feedback_path = output_dir / f"regen_feedback_{int(time.time())}.json"
+    feedback_path.write_text(json.dumps({
+        "feedback": body.feedback,
+        "deep": body.deep,
+        "timestamp": datetime.now().isoformat(),
+    }))
+
+    # RLHF logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    log_interaction(run_dir, user_email, "plan_regen_feedback", {
+        "feedback": body.feedback, "deep": body.deep,
+    })
+
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
     run.thread = thread  # assign before start to avoid race with fast crash
     thread.start()
@@ -314,6 +348,11 @@ async def add_plan_note(run_id: str, body: AddNoteRequest, request: Request):
             phase1 = json.loads(phase1_path.read_text())
             phase1["mapping_plan_json"] = plan.model_dump_json()
             phase1_path.write_text(json.dumps(phase1, indent=2))
+
+        # RLHF logging
+        user_email = getattr(request.state, "user_email", "")
+        from src.api.services.rlhf_log import log_interaction
+        log_interaction(run_dir, user_email, "plan_note_added", {"note": body.note})
 
         return {"notes": plan.engineer_notes}
 

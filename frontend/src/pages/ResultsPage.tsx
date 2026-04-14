@@ -16,6 +16,7 @@ import { FeedbackForm } from "@/components/FeedbackForm";
 import { DownloadButton } from "@/components/DownloadButton";
 import { SpreadsheetEditor } from "@/components/SpreadsheetEditor";
 import { ConfirmDeleteModal } from "@/components/ConfirmDeleteModal";
+import { DevFeedbackForm } from "@/components/DevFeedbackForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -383,6 +384,13 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         <Card className="shadow-sm">
           <CardContent className="pt-6">
             <FeedbackForm runId={runId} onRerunStarted={onRerunStarted} />
+          </CardContent>
+        </Card>
+
+        {/* DEVELOPER FEEDBACK */}
+        <Card className="shadow-sm mt-4">
+          <CardContent className="pt-6">
+            <DevFeedbackForm runId={runId} />
           </CardContent>
         </Card>
 

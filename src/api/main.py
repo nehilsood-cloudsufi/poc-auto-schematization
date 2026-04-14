@@ -4,6 +4,7 @@ In development: run with `uvicorn src.api.main:app --reload --port 8000`
 In production: FastAPI serves React static files from frontend/dist/
 """
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.api.config import UI_OUTPUT_DIR
+from src.api.middleware.auth import IAPAuthMiddleware, UserEmailLogFilter
 
 logger = logging.getLogger(__name__)
 
@@ -19,20 +21,28 @@ logger = logging.getLogger(__name__)
 def create_app(output_dir: Optional[Path] = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="Agent B: Auto Schematization",
+        title="Auto Schematization Agent",
         description="PVMAP Generation Pipeline API",
-        version="1.0.0",
+        version="0.2.0",
     )
 
     app.state.output_dir = output_dir or UI_OUTPUT_DIR
 
+    extra_origins = [o for o in os.environ.get("CORS_ORIGINS", "").split(",") if o]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origins=[
+            "http://localhost:5173",
+            "http://localhost:3000",
+            *extra_origins,
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(IAPAuthMiddleware)
+    logging.getLogger().addFilter(UserEmailLogFilter())
 
     from src.api.routes.upload import router as upload_router
     app.include_router(upload_router, prefix="/api")
@@ -54,6 +64,10 @@ def create_app(output_dir: Optional[Path] = None) -> FastAPI:
 
     from src.api.ws.progress import router as ws_router
     app.include_router(ws_router)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "version": "0.2.0"}
 
     # Serve React static files in production
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"

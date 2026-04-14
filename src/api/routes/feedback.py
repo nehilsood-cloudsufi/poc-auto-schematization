@@ -124,6 +124,20 @@ async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
         },
     )
 
+    # RLHF + activity logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    from src.api.services.activity_log import log_activity
+    log_interaction(Path(run.run_dir), user_email, "pipeline_feedback", {
+        "text": req.text or "",
+        "category": req.category or "",
+        "severity": req.severity,
+        "entries_count": len(req.entries) if req.entries else 0,
+    })
+    log_activity(request.app.state.output_dir, user_email, "feedback_submit", {
+        "run_id": run_id, "new_run_id": new_run_id,
+    })
+
     logger.info("Feedback submitted for run %s, new run %s created", run_id, new_run_id)
 
     return {
@@ -169,12 +183,15 @@ async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest, request: Req
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
+    user_email = getattr(request.state, "user_email", "")
+
     entry = {
         "type": "developer_feedback",
         "run_id": run_id,
         "dataset_name": run.dataset_name,
         "text": req.text,
         "category": req.category,
+        "submitter_email": user_email,
     }
 
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
@@ -188,6 +205,17 @@ async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest, request: Req
             feedback_text=req.text,
             category=req.category,
             pipeline_status=run.status,
+            submitter_email=user_email,
         )
+
+    # RLHF + activity logging
+    from src.api.services.rlhf_log import log_interaction
+    from src.api.services.activity_log import log_activity
+    log_interaction(Path(run.run_dir), user_email, "dev_feedback", {
+        "text": req.text, "category": req.category,
+    })
+    log_activity(request.app.state.output_dir, user_email, "dev_feedback_submit", {
+        "run_id": run_id,
+    })
 
     return {"saved": True}

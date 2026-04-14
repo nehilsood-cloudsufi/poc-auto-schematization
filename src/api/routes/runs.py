@@ -52,7 +52,7 @@ class UpdateRunRequest(BaseModel):
 
 
 @router.get("/runs")
-async def list_all_runs(request: Request, include_archived: bool = False):
+async def list_all_runs(request: Request, include_archived: bool = False, mine_only: bool = False):
     """List active runs + historical runs from disk.
 
     Active (in-memory) runs are always included.  Historical runs on disk are
@@ -69,6 +69,9 @@ async def list_all_runs(request: Request, include_archived: bool = False):
         archived = info.get("archived", False)
         if archived and not include_archived:
             continue
+        owner = info.get("owner", "")
+        if mine_only and owner and owner != getattr(request.state, "user_email", ""):
+            continue
         enriched_active.append({
             "run_id": r.run_id,
             "dataset_name": r.dataset_name,
@@ -79,6 +82,7 @@ async def list_all_runs(request: Request, include_archived: bool = False):
             "display_name": info.get("display_name", r.dataset_name),
             "notes": info.get("notes", ""),
             "archived": archived,
+            "owner": owner,
         })
 
     active_ids = {r["run_id"] for r in enriched_active}
@@ -94,9 +98,13 @@ async def list_all_runs(request: Request, include_archived: bool = False):
         archived = info.get("archived", False)
         if archived and not include_archived:
             continue
+        owner = info.get("owner", "")
+        if mine_only and owner and owner != getattr(request.state, "user_email", ""):
+            continue
         h["display_name"] = info.get("display_name", h["dataset_name"])
         h["notes"] = info.get("notes", "")
         h["archived"] = archived
+        h["owner"] = owner
         enriched_historical.append(h)
 
     return enriched_active + enriched_historical
@@ -138,6 +146,15 @@ async def update_run(run_id: str, req: UpdateRunRequest, request: Request):
         updates["notes"] = req.notes
 
     updated = write_run_info(run_dir, updates)
+
+    # RLHF logging for name/notes edits
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    if req.display_name is not None:
+        log_interaction(run_dir, user_email, "run_name_edited", {"display_name": req.display_name})
+    if req.notes is not None:
+        log_interaction(run_dir, user_email, "run_notes_edited", {"notes": req.notes})
+
     return updated
 
 
@@ -228,6 +245,20 @@ async def start_run(req: StartRunRequest, request: Request):
 
     # Persist running status so interrupted runs are detected after server restart
     write_run_info(Path(run.run_dir), {"status": "running", "dataset_name": req.dataset_name})
+
+    # RLHF + activity logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    from src.api.services.activity_log import log_activity
+    log_interaction(run_dir, user_email, "initial_feedback", {
+        "human_feedback": req.human_feedback or "",
+        "model": req.model,
+        "enable_mcp": req.enable_mcp,
+        "max_retries": req.max_retries,
+    })
+    log_activity(request.app.state.output_dir, user_email, "run_start", {
+        "run_id": req.run_id, "dataset_name": req.dataset_name,
+    })
 
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
     run.thread = thread  # assign before start to avoid race with fast crash

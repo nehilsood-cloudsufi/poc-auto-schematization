@@ -118,6 +118,16 @@ async def update_file(run_id: str, filename: str, body: dict, request: Request):
     else:
         raise HTTPException(status_code=400, detail="Provide 'rows' for CSV or 'content' for text")
 
+    # RLHF logging
+    user_email = getattr(request.state, "user_email", "")
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run:
+        from src.api.services.rlhf_log import log_interaction
+        log_interaction(Path(run.run_dir), user_email, "pvmap_cells_edited", {
+            "filename": filename,
+            "changed_rows": len(body.get("rows", [])) if "rows" in body else 0,
+        })
+
     return {"saved": True, "filename": filename}
 
 

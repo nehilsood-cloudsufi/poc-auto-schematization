@@ -269,6 +269,15 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
         else:
             status = "complete"
 
+        # Read owner from run_info.json
+        owner = ""
+        if run_info_path.exists():
+            try:
+                ri = json.loads(run_info_path.read_text())
+                owner = ri.get("owner", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+
         runs.append({
             "run_id": run_id,
             "dataset_name": dataset_name,
@@ -280,6 +289,7 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
             "validation_passed": validation_passed,
             "result": result,
             "status": status,
+            "owner": owner,
         })
 
     runs.sort(key=lambda r: r["timestamp"], reverse=True)

@@ -17,12 +17,5 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# Start Streamlit (exec → becomes PID 1, receives SIGTERM for graceful shutdown)
-exec streamlit run src/ui/app.py \
-  --server.port=${PORT:-8080} \
-  --server.address=0.0.0.0 \
-  --server.headless=true \
-  --server.enableCORS=false \
-  --server.enableXsrfProtection=false \
-  --browser.gatherUsageStats=false \
-  --server.fileWatcherType=none
+# Start FastAPI (exec → becomes PID 1, receives SIGTERM for graceful shutdown)
+exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info
