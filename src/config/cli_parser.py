@@ -149,12 +149,6 @@ def create_parser() -> argparse.ArgumentParser:
         default=True,
         help='Enable Data Commons MCP integration for StatVar discovery (default: on)'
     )
-    parser.add_argument(
-        '--enable-schemaorg-mcp',
-        action='store_true',
-        help='Enable Schema.org MCP server for vocabulary lookup'
-    )
-
     # Schema examples
     parser.add_argument(
         '--no-schema-examples',

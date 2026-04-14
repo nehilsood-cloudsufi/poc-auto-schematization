@@ -103,10 +103,6 @@ class TestDefaults:
         args = parse_args([])
         assert args.enable_mcp is True
 
-    def test_enable_schemaorg_mcp_default_false(self):
-        args = parse_args([])
-        assert args.enable_schemaorg_mcp is False
-
     def test_no_schema_examples_default_false(self):
         args = parse_args([])
         assert args.no_schema_examples is False
@@ -223,10 +219,6 @@ class TestIndividualFlags:
     def test_enable_mcp(self):
         args = parse_args(["--enable-mcp"])
         assert args.enable_mcp is True
-
-    def test_enable_schemaorg_mcp(self):
-        args = parse_args(["--enable-schemaorg-mcp"])
-        assert args.enable_schemaorg_mcp is True
 
     def test_no_schema_examples(self):
         args = parse_args(["--no-schema-examples"])
@@ -368,11 +360,6 @@ class TestFlagCombinations:
         assert args.skip_schema_selection is True
         assert args.skip_evaluation is True
 
-    def test_both_mcp_flags(self):
-        args = parse_args(["--enable-mcp", "--enable-schemaorg-mcp"])
-        assert args.enable_mcp is True
-        assert args.enable_schemaorg_mcp is True
-
     def test_dry_run_with_dataset(self):
         args = parse_args(["--dry-run", "--dataset", "test_ds"])
         assert args.dry_run is True
@@ -476,7 +463,7 @@ class TestHelperFunctions:
             "ground_truth_repo", "ground_truth_pvmap", "ground_truth_dir",
             "input_dir", "output_dir",
             "model", "thinking_level",
-            "enable_mcp", "enable_schemaorg_mcp",
+            "enable_mcp",
             "no_schema_examples",
             "input_file", "use_metadata", "metadata_file_path", "schema_file",
             "structured_output",

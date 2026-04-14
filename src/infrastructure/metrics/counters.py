@@ -168,33 +168,6 @@ class Counters():
         self.print_counters_periodically()
         return self
 
-    def add_counters(self, counters_dict: dict):
-        '''Add all counters from the given dict.
-
-        Args:
-          counters_dict: A dictionary of counter names and their values.
-
-        Returns:
-          This Counters object.
-
-        Usage:
-            >>> counters = Counters()
-            >>> counters.add_counters({'a': 1, 'b': 2})
-            >>> counters.get_counter('a')
-            1
-            >>> counters.get_counter('b')
-            2
-            >>> counters.add_counters({'a': 3, 'c': 4})
-            >>> counters.get_counter('a')
-            4
-            >>> counters.get_counter('c')
-            4
-        '''
-        if counters_dict:
-            for counter, value in counters_dict.items():
-                self.add_counter(counter, value)
-        return self
-
     def set_counter(self, name: str, value: int, debug_context: str = None):
         '''Set the value of a counter, overwriting any previous value.
 
@@ -250,33 +223,6 @@ class Counters():
             0
         '''
         return self._counters.get(self._get_counter_name(name), 0)
-
-    def min_counter(self, name: str, value: int, debug_context: str = None):
-        '''Sets the named counter to the minimum of its current value and the given value.
-
-        Args:
-          name: Name of the counter.
-          value: The new value to consider for the minimum.
-          debug_context: Optional suffix for the debug counter.
-
-        Returns:
-          This Counters object.
-
-        Usage:
-            >>> counters = Counters()
-            >>> counters.min_counter('min_val', 10)
-            >>> counters.get_counter('min_val')
-            10
-            >>> counters.min_counter('min_val', 5)
-            >>> counters.get_counter('min_val')
-            5
-            >>> counters.min_counter('min_val', 15)
-            >>> counters.get_counter('min_val')
-            5
-        '''
-        if value <= self._counters.get(self._get_counter_name(name), value):
-            self.set_counter(name, value, debug_context)
-        return self
 
     def max_counter(self, name: str, value: int, debug_context: str = None):
         '''Sets the named counter to the maximum of its current value and the given value.

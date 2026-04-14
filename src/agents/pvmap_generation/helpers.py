@@ -198,24 +198,6 @@ def extract_csv(output: str) -> Optional[str]:
     return None
 
 
-def save_populated_prompt(output_dir: Path, prompt: str) -> Path:
-    """
-    Save the populated prompt to output directory.
-
-    Args:
-        output_dir: Directory to save prompt
-        prompt: The populated prompt content
-
-    Returns:
-        Path to saved prompt file
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path = output_dir / "populated_prompt.txt"
-    with open(prompt_path, 'w', encoding='utf-8') as f:
-        f.write(prompt)
-    return prompt_path
-
-
 def save_attempt_response(
     output_dir: Path,
     attempt: int,

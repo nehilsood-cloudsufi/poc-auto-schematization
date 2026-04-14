@@ -43,6 +43,13 @@ class TestFeedback:
 
 
 class TestDevFeedback:
+    @pytest.fixture(autouse=True)
+    def _mock_sheets(self, monkeypatch):
+        """Prevent tests from writing to the real Google Sheet."""
+        monkeypatch.setattr(
+            "src.api.routes.feedback.is_sheets_configured", lambda: False
+        )
+
     def test_submit_dev_feedback(self, client_with_run):
         response = client_with_run.post(
             "/api/runs/run1/dev-feedback",
