@@ -116,7 +116,7 @@ export async function downloadZip(runId: string): Promise<Blob> {
 export async function submitFeedback(
   runId: string,
   feedback: FeedbackRequest
-): Promise<{ new_run_id: string }> {
+): Promise<{ new_run_id: string; version: number; human_feedback_length: number }> {
   return request(`/runs/${runId}/feedback`, {
     method: "POST",
     body: JSON.stringify(feedback),
@@ -259,7 +259,7 @@ export async function archiveRun(
 }
 
 export async function deleteRun(runId: string): Promise<void> {
-  const resp = await fetch(`/api/runs/${runId}`, {
+  const resp = await fetch(`${BASE}/runs/${runId}`, {
     method: "DELETE",
     headers: { "X-Confirm-Delete": "true" },
   });

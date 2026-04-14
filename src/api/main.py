@@ -68,8 +68,12 @@ def create_app(output_dir: Optional[Path] = None) -> FastAPI:
         async def serve_spa(full_path: str):
             # Serve actual static files if they exist (favicon, etc.)
             file_path = frontend_dist / full_path
-            if full_path and file_path.is_file():
-                return FileResponse(file_path)
+            # Guard against path traversal (e.g. "../../etc/passwd")
+            resolved = file_path.resolve()
+            if not str(resolved).startswith(str(frontend_dist.resolve())):
+                return FileResponse(frontend_dist / "index.html")
+            if full_path and resolved.is_file():
+                return FileResponse(resolved)
             # Otherwise serve index.html for client-side routing
             return FileResponse(frontend_dist / "index.html")
 

@@ -295,7 +295,14 @@ async def add_plan_note(run_id: str, body: AddNoteRequest, request: Request):
         if not plan_json_path.exists():
             raise HTTPException(status_code=400, detail="No plan found")
 
-        plan = MappingPlan.model_validate_json(plan_json_path.read_text())
+        plan_text = plan_json_path.read_text()
+        plan_data = json.loads(plan_text)
+        # Use EnrichedMappingPlan if enriched fields present, to avoid silently dropping them
+        if "statvar_blueprint" in plan_data:
+            from src.api.models.plan import EnrichedMappingPlan
+            plan = EnrichedMappingPlan.model_validate(plan_data)
+        else:
+            plan = MappingPlan.model_validate(plan_data)
         plan.engineer_notes.append(body.note)
 
         # Save updated plan

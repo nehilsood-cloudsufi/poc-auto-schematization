@@ -44,6 +44,8 @@ class TestWebSocketProgress:
 
     def test_connect_to_nonexistent_run(self, client_with_running):
         client, _ = client_with_running
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/progress/nonexistent") as ws:
-                ws.receive_json()
+        # Server now accepts the WebSocket and sends an error message before closing
+        with client.websocket_connect("/ws/progress/nonexistent") as ws:
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert "not found" in msg["message"]

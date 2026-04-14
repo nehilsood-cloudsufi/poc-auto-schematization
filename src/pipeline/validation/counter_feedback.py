@@ -40,9 +40,12 @@ warnings.warn(
 )
 
 import csv
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # Error priority order (Gemini-recommended: fix highest-impact errors first)
@@ -290,9 +293,10 @@ def parse_counters_file(counters_path: Path) -> Dict[str, int]:
                     except (ValueError, IndexError):
                         # Keep as string if not numeric
                         counters[key] = row[1].strip() if len(row) > 1 else ''
+    except FileNotFoundError:
+        return counters
     except Exception as e:
-        # Return empty dict if file can't be parsed
-        pass
+        logger.warning("Failed to parse counters file %s: %s", counters_path, e)
 
     return counters
 
@@ -609,14 +613,13 @@ Please review the PVMAP for issues related to: {primary_error.replace('error-', 
                 sample_section += "\n```"
                 sections.append(sample_section)
 
-    # 5. Warning Analysis (if no critical errors)
-    if not error_counters:
-        warning_counters = get_warning_counters(counters)
-        if warning_counters:
-            warning_section = "## Warnings\n"
-            for warn_name, count in sorted(warning_counters.items(), key=lambda x: -x[1]):
-                warning_section += f"- **{warn_name}**: {count:,}\n"
-            sections.append(warning_section)
+    # 5. Warning Analysis (always include — warnings provide context even with errors)
+    warning_counters = get_warning_counters(counters)
+    if warning_counters:
+        warning_section = "## Warnings\n"
+        for warn_name, count in sorted(warning_counters.items(), key=lambda x: -x[1]):
+            warning_section += f"- **{warn_name}**: {count:,}\n"
+        sections.append(warning_section)
 
     # 6. Success Metrics
     generated_svobs = counters.get('generated-svobs', 0)
@@ -758,8 +761,8 @@ def detect_systematic_patterns(
                 })
 
             # Format pattern: detect common format issues
-            if _detect_format_pattern(value_list):
-                pattern_info = _detect_format_pattern(value_list)
+            pattern_info = _detect_format_pattern(value_list)
+            if pattern_info:
                 patterns.append({
                     'type': 'format_pattern',
                     'error': error_type,

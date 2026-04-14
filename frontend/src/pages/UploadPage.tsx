@@ -12,7 +12,7 @@ import { FileUploader } from "@/components/FileUploader";
 import { DataPreview } from "@/components/DataPreview";
 import { uploadFiles } from "@/lib/api";
 import { toast } from "sonner";
-import { ChevronRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import type { UploadResponse } from "@/types";
 
 interface UploadPageProps {
@@ -29,13 +29,33 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
 
-  const isNameValid = datasetName.trim().length >= 2;
+  const validateDatasetName = (name: string): string | null => {
+    const trimmed = name.trim();
+    if (!trimmed) return null; // empty = no validation shown yet
+    if (trimmed.length < 2) return "Must be at least 2 characters";
+    if (trimmed.length > 100) return "Must be 100 characters or fewer";
+    if (/^[.\-_]/.test(trimmed)) return "Cannot start with a dot, dash, or underscore";
+    if (/[/\\]/.test(trimmed)) return "Cannot contain slashes";
+    if (/\.\./.test(trimmed)) return "Cannot contain '..'";
+    if (/[<>:"|?*\x00-\x1F]/.test(trimmed)) return "Contains invalid characters";
+    if (/\s/.test(trimmed)) return "Use underscores instead of spaces";
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(trimmed))
+      return "Only letters, numbers, underscores, hyphens, and dots allowed";
+    return null; // valid
+  };
+
+  const nameError = datasetName ? validateDatasetName(datasetName) : null;
+  const isNameValid = datasetName.trim().length >= 2 && nameError === null;
 
   const handleInputSelect = (file: File) => {
     setInputFile(file);
     setError(null);
     setPreview(null);
-    const name = file.name.replace(".csv", "").replace(/\s+/g, "_");
+    const name = file.name
+      .replace(/\.csv$/i, "")
+      .replace(/\s+/g, "_")
+      .replace(/[<>:"/\\|?*]/g, "_")
+      .replace(/^[.\-_]+/, "");
     if (!datasetName) setDatasetName(name);
 
     // Client-side preview only — no server upload yet.
@@ -126,9 +146,12 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
                 />
                 {datasetName && (
                   isNameValid ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
                   ) : (
-                    <span className="text-xs text-muted-foreground">min 2 characters</span>
+                    <div className="flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      <span className="text-xs text-red-600">{nameError}</span>
+                    </div>
                   )
                 )}
               </div>

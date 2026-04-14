@@ -1,7 +1,7 @@
 /**
  * CSV table viewer with explicit edit mode toggle.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -23,12 +23,12 @@ export function CsvEditor({ columns, rows, editable = false, onChange }: CsvEdit
   const [originalRows, setOriginalRows] = useState(() => rows.map((r) => ({ ...r })));
 
   // Reset original rows when the source data changes (e.g., different file loaded)
-  const [prevRowCount, setPrevRowCount] = useState(rows.length);
-  if (rows.length !== prevRowCount && !editing) {
-    setOriginalRows(rows.map((r) => ({ ...r })));
-    setChangedCells(new Set());
-    setPrevRowCount(rows.length);
-  }
+  useEffect(() => {
+    if (!editing) {
+      setOriginalRows(rows.map((r) => ({ ...r })));
+      setChangedCells(new Set());
+    }
+  }, [rows.length, editing]);
 
   const handleCellChange = useCallback((rowIdx: number, col: string, value: string) => {
     if (!onChange) return;

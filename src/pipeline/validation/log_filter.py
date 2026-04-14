@@ -221,7 +221,7 @@ def _detect_format_pattern(values: List[str]) -> Optional[Dict]:
     if single_digit_count > len(values) * 0.5 and len(values) >= 3:
         return {
             'pattern': 'missing_leading_zeros',
-            'examples': [v for v in values[:3] if v.isdigit() and len(v) == 1],
+            'examples': [v for v in values if v.isdigit() and len(v) == 1][:3],
             'confidence': 0.9,
             'description': "Values appear to be missing leading zeros (e.g., '6' should be '06' for California)",
         }
@@ -773,10 +773,13 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
         result.success_rate_critical = result.coverage_pct < 10
 
     # Extract errors (base types only, no suffixes)
+    # Exclude informational keys that are captured in dedicated fields
+    INFORMATIONAL_ERROR_KEYS = {'error-spell-words'}
+    INFORMATIONAL_WARNING_KEYS = {'dropped-output-statvars-mcf'}
     for key, value in raw_counters.items():
-        if key.startswith('error-') and '_' not in key:
+        if key.startswith('error-') and '_' not in key and key not in INFORMATIONAL_ERROR_KEYS:
             result.errors[key] = value
-        elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key:
+        elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key and key not in INFORMATIONAL_WARNING_KEYS:
             result.warnings[key] = value
 
     # Mine debug examples universally for ALL error/dropped/warning types
@@ -850,6 +853,7 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
     # =====================================================================
     # Rich signal extraction from prefixed counters
     # =====================================================================
+    _missing_place_accum = {}
     for pkey, pcount in prefixed_counters:
         # Strip the numeric prefix (e.g., "1:process_input_") to get the suffix
         # The suffix is everything after the last known stage separator
@@ -882,10 +886,7 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
             if 'warning-svobs-missing-place_' in suffix:
                 sv_part = suffix.split('warning-svobs-missing-place_', 1)[1]
             if sv_part:
-                # Accumulate into dict first, convert to list later
-                existing = {k: v for k, v in result.missing_place_statvars}
-                existing[sv_part] = existing.get(sv_part, 0) + pcount
-                result.missing_place_statvars = sorted(existing.items(), key=lambda x: -x[1])
+                _missing_place_accum[sv_part] = _missing_place_accum.get(sv_part, 0) + pcount
 
         # (i) Input structure
         if suffix == 'input-header-rows' or pkey.endswith('_input-header-rows'):
@@ -897,6 +898,10 @@ def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -
         if suffix == 'input-sections' or pkey.endswith('_input-sections'):
             if result.input_sections == 0:
                 result.input_sections = pcount
+
+    # Finalize missing_place_statvars from accumulated dict
+    if _missing_place_accum:
+        result.missing_place_statvars = sorted(_missing_place_accum.items(), key=lambda x: -x[1])
 
     # Also check non-prefixed for input structure (may exist there too)
     if result.input_header_rows == 0:

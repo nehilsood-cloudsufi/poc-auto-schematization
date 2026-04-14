@@ -5,7 +5,9 @@ manifests, feedback JSONs). This module only tracks in-flight state for
 WebSocket broadcasting and API responses.
 """
 import json
+import os
 import queue
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -27,7 +29,7 @@ class RunState:
     status: str = "pending"  # pending | running | complete | error | stopped | plan_ready
     result: dict = field(default_factory=dict)
     error: Optional[str] = None
-    progress_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=200))
+    progress_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=0))  # 0 = unbounded
     thread: Optional[threading.Thread] = None
     created_at: float = field(default_factory=time.time)
     # Cancellation (checked between pipeline phases)
@@ -109,7 +111,19 @@ def get_or_load_run(run_id: str, base_dir: Path) -> Optional[RunState]:
     has_pvmap = (dataset_dir / "generated_pvmap.csv").exists() if dataset_dir else False
     checkpoint_exists = (run_dir / "checkpoint.json").exists()
 
-    if checkpoint_exists:
+    # Check if run_info.json recorded a "running" status (interrupted by server restart)
+    persisted_status = None
+    if run_info_path.exists():
+        try:
+            info = json.loads(run_info_path.read_text())
+            persisted_status = info.get("status")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if persisted_status == "running":
+        # Pipeline was interrupted mid-execution (e.g., server hot-reload killed it)
+        status = "error"
+    elif checkpoint_exists:
         status = "stopped"
     elif phase1_exists and not has_pvmap:
         status = "plan_ready"
@@ -198,9 +212,10 @@ def read_run_info(run_dir: Path) -> dict:
 
 
 def write_run_info(run_dir: Path, updates: dict) -> dict:
-    """Merge updates into run_info.json and write back.
+    """Merge updates into run_info.json and write back atomically.
 
     Reads existing content first so non-updated fields are preserved.
+    Uses temp file + os.replace for atomic writes (no TOCTOU race).
     Returns the full updated dict.
     """
     info_path = run_dir / "run_info.json"
@@ -214,5 +229,18 @@ def write_run_info(run_dir: Path, updates: dict) -> dict:
             pass
 
     existing.update(updates)
-    info_path.write_text(json.dumps(existing, indent=2))
+
+    # Atomic write: write to temp file then replace
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=str(run_dir), suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w") as tmp:
+            json.dump(existing, tmp, indent=2, default=str)
+        os.replace(tmp_name, str(info_path))
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return existing

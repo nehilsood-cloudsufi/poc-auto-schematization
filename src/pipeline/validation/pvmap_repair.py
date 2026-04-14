@@ -34,7 +34,7 @@ def load_input_headers(input_data_path: Path) -> List[str]:
         List of column header strings, preserving exact case and whitespace.
     """
     try:
-        with open(input_data_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(input_data_path, 'r', encoding='utf-8-sig', errors='replace') as f:
             reader = csv.reader(f)
             headers = next(reader, [])
             # Strip whitespace and normalize embedded newlines (multi-line quoted headers)
@@ -568,9 +568,7 @@ def repair_pvmap(
     if not pvmap_csv or not pvmap_csv.strip():
         return pvmap_csv, []
 
-    # Strip #ignore rows first — they are harmful and unnecessary
-    pvmap_csv, ignore_changes = strip_ignore_rows(pvmap_csv)
-    all_changes: List[str] = list(ignore_changes)
+    all_changes: List[str] = []
 
     # Fix date placeholder: observationDate should use {Number} not {Data}
     # (numeric year values like 2020 need {Number} for stat_var_processor)
@@ -982,7 +980,7 @@ def pre_validate_pvmap(
     - Has observationAbout mapping
     - Has observationDate mapping
     - Has value or {Number} mapping
-    - >=50% of keys match actual headers
+    - >=30% of keys match actual headers
     - No placeholder keys (p2, v2, FIXME)
 
     Args:

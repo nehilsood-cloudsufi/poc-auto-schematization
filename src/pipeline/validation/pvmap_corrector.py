@@ -73,7 +73,7 @@ def _parse_pvmap_rows(pvmap_csv: str) -> List[List[str]]:
 def _rows_to_csv(rows: List[List[str]]) -> str:
     """Convert list of rows back to CSV string."""
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, lineterminator='\n')
     writer.writerows(rows)
     return buf.getvalue()
 
@@ -81,7 +81,7 @@ def _rows_to_csv(rows: List[List[str]]) -> str:
 def _load_headers_from_path(input_data_path: Path) -> List[str]:
     """Read first row of input CSV and return column headers."""
     try:
-        with open(input_data_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(input_data_path, 'r', encoding='utf-8-sig', errors='replace') as f:
             reader = csv.reader(f)
             headers = next(reader, [])
             return [re.sub(r'\s+', ' ', h).strip() for h in headers]
@@ -241,7 +241,7 @@ def _apply_key_mismatch(pvmap_csv: str, filtered_logs: FilteredLogs, ctx: dict) 
             if key in replacements:
                 # Full key was unmatched, replace column part only
                 new_key = replacements[key]
-                if ':' not in new_key:
+                if value_part:
                     new_key = new_key + ':' + value_part
                 row = [new_key] + row[1:]
             elif col_part in replacements:
@@ -280,9 +280,12 @@ def _apply_place_leading_zeros(pvmap_csv: str, filtered_logs: FilteredLogs, ctx:
     max_len = max((len(v) for v in values if v.isdigit()), default=1)
 
     # If examples show 4-5 digit values, use 5-digit padding (county FIPS)
-    # If 1-2 digit values, use 2-digit padding (state FIPS)
+    # If 2-3 digit values, use max_len as pad width (state FIPS, area codes)
+    # If 1 digit, use 2-digit padding
     if max_len >= 4:
         pad_width = 5
+    elif max_len >= 2:
+        pad_width = max_len
     else:
         pad_width = 2
 
@@ -414,8 +417,8 @@ def _apply_missing_required_from_manifest(pvmap_csv: str, filtered_logs: Filtere
     rows = _parse_pvmap_rows(pvmap_csv)
     existing_props = set()
     for row in rows:
-        for cell in row[1:]:
-            existing_props.add(cell.strip().lower())
+        for i in range(1, len(row), 2):
+            existing_props.add(row[i].strip().lower())
 
     must_map = manifest.get('must_map', [])
 

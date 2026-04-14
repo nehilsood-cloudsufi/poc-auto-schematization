@@ -619,6 +619,9 @@ def run_dataset_pipeline(
         "output_dir": str(current_dataset.output_dir),  # Dataset-specific output dir
         "dataset_name": dataset_name,
         "current_dataset": current_dataset,
+        # Flat string keys for ADK template resolution (ADK can't do dotted access)
+        "current_dataset_name": current_dataset.name,
+        "current_dataset_path": str(current_dataset.path),
         "model": model,  # LLM model name for artifact logging
         "sampled_data_content": sampled_data_content,  # For StatVar discovery
         "metadata_content": metadata_content,          # For StatVar discovery

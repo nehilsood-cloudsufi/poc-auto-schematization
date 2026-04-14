@@ -1,7 +1,7 @@
 /**
  * Tabbed output file viewer with tab icons and sanitized markdown.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { CsvEditor } from "./CsvEditor";
@@ -108,20 +108,7 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
       .catch(() => { toast.error("Failed to load output files"); });
   }, [runId]);
 
-  useEffect(() => {
-    const tabs = TAB_CONFIG.filter((t) => availableFiles.includes(t.key));
-    if (tabs.length === 0) return;
-    const firstKey = tabs[0].key;
-    if (!fileData[firstKey]) {
-      void loadFile(firstKey);
-    }
-    if (!activeTab) {
-      setActiveTab(firstKey);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableFiles]);
-
-  const loadFile = async (filename: string) => {
+  const loadFile = useCallback(async (filename: string) => {
     if (fileData[filename]) return;
     try {
       const data = await getFile(runId, filename);
@@ -133,7 +120,19 @@ export function OutputViewer({ runId, result }: OutputViewerProps) {
         [filename]: { type: "text", filename, content: "Failed to load file." } as TextFileResponse,
       }));
     }
-  };
+  }, [runId, fileData]);
+
+  useEffect(() => {
+    const tabs = TAB_CONFIG.filter((t) => availableFiles.includes(t.key));
+    if (tabs.length === 0) return;
+    const firstKey = tabs[0].key;
+    if (!fileData[firstKey]) {
+      void loadFile(firstKey);
+    }
+    if (!activeTab) {
+      setActiveTab(firstKey);
+    }
+  }, [availableFiles, fileData, loadFile, activeTab]);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value);

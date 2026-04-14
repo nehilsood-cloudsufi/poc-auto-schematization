@@ -79,7 +79,7 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
     return () => {
       if (navTimerRef.current) clearTimeout(navTimerRef.current);
     };
-  }, []);
+  }, [runId]);
 
   useEffect(() => {
     if (logRef.current && showLog) {
@@ -87,7 +87,7 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
     }
   }, [events, showLog]);
 
-  const currentAttempt = Math.max(0, ...events.map((e) => e.attempt ?? 0));
+  const currentAttempt = events.reduce((max, e) => Math.max(max, e.attempt ?? 0), 0);
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
   const elapsedStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;

@@ -250,7 +250,19 @@ def discover_historical_runs(base_dir: Optional[Path] = None) -> list:
         phase1_exists = (run_dir / "phase1_state.json").exists()
         checkpoint_exists = (run_dir / "checkpoint.json").exists()
 
-        if checkpoint_exists:
+        # Check if run was interrupted mid-execution (persisted status still "running")
+        persisted_status = None
+        run_info_path = run_dir / "run_info.json"
+        if run_info_path.exists():
+            try:
+                info = json.loads(run_info_path.read_text())
+                persisted_status = info.get("status")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        if persisted_status == "running":
+            status = "error"
+        elif checkpoint_exists:
             status = "stopped"
         elif phase1_exists and not has_pvmap:
             status = "plan_ready"

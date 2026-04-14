@@ -23,8 +23,11 @@ export function DownloadButton({ runId, datasetName }: DownloadButtonProps) {
       const a = document.createElement("a");
       a.href = url;
       a.download = `${datasetName}_outputs.zip`;
+      a.style.display = "none";
+      document.body.appendChild(a);
       a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 100);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {

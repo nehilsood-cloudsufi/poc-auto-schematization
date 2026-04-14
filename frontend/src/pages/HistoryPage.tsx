@@ -1,16 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { listRuns, archiveRun } from "@/lib/api";
+import { listRuns, archiveRun, deleteRun } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Run } from "@/types";
-import { Archive, ArchiveRestore } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function HistoryPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
+
+  // Clean up delete confirmation timer on unmount
+  useEffect(() => () => {
+    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+  }, []);
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -34,6 +41,29 @@ export function HistoryPage() {
     }
   }, [fetchRuns]);
 
+  const handleDelete = useCallback(async (e: React.MouseEvent, runId: string) => {
+    e.stopPropagation();
+    if (deletingId === runId) {
+      // Second click — confirmed
+      try {
+        await deleteRun(runId);
+        toast.success("Run deleted permanently");
+        setDeletingId(null);
+        fetchRuns();
+      } catch {
+        toast.error("Failed to delete run");
+        setDeletingId(null);
+      }
+    } else {
+      // First click — ask for confirmation
+      setDeletingId(runId);
+      toast.info("Click delete again to confirm permanent deletion", { duration: 3000 });
+      // Auto-reset after 3s if not confirmed
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = setTimeout(() => setDeletingId((prev) => (prev === runId ? null : prev)), 3000);
+    }
+  }, [deletingId, fetchRuns]);
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -49,7 +79,13 @@ export function HistoryPage() {
           {runs.map((run) => (
             <div
               key={run.run_id}
-              onClick={() => navigate(`/runs/${run.run_id}/results`)}
+              onClick={() => {
+                if (run.status === "plan_ready") {
+                  navigate(`/runs/${run.run_id}/plan`);
+                } else {
+                  navigate(`/runs/${run.run_id}/results`);
+                }
+              }}
               className={`w-full text-left p-3 border rounded-md hover:bg-accent flex items-center justify-between cursor-pointer ${
                 run.archived ? "opacity-50" : ""
               }`}
@@ -83,6 +119,12 @@ export function HistoryPage() {
                   onClick={(e) => handleArchive(e, run.run_id)}
                   title={run.archived ? "Unarchive" : "Archive"}>
                   {run.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                </Button>
+                <Button variant="ghost" size="sm"
+                  onClick={(e) => handleDelete(e, run.run_id)}
+                  title={deletingId === run.run_id ? "Click again to confirm" : "Delete permanently"}
+                  className={deletingId === run.run_id ? "text-destructive hover:text-destructive" : "hover:text-destructive"}>
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>

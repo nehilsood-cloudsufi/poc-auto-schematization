@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.api.services.run_state import get_run
+from src.api.services.run_state import get_run, write_run_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -40,7 +40,9 @@ def _safe_serialize(obj, _depth: int = 0):
 async def progress_stream(websocket: WebSocket, run_id: str):
     run = get_run(run_id)
     if run is None:
-        await websocket.close(code=4004, reason=f"Run {run_id} not found")
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "agent": "system", "message": f"Run {run_id} not found"})
+        await websocket.close(code=4004)
         return
 
     await websocket.accept()
@@ -73,8 +75,15 @@ async def progress_stream(websocket: WebSocket, run_id: str):
                         else:
                             result = _safe_serialize(event.metadata.get("result", {}))
                             is_plan_only = isinstance(result, dict) and result.get("phase") == "plan"
+                            is_plan_failed = isinstance(result, dict) and result.get("status") == "plan_failed"
                             if run.status != "stopped":
-                                run.status = "plan_ready" if is_plan_only else "complete"
+                                if is_plan_failed:
+                                    run.status = "plan_ready"  # UI can still regenerate
+                                    run.error = "Plan generation failed (LLM timeout or crash)"
+                                elif is_plan_only:
+                                    run.status = "plan_ready"
+                                else:
+                                    run.status = "complete"
                             run.result = result
                             await websocket.send_json({
                                 "type": "complete",
@@ -82,6 +91,11 @@ async def progress_stream(websocket: WebSocket, run_id: str):
                                 "message": event.message,
                                 "result": run.result,
                             })
+                        # Persist terminal status so server restarts don't show stale "running"
+                        try:
+                            write_run_info(Path(run.run_dir), {"status": run.status})
+                        except Exception:
+                            pass
                         await websocket.close()
                         return
                     else:
@@ -106,6 +120,10 @@ async def progress_stream(websocket: WebSocket, run_id: str):
                 if run.status == "running":
                     run.status = "error"
                     run.error = "Pipeline thread exited unexpectedly"
+                    try:
+                        write_run_info(Path(run.run_dir), {"status": "error"})
+                    except Exception:
+                        pass
                     await websocket.send_json({
                         "type": "error",
                         "agent": "system",

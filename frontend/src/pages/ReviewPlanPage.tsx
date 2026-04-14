@@ -7,7 +7,7 @@
  *
  * Feedback & Notes section always visible below.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ export function ReviewPlanPage({
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const regenStartRef = useRef<number>(startTime);
   const [planError, setPlanError] = useState<string | null>(null);
 
   const [markdown, setMarkdown] = useState("");
@@ -177,6 +178,7 @@ export function ReviewPlanPage({
     const previousPlan = plan;
     setRegenerating(true);
     setPlanReady(false);
+    regenStartRef.current = Date.now();
     setPlan(null);
     try {
       await regeneratePlan(runId, feedback, deep);
@@ -207,7 +209,7 @@ export function ReviewPlanPage({
             {stopping ? "Stopping..." : "Stop"}
           </Button>
         </div>
-        <ProgressTracker events={events} startTime={startTime} phases={PLAN_PHASES} />
+        <ProgressTracker events={events} startTime={regenStartRef.current} phases={PLAN_PHASES} />
 
         <Card className="shadow-sm mt-4">
           <CardContent className="pt-6">
@@ -263,8 +265,10 @@ export function ReviewPlanPage({
   const stepClickHandler = readOnly
     ? (step: number) => {
         if (!runId) return;
-        if (step === 4) navigate(`/runs/${runId}/results`);
-        // Only Results is navigable for completed runs — Generate page has no useful state
+        if (step === 0) navigate("/");
+        else if (step === 1) navigate("/configure");
+        else if (step === 4) navigate(`/runs/${runId}/results`);
+        // Step 3 (Generate/Progress) has no useful state for completed runs — skip
       }
     : undefined;
 
@@ -334,7 +338,7 @@ export function ReviewPlanPage({
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between mt-6">
+      <div className="flex justify-between mt-6 pb-8">
         <Button variant="ghost" onClick={() => {
           if (readOnly && runId) {
             navigate(`/runs/${runId}/results`);
@@ -354,9 +358,9 @@ export function ReviewPlanPage({
               Edit & Regenerate
             </Button>
           ) : (
-            <Button onClick={handleApprove} disabled={submitting} size="lg" className="gap-2">
-              {submitting ? "Starting..." : "Approve & Generate PVMAP"}
-              {!submitting && <Play className="w-4 h-4" />}
+            <Button onClick={handleApprove} disabled={submitting || editMode} size="lg" className="gap-2">
+              {submitting ? "Starting..." : editMode ? "Exit edit mode to approve" : "Approve & Generate PVMAP"}
+              {!submitting && !editMode && <Play className="w-4 h-4" />}
             </Button>
           )}
         </div>

@@ -51,12 +51,10 @@ async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
 
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
 
-    # Snapshot current output
+    # Snapshot current output into the next version slot
     current_version = get_latest_version(output_dir)
-    if current_version == 0:
-        current_version = 1
     next_version = current_version + 1
-    snapshot_version(output_dir, current_version)
+    snapshot_version(output_dir, next_version)
     save_run_manifest(output_dir, current_version, run.config, run.result)
 
     # Load existing ledger (accumulate across rounds)

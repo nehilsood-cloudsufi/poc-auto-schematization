@@ -39,6 +39,9 @@ export function useWebSocket({
   useEffect(() => {
     if (!runId || !enabled) return;
 
+    // Clear stale events from a previous connection/run
+    setEvents([]);
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//${window.location.host}/ws/progress/${runId}`;
 

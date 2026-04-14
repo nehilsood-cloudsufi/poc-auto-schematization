@@ -2362,7 +2362,7 @@ class TieredCorrectionAgent(BaseAgent):
         # CHECK B: Classify validation error tier for outer loop routing
         # =====================================================================
         if not validation_passed:
-            validation_output = ctx.session.state.get("validation_output", "")
+            validation_output = ctx.session.state.get("validation_error", "")
             data_rows = ctx.session.state.get("validation_data_rows", 0)
             error_tier = classify_validation_error(validation_output, data_rows)
             ctx.session.state["error_tier"] = error_tier
@@ -2479,6 +2479,9 @@ class TieredCorrectionAgent(BaseAgent):
 
                         # Evaluate quality to check if we can stop
                         score, acceptable = self._evaluate_quality(ctx, corrected)
+                        # Update best heuristic AFTER quality eval computes the score
+                        if tier1_rows > best_rows or (tier1_result["success"] and not best_valid):
+                            ctx.session.state["best_heuristic_score"] = score
                         if acceptable:
                             ctx.session.state["quality_acceptable"] = True
                             ctx.session.state["exit_reason"] = "quality_met"
@@ -2590,6 +2593,9 @@ class TieredCorrectionAgent(BaseAgent):
                             ctx.session.state["best_validation_passed"] = True
 
                         score, acceptable = self._evaluate_quality(ctx, patched)
+                        # Update best heuristic AFTER quality eval computes the score
+                        if tier2_rows > best_rows or (tier2_result["success"] and not best_valid):
+                            ctx.session.state["best_heuristic_score"] = score
                         if acceptable:
                             ctx.session.state["quality_acceptable"] = True
                             ctx.session.state["exit_reason"] = "quality_met"
@@ -2646,9 +2652,16 @@ class TieredCorrectionAgent(BaseAgent):
 
                 # Prepare state for full regeneration
                 ctx.session.state["pvmap_csv"] = best_pvmap
-                if filtered_logs:
-                    ctx.session.state["error_feedback"] = filtered_logs.to_summary()
                 ctx.session.state["attempt_number"] = -1  # StatePrep increments to 0, treating Tier 3 as a fresh start
+
+                # Save best-attempt tracking state before Tier 3 StatePrep reset
+                # (StatePrep's attempt==0 branch resets these, but we need to preserve them)
+                saved_best = {
+                    k: ctx.session.state.get(k)
+                    for k in ("best_data_rows", "best_pvmap_csv", "best_attempt_number",
+                              "best_validation_passed", "best_heuristic_score", "best_pv_accuracy",
+                              "quality_metrics_history")
+                }
 
                 # Trim session events to prevent token overflow
                 self._trim_session_events(ctx)
@@ -2671,6 +2684,11 @@ class TieredCorrectionAgent(BaseAgent):
                 state_prep = StatePreparationAgent(name="TieredStatePrep")
                 async for event in state_prep.run_async(ctx):
                     yield event
+
+                # Restore best-attempt tracking state after Tier 3 StatePrep
+                for k, v in saved_best.items():
+                    if v is not None:
+                        ctx.session.state[k] = v
 
                 # Run Generator -> MetadataGen -> Validate
                 for agent in [self._generator_wrapper, self._metadata_agent, self._validation_agent]:

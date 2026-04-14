@@ -355,10 +355,11 @@ class ValidationAgent(BaseAgent):
         best_was_valid = ctx.session.state.get("best_validation_passed", False)
         current_is_valid = result["success"]
 
-        # Update best if: (a) more data rows, OR (b) current is valid and best wasn't
+        # Update best if: (a) current is valid and best wasn't, OR
+        # (b) same validity status but more data rows
         should_update = (
-            current_data_rows > best_data_rows
-            or (current_is_valid and not best_was_valid)
+            (current_is_valid and not best_was_valid)
+            or (current_is_valid == best_was_valid and current_data_rows > best_data_rows)
         )
         if should_update:
             ctx.session.state["best_data_rows"] = current_data_rows
