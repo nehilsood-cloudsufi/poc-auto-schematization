@@ -211,7 +211,14 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
   return (
     <div className="min-h-screen bg-muted/20 p-8">
       <div className="max-w-6xl mx-auto">
-        <WizardStepper currentStep={4} />
+        <WizardStepper
+          currentStep={4}
+          onStepClick={(step) => {
+            if (step === 2 && runId) {
+              navigate(`/runs/${runId}/plan`);
+            }
+          }}
+        />
 
         {/* HEADER with editable name, notes, download, delete */}
         <div className="flex items-start justify-between mt-6 mb-5">

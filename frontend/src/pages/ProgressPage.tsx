@@ -97,7 +97,14 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
-      <WizardStepper currentStep={3} />
+      <WizardStepper
+        currentStep={3}
+        onStepClick={(step) => {
+          if (step === 2 && runId) {
+            navigate(`/runs/${runId}/plan`);
+          }
+        }}
+      />
 
       <Card className="shadow-sm mb-4">
         <CardContent className="py-4">

@@ -61,6 +61,7 @@ export function ReviewPlanPage({
   const [markdown, setMarkdown] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState("");
+  const [readOnly, setReadOnly] = useState(false);
 
   // --- WebSocket: listen for plan generation progress ---
   const { events } = useWebSocket({
@@ -83,7 +84,10 @@ export function ReviewPlanPage({
     if (!planReady || !runId || plan !== null) return;
     setLoadingPlan(true);
     Promise.all([
-      getPlan(runId).then((data) => setPlan(data)).catch(() => {}),
+      getPlan(runId).then((data) => setPlan(data)).catch(() => {
+        // Plan endpoint returned 404 — plan generation failed
+        setPlanError("Plan generation failed. Try 'Regenerate' below.");
+      }),
       getPlanMarkdown(runId).then((md) => setMarkdown(md)).catch(() => {}),
     ]).finally(() => setLoadingPlan(false));
   }, [planReady, runId, plan]);
@@ -91,6 +95,13 @@ export function ReviewPlanPage({
   // --- On mount: check if plan already exists (e.g. page refresh) ---
   useEffect(() => {
     if (!runId) return;
+    // Check run status first to determine read-only mode
+    getRun(runId).then((run) => {
+      if (run.status !== "plan_ready" && run.status !== "pending" && run.status !== "running") {
+        setReadOnly(true);
+      }
+    }).catch(() => {});
+
     getPlan(runId)
       .then((data) => {
         if (data && data.active_columns) {
@@ -105,6 +116,8 @@ export function ReviewPlanPage({
             if (run.status === "plan_ready" || run.status === "stopped" || run.status === "error") {
               setPlanReady(true);
               setPlanError("Plan generation failed. Try 'Regenerate' below.");
+            } else if (run.status === "running" || run.status === "pending") {
+              // Still running — WebSocket will handle it
             }
           })
           .catch(() => {});
@@ -265,15 +278,17 @@ export function ReviewPlanPage({
         <CardContent className="pt-5 pb-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold">Mapping Plan</h2>
-            <button
-              onClick={() => {
-                if (!editMode) setEditText(markdown);
-                setEditMode(!editMode);
-              }}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-            >
-              {editMode ? "View Rendered" : "Edit Markdown"}
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => {
+                  if (!editMode) setEditText(markdown);
+                  setEditMode(!editMode);
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+              >
+                {editMode ? "View Rendered" : "Edit Markdown"}
+              </button>
+            )}
           </div>
 
           {editMode ? (
@@ -285,35 +300,55 @@ export function ReviewPlanPage({
               spellCheck={false}
             />
           ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-table:text-xs prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-td:py-1 prose-th:py-1">
+            <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-table:text-xs prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-td:py-1 prose-th:py-1 prose-pre:bg-muted prose-pre:text-foreground prose-pre:border prose-pre:border-border prose-pre:rounded-md prose-pre:overflow-x-auto">
               <ReactMarkdown>{markdown || "No plan content available. Click 'Regenerate' below to generate a plan."}</ReactMarkdown>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Feedback & Notes */}
-      <Card className="shadow-sm mb-4">
-        <CardContent className="pt-5 pb-4">
-          <h2 className="text-sm font-semibold mb-3">Feedback & Notes</h2>
-          <PlanFeedback
-            notes={plan?.engineer_notes ?? []}
-            onAddNote={handleAddNote}
-            onRegenerate={handleRegenerate}
-            regenerating={regenerating}
-          />
-        </CardContent>
-      </Card>
+      {/* Feedback & Notes — hidden in read-only until unlocked */}
+      {!readOnly && (
+        <Card className="shadow-sm mb-4">
+          <CardContent className="pt-5 pb-4">
+            <h2 className="text-sm font-semibold mb-3">Feedback & Notes</h2>
+            <PlanFeedback
+              notes={plan?.engineer_notes ?? []}
+              onAddNote={handleAddNote}
+              onRegenerate={handleRegenerate}
+              regenerating={regenerating}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Navigation */}
       <div className="flex justify-between mt-6">
-        <Button variant="ghost" onClick={() => navigate("/configure")} className="gap-1.5">
-          <ChevronLeft className="w-4 h-4" /> Back
+        <Button variant="ghost" onClick={() => {
+          if (readOnly && runId) {
+            navigate(`/runs/${runId}/results`);
+          } else {
+            navigate("/configure");
+          }
+        }} className="gap-1.5">
+          <ChevronLeft className="w-4 h-4" /> {readOnly ? "Back to Results" : "Back"}
         </Button>
-        <Button onClick={handleApprove} disabled={submitting} size="lg" className="gap-2">
-          {submitting ? "Starting..." : "Approve & Generate PVMAP"}
-          {!submitting && <Play className="w-4 h-4" />}
-        </Button>
+        <div className="flex items-center gap-2">
+          {readOnly ? (
+            <Button
+              variant="outline"
+              onClick={() => setReadOnly(false)}
+              className="gap-2"
+            >
+              Edit & Regenerate
+            </Button>
+          ) : (
+            <Button onClick={handleApprove} disabled={submitting} size="lg" className="gap-2">
+              {submitting ? "Starting..." : "Approve & Generate PVMAP"}
+              {!submitting && <Play className="w-4 h-4" />}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
