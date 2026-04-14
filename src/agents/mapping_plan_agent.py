@@ -19,6 +19,7 @@ ADK State Outputs:
     - mapping_plan_json: str (same as mapping_plan — alias for downstream consumers)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -49,6 +50,13 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
     lines.append(f"# Mapping Plan: {plan.dataset_name}")
     lines.append("")
 
+    # Executive Summary (v4)
+    if hasattr(plan.understanding, 'executive_summary') and plan.understanding.executive_summary:
+        lines.append("## Executive Summary")
+        lines.append("")
+        lines.append(plan.understanding.executive_summary)
+        lines.append("")
+
     # Dataset Understanding
     lines.append("## Dataset Understanding")
     lines.append(f"- **Archetype:** {plan.understanding.archetype}")
@@ -63,6 +71,10 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
         lines.append(f"### Column: `{col.column_name}`")
         lines.append(f"- **Role:** {col.role.value if hasattr(col.role, 'value') else col.role}")
         lines.append(f"- **Evidence:** {col.evidence}")
+        if hasattr(col, 'purpose') and col.purpose:
+            lines.append(f"- **Purpose:** {col.purpose}")
+        if hasattr(col, 'narrative') and col.narrative:
+            lines.append(f"- **Narrative:** {col.narrative}")
         if col.dc_match:
             lines.append(f"- **DC Match:** {col.dc_match}")
         if col.is_ambiguous:
@@ -85,6 +97,10 @@ def _plan_to_markdown(plan: MappingPlan) -> str:
             lines.append(f"### Column: `{col.column_name}`")
             lines.append(f"- **Role:** {col.role.value if hasattr(col.role, 'value') else col.role}")
             lines.append(f"- **Evidence:** {col.evidence}")
+            if hasattr(col, 'purpose') and col.purpose:
+                lines.append(f"- **Purpose:** {col.purpose}")
+            if hasattr(col, 'narrative') and col.narrative:
+                lines.append(f"- **Narrative:** {col.narrative}")
             lines.append("")
 
     # Static Properties
@@ -286,7 +302,21 @@ class MappingPlanAgent(BaseAgent):
             populated = populated.replace("{sampled_data}", sampled_data_truncated)
             populated = populated.replace("{engineer_feedback}", engineer_feedback)
 
-            plan = await self._generate_plan(populated, dataset_name, use_v2=True)
+            # Yield heartbeat events while waiting for Gemini to prevent
+            # the 300s stall detector in _run_pipeline_async from killing us.
+            plan_task = asyncio.create_task(
+                self._generate_plan(populated, dataset_name, use_v2=True)
+            )
+            elapsed = 0
+            while not plan_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(plan_task), timeout=60)
+                except asyncio.TimeoutError:
+                    elapsed += 60
+                    yield Event(author=self.name, content=types.Content(
+                        parts=[types.Part(text=f"Still generating enriched plan... ({elapsed}s elapsed)")]
+                    ))
+            plan = plan_task.result()
         else:
             # --- v1 path: original plan generation (unchanged) ---
             template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt.txt"
@@ -300,6 +330,18 @@ class MappingPlanAgent(BaseAgent):
             populated = populated.replace("{engineer_feedback}", engineer_feedback)
 
             plan = await self._generate_plan(populated, dataset_name)
+
+        # engineer_notes is reserved for human input — clear any LLM-generated
+        # notes but preserve carried notes from a previous regeneration cycle.
+        engineer_notes_carry = ctx.session.state.get("engineer_notes_carry", "")
+        if engineer_notes_carry:
+            try:
+                carried = json.loads(engineer_notes_carry)
+                plan.engineer_notes = carried if isinstance(carried, list) else []
+            except (json.JSONDecodeError, TypeError):
+                plan.engineer_notes = []
+        else:
+            plan.engineer_notes = []
 
         # Serialize to JSON
         plan_json = plan.model_dump_json(indent=2)

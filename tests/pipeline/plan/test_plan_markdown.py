@@ -298,6 +298,50 @@ class TestIndicatorColumnsMarkdown:
         assert "| `GDP` | `dcid:EconomicActivity` | `dcid:amount` | `measuredValue` | Gross domestic product |" in md
 
 
+class TestExecutiveSummaryMarkdown:
+    """_plan_to_markdown() renders executive summary when present."""
+
+    def test_executive_summary_in_markdown(self):
+        plan = _make_base_plan()
+        plan.understanding.executive_summary = "This dataset tracks industrial indicators for 2 countries over 10 years."
+        md = _plan_to_markdown(plan)
+        assert "## Executive Summary" in md
+        assert "industrial indicators" in md
+
+    def test_no_executive_summary_when_empty(self):
+        plan = _make_base_plan()
+        md = _plan_to_markdown(plan)
+        assert "## Executive Summary" not in md
+
+
+class TestColumnPurposeNarrativeMarkdown:
+    """_plan_to_markdown() renders purpose and narrative for columns."""
+
+    def test_column_purpose_and_narrative_in_markdown(self):
+        plan = MappingPlan(
+            dataset_name="test",
+            understanding=DatasetUnderstanding(archetype="Long", observation_grain="row", key_insight="test"),
+            active_columns=[
+                ColumnMapping(
+                    column_name="Country", role=ColumnRole.DIMENSION,
+                    candidates=[PropertyValueCandidate(
+                        property="observationAbout", value_expression="country/[DATA]",
+                        confidence=0.9, source=CandidateSource.SCHEMA_ORG, reason="test",
+                    )],
+                    evidence="2 countries",
+                    purpose="Entity Resolution Helper",
+                    narrative="Human-readable country name for DCID resolution fallback.",
+                ),
+            ],
+            ignored_columns=[],
+            static_properties=[],
+            global_notes=[],
+        )
+        md = _plan_to_markdown(plan)
+        assert "Entity Resolution Helper" in md
+        assert "Human-readable country name" in md
+
+
 class TestMappingRulesMarkdown:
     """_plan_to_markdown() renders Mapping Rules section."""
 
