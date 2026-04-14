@@ -389,7 +389,7 @@ class MappingPlanAgent(BaseAgent):
             from src.api.models.plan import EnrichedMappingPlan
 
             plan_schema = EnrichedMappingPlan.model_json_schema()
-            max_tokens = 16384
+            max_tokens = 32768
         else:
             plan_schema = MappingPlan.model_json_schema()
             max_tokens = 8192
