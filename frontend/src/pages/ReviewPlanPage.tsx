@@ -63,70 +63,73 @@ export function ReviewPlanPage({
   const [editText, setEditText] = useState("");
   const [readOnly, setReadOnly] = useState(false);
 
-  // --- WebSocket: listen for plan generation progress ---
+  // --- On mount: load run status + plan data in one coordinated flow ---
+  useEffect(() => {
+    if (!runId) return;
+    let cancelled = false;
+
+    async function loadPlan() {
+      // Step 1: Check run status first
+      try {
+        const run = await getRun(runId!);
+        if (cancelled) return;
+        const isCompleted = run.status !== "plan_ready" && run.status !== "pending" && run.status !== "running";
+        if (isCompleted) setReadOnly(true);
+      } catch {
+        // Can't determine status — assume active
+      }
+
+      // Step 2: Try loading plan data
+      try {
+        const [planData, md] = await Promise.all([
+          getPlan(runId!).catch(() => null),
+          getPlanMarkdown(runId!).catch(() => ""),
+        ]);
+        if (cancelled) return;
+
+        if (planData && planData.active_columns) {
+          setPlan(planData);
+          setPlanReady(true);
+          if (md) setMarkdown(md);
+        } else {
+          // No plan — check if run finished (plan generation failed) or still running
+          const run = await getRun(runId!).catch(() => null);
+          if (cancelled) return;
+          if (run && (run.status === "plan_ready" || run.status === "stopped" || run.status === "error")) {
+            setPlanReady(true);
+            setPlanError("Plan generation failed. Try 'Regenerate' below.");
+          }
+          // If still running/pending, WebSocket will handle it
+        }
+      } catch {
+        // Network error
+      }
+    }
+
+    loadPlan();
+    return () => { cancelled = true; };
+  }, [runId]);
+
+  // --- WebSocket: listen for plan generation progress (only when plan not ready) ---
   const { events } = useWebSocket({
     runId: runId ?? null,
-    enabled: !planReady,
+    enabled: !planReady && !readOnly,  // Don't connect WebSocket for completed runs
     onComplete: (event) => {
       if (event.result?.phase === "plan") {
         setPlanReady(true);
         setRegenerating(false);
         toast.info("Plan ready for review");
+        // Reload plan data
+        if (runId) {
+          getPlan(runId).then((data) => setPlan(data)).catch(() => {});
+          getPlanMarkdown(runId).then((md) => setMarkdown(md)).catch(() => {});
+        }
       } else {
         navigate(`/runs/${runId}/results`);
       }
     },
     onError,
   });
-
-  // --- Load plan when ready (via WebSocket completion) ---
-  useEffect(() => {
-    if (!planReady || !runId || plan !== null) return;
-    setLoadingPlan(true);
-    Promise.all([
-      getPlan(runId).then((data) => setPlan(data)).catch(() => {
-        // Plan endpoint returned 404 — plan generation failed
-        setPlanError("Plan generation failed. Try 'Regenerate' below.");
-      }),
-      getPlanMarkdown(runId).then((md) => setMarkdown(md)).catch(() => {}),
-    ]).finally(() => setLoadingPlan(false));
-  }, [planReady, runId, plan]);
-
-  // --- On mount: check if plan already exists (e.g. page refresh) ---
-  useEffect(() => {
-    if (!runId) return;
-    // Check run status first to determine read-only mode
-    getRun(runId).then((run) => {
-      if (run.status !== "plan_ready" && run.status !== "pending" && run.status !== "running") {
-        setReadOnly(true);
-      }
-    }).catch(() => {});
-
-    getPlan(runId)
-      .then((data) => {
-        if (data && data.active_columns) {
-          setPlan(data);
-          setPlanReady(true);
-        }
-      })
-      .catch(() => {
-        // Plan not found -- check if the run already finished
-        getRun(runId)
-          .then((run) => {
-            if (run.status === "plan_ready" || run.status === "stopped" || run.status === "error") {
-              setPlanReady(true);
-              setPlanError("Plan generation failed. Try 'Regenerate' below.");
-            } else if (run.status === "running" || run.status === "pending") {
-              // Still running — WebSocket will handle it
-            }
-          })
-          .catch(() => {});
-      });
-    // Also load markdown
-    getPlanMarkdown(runId)
-      .then((md) => setMarkdown(md))
-      .catch(() => {});
-  }, [runId]);
 
   // --- Handlers ---
 
@@ -260,14 +263,15 @@ export function ReviewPlanPage({
   const stepClickHandler = readOnly
     ? (step: number) => {
         if (!runId) return;
-        if (step === 3) navigate(`/runs/${runId}/progress`);
+        if (step === 3) navigate(`/runs/${runId}`);
         if (step === 4) navigate(`/runs/${runId}/results`);
+        // Steps 0,1 are Upload/Configure — not navigable from a completed run
       }
     : undefined;
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <WizardStepper currentStep={readOnly ? 4 : 2} onStepClick={stepClickHandler} />
+      <WizardStepper currentStep={2} completedUpTo={readOnly ? 5 : undefined} onStepClick={stepClickHandler} />
 
       {/* Page header */}
       <div className="flex items-center justify-between mb-1">

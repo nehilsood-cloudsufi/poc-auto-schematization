@@ -18,16 +18,19 @@ const STEPS: Step[] = [
 
 interface WizardStepperProps {
   currentStep: number;
+  /** How many steps are completed (defaults to currentStep). Use when revisiting an earlier step. */
+  completedUpTo?: number;
   onStepClick?: (step: number) => void;
 }
 
-export function WizardStepper({ currentStep, onStepClick }: WizardStepperProps) {
+export function WizardStepper({ currentStep, completedUpTo, onStepClick }: WizardStepperProps) {
+  const maxCompleted = completedUpTo ?? currentStep;
   return (
     <nav className="flex items-center gap-0 mb-6" aria-label="Wizard progress">
       {STEPS.map((step, i) => {
-        const isCompleted = i < currentStep;
+        const isCompleted = i < maxCompleted && i !== currentStep;
         const isCurrent = i === currentStep;
-        const canClick = isCompleted && !!onStepClick;
+        const canClick = i !== currentStep && i < maxCompleted && !!onStepClick;
 
         return (
           <div key={step.path} className="flex items-center">
@@ -74,7 +77,7 @@ export function WizardStepper({ currentStep, onStepClick }: WizardStepperProps) 
             {i < STEPS.length - 1 && (
               <div
                 className={`mx-3 h-px w-8 ${
-                  isCompleted
+                  i < maxCompleted - 1 || (i < maxCompleted && isCurrent)
                     ? "bg-green-400 dark:bg-green-600"
                     : "bg-border border-t border-dashed border-border"
                 }`}
