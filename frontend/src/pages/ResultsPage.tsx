@@ -214,9 +214,9 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         <WizardStepper
           currentStep={4}
           onStepClick={(step) => {
-            if (step === 2 && runId) {
-              navigate(`/runs/${runId}/plan`);
-            }
+            if (!runId) return;
+            if (step === 2) navigate(`/runs/${runId}/plan`);
+            else if (step === 3) navigate(`/runs/${runId}/progress`);
           }}
         />
 

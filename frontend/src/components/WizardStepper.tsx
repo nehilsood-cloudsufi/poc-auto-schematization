@@ -27,7 +27,7 @@ export function WizardStepper({ currentStep, onStepClick }: WizardStepperProps) 
       {STEPS.map((step, i) => {
         const isCompleted = i < currentStep;
         const isCurrent = i === currentStep;
-        const canClick = isCompleted && onStepClick && i === 2; // Only "Review Plan" (step 3) is clickable
+        const canClick = isCompleted && !!onStepClick;
 
         return (
           <div key={step.path} className="flex items-center">

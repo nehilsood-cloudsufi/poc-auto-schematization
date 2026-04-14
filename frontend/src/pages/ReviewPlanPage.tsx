@@ -257,9 +257,17 @@ export function ReviewPlanPage({
   }
 
   // --- Render: interactive plan review ---
+  const stepClickHandler = readOnly
+    ? (step: number) => {
+        if (!runId) return;
+        if (step === 3) navigate(`/runs/${runId}/progress`);
+        if (step === 4) navigate(`/runs/${runId}/results`);
+      }
+    : undefined;
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <WizardStepper currentStep={2} />
+      <WizardStepper currentStep={readOnly ? 4 : 2} onStepClick={stepClickHandler} />
 
       {/* Page header */}
       <div className="flex items-center justify-between mb-1">

@@ -100,9 +100,8 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
       <WizardStepper
         currentStep={3}
         onStepClick={(step) => {
-          if (step === 2 && runId) {
-            navigate(`/runs/${runId}/plan`);
-          }
+          if (!runId) return;
+          if (step === 2) navigate(`/runs/${runId}/plan`);
         }}
       />
 
