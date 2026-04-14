@@ -656,3 +656,123 @@ class TestNewModelsJsonRoundtrip:
         assert mr.constraint_columns == ["gender"]
         assert mr.static_properties[0].value == "dcs:Person"
         assert len(mr.pvmap_rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# V4 fields: executive_summary, purpose, narrative
+# ---------------------------------------------------------------------------
+
+class TestDatasetUnderstandingV4:
+    def test_executive_summary_defaults_empty(self):
+        du = DatasetUnderstanding(
+            archetype="wide",
+            observation_grain="country-year",
+            key_insight="GDP per country per year",
+        )
+        assert du.executive_summary == ""
+
+    def test_executive_summary_with_value(self):
+        du = DatasetUnderstanding(
+            archetype="long",
+            observation_grain="state-month",
+            key_insight="Asthma prevalence by demographics",
+            executive_summary="Monthly asthma prevalence across US states broken down by age and race.",
+        )
+        assert du.executive_summary == "Monthly asthma prevalence across US states broken down by age and race."
+
+
+class TestColumnMappingV4:
+    def test_purpose_narrative_default_empty(self):
+        cm = ColumnMapping(
+            column_name="country",
+            role=ColumnRole.OBSERVATION_ABOUT,
+            candidates=[
+                PropertyValueCandidate(
+                    property="observationAbout",
+                    value_expression="{country}",
+                    confidence=0.95,
+                    source=CandidateSource.SCHEMA_ORG,
+                    reason="geographic entity",
+                )
+            ],
+            evidence="Country column maps to observationAbout",
+        )
+        assert cm.purpose == ""
+        assert cm.narrative == ""
+
+    def test_with_purpose_and_narrative(self):
+        cm = ColumnMapping(
+            column_name="year",
+            role=ColumnRole.OBSERVATION_DATE,
+            candidates=[
+                PropertyValueCandidate(
+                    property="observationDate",
+                    value_expression="{year}",
+                    confidence=0.99,
+                    source=CandidateSource.SCHEMA_ORG,
+                    reason="temporal column",
+                )
+            ],
+            evidence="Year column provides observation date",
+            purpose="Anchors each observation to a calendar year.",
+            narrative="The year column is the temporal axis of this wide-format dataset.",
+        )
+        assert cm.purpose == "Anchors each observation to a calendar year."
+        assert cm.narrative == "The year column is the temporal axis of this wide-format dataset."
+
+    def test_former_ignored_column_with_real_purpose(self):
+        """A column previously marked IGNORED can now carry purpose/narrative explaining why."""
+        cm = ColumnMapping(
+            column_name="footnote_code",
+            role=ColumnRole.IGNORED,
+            candidates=[],
+            evidence="Footnote codes are metadata, not mappable to DC properties",
+            purpose="Contains publisher footnote references for data quality flags.",
+            narrative="Excluded from mapping because DC has no footnote property, but retained for provenance.",
+        )
+        assert cm.role == ColumnRole.IGNORED
+        assert cm.purpose == "Contains publisher footnote references for data quality flags."
+        assert cm.narrative == "Excluded from mapping because DC has no footnote property, but retained for provenance."
+
+
+class TestV4JsonRoundtrip:
+    def test_new_fields_survive_roundtrip(self, base_mapping_plan_kwargs):
+        """Verify executive_summary, purpose, and narrative survive JSON serialize/deserialize."""
+        # Override understanding with executive_summary
+        base_mapping_plan_kwargs["understanding"] = DatasetUnderstanding(
+            archetype="wide",
+            observation_grain="country-year",
+            key_insight="GDP per country per year",
+            executive_summary="Wide-format GDP dataset with one column per year per country.",
+        )
+        # Add purpose/narrative to the active column
+        base_mapping_plan_kwargs["active_columns"] = [
+            ColumnMapping(
+                column_name="country",
+                role=ColumnRole.OBSERVATION_ABOUT,
+                candidates=[
+                    PropertyValueCandidate(
+                        property="observationAbout",
+                        value_expression="{country}",
+                        confidence=0.95,
+                        source=CandidateSource.SCHEMA_ORG,
+                        reason="geographic entity",
+                    )
+                ],
+                evidence="Country column maps to observationAbout",
+                purpose="Identifies the geographic entity for each observation.",
+                narrative="ISO country codes resolve directly to DC place DCIDs.",
+            )
+        ]
+
+        plan = MappingPlan(**base_mapping_plan_kwargs)
+
+        # Serialize to JSON and back
+        json_str = plan.model_dump_json()
+        data = json.loads(json_str)
+        restored = MappingPlan.model_validate(data)
+
+        # Verify new fields survived
+        assert restored.understanding.executive_summary == "Wide-format GDP dataset with one column per year per country."
+        assert restored.active_columns[0].purpose == "Identifies the geographic entity for each observation."
+        assert restored.active_columns[0].narrative == "ISO country codes resolve directly to DC place DCIDs."

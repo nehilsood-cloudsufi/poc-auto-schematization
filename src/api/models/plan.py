@@ -51,6 +51,8 @@ class ColumnMapping(BaseModel):
     evidence: str
     dc_match: Optional[str] = None
     is_ambiguous: bool = False
+    purpose: str = ""
+    narrative: str = ""
 
 
 class StaticProperty(BaseModel):
@@ -65,6 +67,7 @@ class DatasetUnderstanding(BaseModel):
     archetype: str
     observation_grain: str
     key_insight: str
+    executive_summary: str = ""
 
 
 class MappingPlan(BaseModel):
