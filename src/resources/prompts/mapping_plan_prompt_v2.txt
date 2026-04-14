@@ -50,6 +50,33 @@ If engineer feedback is provided above, it takes HIGHEST priority. The engineer 
 
 Work through these steps IN ORDER:
 
+### Step 0: Understand the Data (MUST DO FIRST)
+
+Before assigning ANY roles, develop a comprehensive understanding of the data:
+
+**Executive Summary:** Write a paragraph (3-5 sentences) explaining this dataset in plain English. Cover:
+- What domain/topic does this data represent?
+- What is being measured or tracked?
+- What is the geographic and temporal scope?
+- What makes this dataset structurally interesting or challenging?
+
+Write it like you're briefing a colleague who's never seen this data. This paragraph goes in understanding.executive_summary.
+
+**Column Narratives:** For EVERY column, write a narrative (2-3 sentences) explaining:
+- What does this column contain? (data type, sample values, cardinality)
+- How does it relate to other columns? (co-referent? hierarchical? qualifier?)
+- What purpose does it serve? Assign exactly ONE purpose:
+  - "Structural Dimension" — defines the observation space (place, time, core dimensions)
+  - "Observation Qualifier" — modifies the measurement (unit, scale, method)
+  - "Entity Resolution Helper" — human-readable name for a coded column
+  - "StatVar Annotator" — provides meaning/description for coded dimensions
+  - "Value" — the actual numeric measurement
+
+Put the purpose in the column's purpose field and the narrative in the narrative field.
+
+THEN proceed to Step 1 to classify the archetype, and Step 2 to assign technical roles.
+The understanding comes first, the technical classification follows from it.
+
 ### Step 1: Dataset Understanding
 
 Classify the dataset archetype using Phase A evidence:
@@ -80,9 +107,21 @@ For EACH column, assign exactly one role using this decision tree:
 4. ELIF column has low cardinality (<=50 unique) AND appears in composite_key -> role=dimension
    - Map every unique value from raw_value_profiles
 
-5. ELIF column has cardinality=1 or cardinality=0 -> role=ignored (constant or empty)
+5. ELIF column has cardinality=1 or cardinality=0 -> role=metadata with purpose="Observation Qualifier"
+   (constant columns often indicate a fixed unit, method, or dataset-level property)
 
-6. ELSE -> use candidate evidence to decide; if genuinely unclear, set is_ambiguous=true
+6. ELSE -> use candidate evidence and your column narrative to decide; if genuinely unclear, set is_ambiguous=true
+
+NO COLUMN SHOULD HAVE role="ignored". Every column serves a purpose:
+- Former "ignored co-referent" columns -> role=dimension, purpose="Entity Resolution Helper"
+  They provide human-readable names for coded columns and DCID resolution fallback.
+- Former "ignored parent" columns -> role=dimension, purpose="StatVar Annotator"
+  They provide semantic meaning for finer-grained coded children.
+- Former "ignored metadata" columns -> role=metadata, purpose="Observation Qualifier"
+  They modify measurements (unit, scale, method) and are crucial for StatVar design.
+
+Only truly useless columns (Row_ID, empty columns, import timestamps) can use
+role=metadata with purpose="" and narrative="Internal artifact, not relevant to observations."
 
 CONSTRAINT: Exactly ONE column gets observationAbout. Exactly ONE column gets observationDate. If Phase A detects multiple place or time columns, you MUST choose one and explain why in global_notes.
 
@@ -232,9 +271,10 @@ Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of the
 {
   "dataset_name": "...",
   "understanding": {
-    "archetype": "Wide | Dimension-Row | Flat | ...",
-    "observation_grain": "One observation per ...",
-    "key_insight": "Brief summary of dataset structure"
+    "archetype": "Dimension-Row",
+    "observation_grain": "One observation per country-year-variable-activity",
+    "key_insight": "UNIDO industrial statistics with hierarchical dimensions",
+    "executive_summary": "This dataset from UNIDO tracks industrial economic indicators for India and USA across 2014-2023. For each country-year combination, it measures 7 economic metrics (Output, Employees, Value Added, etc.) across 37 industrial sectors classified by ISIC Rev.4 codes."
   },
   "active_columns": [
     {
@@ -244,16 +284,20 @@ Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of the
       "selected_index": 0,
       "evidence": "Why this role was chosen",
       "dc_match": "optional DC property match",
-      "is_ambiguous": false
+      "is_ambiguous": false,
+      "purpose": "Structural Dimension",
+      "narrative": "ISO numeric country codes for DCID resolution. Co-referent with Country (human name)."
     }
   ],
   "ignored_columns": [
     {
-      "column_name": "exact_name",
-      "role": "ignored | metadata",
+      "column_name": "Country",
+      "role": "dimension",
       "candidates": [],
       "selected_index": 0,
-      "evidence": "Why this column is ignored"
+      "evidence": "Co-referent with CountryCode",
+      "purpose": "Entity Resolution Helper",
+      "narrative": "Human-readable country name. Co-referent with CountryCode. Use for display and DCID resolution fallback."
     }
   ],
   "static_properties": [
@@ -264,7 +308,7 @@ Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of the
     }
   ],
   "global_notes": ["warnings", "edge cases", "ambiguities"],
-  "engineer_notes": [],
+  "engineer_notes": [],  // ALWAYS empty — reserved for human engineer input, never fill this
   "column_relationships": [
     {
       "column_a": "...",
@@ -351,3 +395,6 @@ Ensure place_resolution and time_resolution use Phase A detections (may be null 
 Ensure transformation_strategy is always present (action=null for no-transform datasets).
 Ensure indicator_columns is populated if any dimension column changes the core StatVar per-value (empty list if none).
 Ensure mapping_rules has one entry per measure column, each with concrete pvmap_rows.
+Ensure every column has a purpose and narrative field populated.
+Ensure understanding.executive_summary is a 3-5 sentence plain-English paragraph.
+Ensure NO column has role="ignored" — use "dimension" or "metadata" with an appropriate purpose instead.
