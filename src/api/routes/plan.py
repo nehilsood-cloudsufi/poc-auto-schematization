@@ -169,14 +169,19 @@ async def approve_plan(run_id: str, body: ApprovePlanRequest, request: Request):
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-    plan = MappingPlan.model_validate(body.plan)
+    # Use EnrichedMappingPlan if statvar_blueprint is present, else MappingPlan
+    if isinstance(body.plan, dict) and "statvar_blueprint" in body.plan:
+        from src.api.models.plan import EnrichedMappingPlan
+        plan = EnrichedMappingPlan.model_validate(body.plan)
+    else:
+        plan = MappingPlan.model_validate(body.plan)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
     output_dir = run_dir / "output" / dataset_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save approved plan JSON
+    # Save approved plan JSON (preserves all enriched fields)
     (output_dir / "approved_plan.json").write_text(plan.model_dump_json(indent=2))
 
     # Generate PVMAP skeleton from selections
@@ -225,7 +230,7 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
 
     # Reset run state
     run.cancel_event = threading.Event()
-    run.progress_queue = queue.Queue(maxsize=200)
+    run.progress_queue = queue.Queue(maxsize=0)  # 0 = unbounded
     run.status = "running"
     run.error = None
 
@@ -262,7 +267,8 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
     config.extra_state = extra_state
 
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
-    run.thread = thread
+    run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
 
     return {"status": "regenerating"}
 
@@ -341,7 +347,7 @@ async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
     # Reset run state for Phase 2
     run.cancel_event = threading.Event()
     run.plan_approved_event = threading.Event()
-    run.progress_queue = queue.Queue(maxsize=200)
+    run.progress_queue = queue.Queue(maxsize=0)  # 0 = unbounded
     run.status = "running"
     run.error = None
 
@@ -377,7 +383,8 @@ async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
     }
 
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
-    run.thread = thread
+    run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
 
     return {"status": "running"}
 
@@ -423,7 +430,7 @@ async def resume_run(run_id: str, request: Request):
 
     # Reset events and queue for the new run
     run.cancel_event = threading.Event()
-    run.progress_queue = queue.Queue(maxsize=200)
+    run.progress_queue = queue.Queue(maxsize=0)  # 0 = unbounded
     run.status = "running"
     run.error = None
 
@@ -458,7 +465,8 @@ async def resume_run(run_id: str, request: Request):
     )
 
     thread = launch_pipeline(config, run.progress_queue, run_state=run)
-    run.thread = thread
+    run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
 
     return {"status": "running", "resumed_from": last_agent}
 

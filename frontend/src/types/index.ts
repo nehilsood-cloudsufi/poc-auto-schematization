@@ -172,6 +172,8 @@ export interface ColumnMapping {
   evidence: string;
   dc_match: string | null;
   is_ambiguous: boolean;
+  purpose?: string;
+  narrative?: string;
 }
 
 export interface StaticProperty {
@@ -184,6 +186,7 @@ export interface DatasetUnderstanding {
   archetype: string;
   observation_grain: string;
   key_insight: string;
+  executive_summary?: string;
 }
 
 export interface MappingPlan {
@@ -278,8 +281,13 @@ export interface ValueDictionary {
   total_indicators: string[];
 }
 
+export interface StatVarProperty {
+  name: string;
+  value: string;
+}
+
 export interface StatVarBlueprint {
-  base_properties: Record<string, string>;
+  base_properties: StatVarProperty[];
   constraint_columns: string[];
   measure_columns: string[];
 }

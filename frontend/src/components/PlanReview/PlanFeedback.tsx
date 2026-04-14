@@ -2,7 +2,7 @@
  * Feedback panel for plan review: notes list, textarea input, and
  * regenerate-with-feedback split button (Quick / Deep).
  */
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { RefreshCw, Plus, ChevronDown } from "lucide-react";
@@ -17,6 +17,19 @@ interface PlanFeedbackProps {
 export function PlanFeedback({ notes, onAddNote, onRegenerate, regenerating }: PlanFeedbackProps) {
   const [text, setText] = useState("");
   const [showDeepMenu, setShowDeepMenu] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!showDeepMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDeepMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showDeepMenu]);
 
   const handleAddNote = () => {
     if (!text.trim()) return;
@@ -71,7 +84,7 @@ export function PlanFeedback({ notes, onAddNote, onRegenerate, regenerating }: P
           Add Note
         </Button>
 
-        <div className="relative">
+        <div className="relative" ref={dropdownRef}>
           <div className="flex">
             <Button
               variant="outline"

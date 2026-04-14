@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { WizardStepper } from "@/components/WizardStepper";
 import { ProgressTracker } from "@/components/ProgressTracker";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { stopRun } from "@/lib/api";
+import { stopRun, getRun } from "@/lib/api";
 import { toast } from "sonner";
 import { GENERATE_PHASES } from "@/types";
 import type { ProgressEvent } from "@/types";
@@ -44,6 +44,16 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
   const [elapsed, setElapsed] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Redirect completed runs to results page immediately
+  useEffect(() => {
+    if (!runId) return;
+    getRun(runId).then((run) => {
+      if (run.status === "complete" || run.status === "error" || run.status === "stopped") {
+        navigate(`/runs/${runId}/results`, { replace: true });
+      }
+    }).catch(() => {});
+  }, [runId, navigate]);
 
   const { events } = useWebSocket({
     runId: runId ?? null,

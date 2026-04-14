@@ -237,7 +237,7 @@ export function ReviewPlanPage({
                   <PlanFeedback
                     notes={[]}
                     onRegenerate={handleRegenerate}
-                    onAddNote={() => {}}
+                    onAddNote={handleAddNote}
                     regenerating={regenerating}
                   />
                 </div>
@@ -263,9 +263,8 @@ export function ReviewPlanPage({
   const stepClickHandler = readOnly
     ? (step: number) => {
         if (!runId) return;
-        if (step === 3) navigate(`/runs/${runId}`);
         if (step === 4) navigate(`/runs/${runId}/results`);
-        // Steps 0,1 are Upload/Configure — not navigable from a completed run
+        // Only Results is navigable for completed runs — Generate page has no useful state
       }
     : undefined;
 
@@ -308,7 +307,7 @@ export function ReviewPlanPage({
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               className="w-full font-mono text-xs leading-relaxed p-3 rounded-md border bg-muted/30 resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
-              style={{ minHeight: "400px", height: "60vh", maxHeight: "80vh" }}
+              rows={30}
               spellCheck={false}
             />
           ) : (

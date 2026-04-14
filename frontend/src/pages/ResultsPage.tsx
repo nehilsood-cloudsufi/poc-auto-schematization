@@ -216,7 +216,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
           onStepClick={(step) => {
             if (!runId) return;
             if (step === 2) navigate(`/runs/${runId}/plan`);
-            else if (step === 3) navigate(`/runs/${runId}/progress`);
+            // Steps 0,1,3 don't have useful pages for completed runs
           }}
         />
 
