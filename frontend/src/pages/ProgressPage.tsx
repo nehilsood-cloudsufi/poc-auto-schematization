@@ -55,7 +55,7 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
     }).catch(() => {});
   }, [runId, navigate]);
 
-  const { events } = useWebSocket({
+  const { events, connected } = useWebSocket({
     runId: runId ?? null,
     onComplete: (event) => {
       onComplete(event);
@@ -67,6 +67,22 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
       toast.error("Pipeline encountered an error");
     },
   });
+
+  // Polling fallback: when WebSocket disconnects (Cloud Run restart),
+  // poll the run status to detect completion
+  useEffect(() => {
+    if (!runId || connected) return;
+    const poll = setInterval(async () => {
+      try {
+        const run = await getRun(runId);
+        if (run.status === "complete" || run.status === "error" || run.status === "stopped" || run.status === "plan_ready") {
+          clearInterval(poll);
+          navigate(`/runs/${runId}/results`, { replace: true });
+        }
+      } catch { /* ignore — next poll will retry */ }
+    }, 10_000);
+    return () => clearInterval(poll);
+  }, [runId, connected, navigate]);
 
   useEffect(() => {
     const interval = setInterval(() => {

@@ -270,20 +270,33 @@ export function SpreadsheetEditor({
   const handleCopy = useCallback(async () => {
     const api = gridApiRef.current;
     if (!api) return;
+    let textToCopy = "";
     const selected = api.getSelectedRows();
     if (selected.length > 0) {
       const header = currentColumns.join("\t");
       const rows = selected.map((r) =>
         currentColumns.map((c) => r[c] ?? "").join("\t"),
       );
-      await navigator.clipboard.writeText([header, ...rows].join("\n"));
+      textToCopy = [header, ...rows].join("\n");
     } else {
       const focused = api.getFocusedCell();
       if (focused) {
         const colId = focused.column.getColId();
-        const value = currentRows[focused.rowIndex]?.[colId] ?? "";
-        await navigator.clipboard.writeText(value);
+        textToCopy = currentRows[focused.rowIndex]?.[colId] ?? "";
       }
+    }
+    if (!textToCopy) return;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = textToCopy;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
     }
   }, [currentRows, currentColumns]);
 

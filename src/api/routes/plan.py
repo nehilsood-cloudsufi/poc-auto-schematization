@@ -152,6 +152,7 @@ async def update_plan(run_id: str, body: dict, request: Request):
     plan_json_path = output_dir / "mapping_plan.json"
 
     # Snapshot the original plan before overwriting
+    snapshot_name = ""
     if plan_json_path.exists():
         snapshot_name = f"mapping_plan_before_edit_{int(time.time())}.json"
         shutil.copy2(plan_json_path, output_dir / snapshot_name)
@@ -161,7 +162,7 @@ async def update_plan(run_id: str, body: dict, request: Request):
     # RLHF logging
     user_email = getattr(request.state, "user_email", "")
     from src.api.services.rlhf_log import log_interaction
-    log_interaction(run_dir, user_email, "plan_edited", {"snapshot": snapshot_name if plan_json_path.exists() else ""})
+    log_interaction(run_dir, user_email, "plan_edited", {"snapshot": snapshot_name})
 
     # Also update phase1_state if it exists
     phase1_path = run_dir / "phase1_state.json"

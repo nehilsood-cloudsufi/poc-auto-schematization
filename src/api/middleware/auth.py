@@ -106,15 +106,22 @@ class IAPAuthMiddleware(BaseHTTPMiddleware):
             else:
                 email = "anonymous"
 
+            # Reject unauthenticated requests on Cloud Run
+            if email == "anonymous":
+                logger.warning("Rejecting unauthenticated request (missing or invalid IAP JWT)")
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Authentication required. Please sign in with Google."},
+                )
+
             # Enforce domain-level access control
-            if email != "anonymous":
-                domain = email.rsplit("@", 1)[-1] if "@" in email else ""
-                if domain not in ALLOWED_DOMAINS:
-                    logger.warning("Access denied for %s (domain %s not in allowed list)", email, domain)
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": f"Access denied. Only @google.com and @cloudsufi.com domains are allowed."},
-                    )
+            domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+            if domain not in ALLOWED_DOMAINS:
+                logger.warning("Access denied for %s (domain %s not in allowed list)", email, domain)
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"Access denied. Only @google.com and @cloudsufi.com domains are allowed."},
+                )
 
         request.state.user_email = email
         user_email_var.set(email)
