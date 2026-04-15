@@ -174,9 +174,9 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
 
       const res = await revalidate(runId);
       if (res.success) {
-        toast.success(`StatVar Processing passed: ${res.data_rows} data rows`);
+        toast.success(`StatVar Processing Passed: ${res.data_rows} data rows`);
       } else {
-        toast.error(`StatVar Processing failed: ${res.error}`);
+        toast.error(`StatVar Processing Failed: ${res.error}`);
       }
       setStale(false);
       setInputDirty(false);
@@ -201,7 +201,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
       editedPvmap.current = null;
       editedMetadata.current = null;
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "StatVar Processing failed");
+      toast.error(err instanceof Error ? err.message : "StatVar Processing Failed");
     } finally {
       setRevalidating(false);
     }
