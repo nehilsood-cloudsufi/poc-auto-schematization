@@ -357,6 +357,75 @@ async def add_plan_note(run_id: str, body: AddNoteRequest, request: Request):
         return {"notes": plan.engineer_notes}
 
 
+@router.delete("/runs/{run_id}/plan/notes/{note_index}")
+async def remove_plan_note(run_id: str, note_index: int, request: Request):
+    """Remove a note from the plan's engineer_notes by index."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    run_dir = Path(run.run_dir)
+    dataset_name = run.dataset_name
+    output_dir = run_dir / "output" / dataset_name
+
+    lock = _get_note_lock(run_id)
+    with lock:
+        plan_json_path = output_dir / "mapping_plan.json"
+        if not plan_json_path.exists():
+            raise HTTPException(status_code=400, detail="No plan found")
+
+        plan_data = json.loads(plan_json_path.read_text())
+        if "statvar_blueprint" in plan_data:
+            from src.api.models.plan import EnrichedMappingPlan
+            plan = EnrichedMappingPlan.model_validate(plan_data)
+        else:
+            plan = MappingPlan.model_validate(plan_data)
+
+        if note_index < 0 or note_index >= len(plan.engineer_notes):
+            raise HTTPException(status_code=400, detail="Note index out of range")
+
+        removed = plan.engineer_notes.pop(note_index)
+        plan_json_path.write_text(plan.model_dump_json(indent=2))
+
+        # Update phase1_state
+        phase1_path = run_dir / "phase1_state.json"
+        if phase1_path.exists():
+            phase1 = json.loads(phase1_path.read_text())
+            phase1["mapping_plan_json"] = plan.model_dump_json()
+            phase1_path.write_text(json.dumps(phase1, indent=2))
+
+        return {"notes": plan.engineer_notes}
+
+
+class SaveMarkdownRequest(BaseModel):
+    markdown: str
+
+
+@router.put("/runs/{run_id}/plan/markdown")
+async def save_plan_markdown(run_id: str, body: SaveMarkdownRequest, request: Request):
+    """Save edited markdown text for the mapping plan."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    run_dir = Path(run.run_dir)
+    dataset_name = run.dataset_name
+    output_dir = run_dir / "output" / dataset_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    md_path = output_dir / "mapping_plan.md"
+    md_path.write_text(body.markdown)
+
+    # RLHF logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    log_interaction(run_dir, user_email, "plan_markdown_edited", {
+        "length": len(body.markdown),
+    })
+
+    return {"status": "ok", "message": "Markdown saved"}
+
+
 @router.post("/runs/{run_id}/generate")
 async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
     """Start Phase 2: generate PVMAP from approved plan."""

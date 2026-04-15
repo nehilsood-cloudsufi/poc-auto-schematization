@@ -224,6 +224,25 @@ export async function addPlanNote(
   });
 }
 
+export async function removePlanNote(
+  runId: string,
+  index: number
+): Promise<{ notes: string[] }> {
+  return request(`/runs/${runId}/plan/notes/${index}`, {
+    method: "DELETE",
+  });
+}
+
+export async function savePlanMarkdown(
+  runId: string,
+  markdown: string
+): Promise<{ status: string }> {
+  return request(`/runs/${runId}/plan/markdown`, {
+    method: "PUT",
+    body: JSON.stringify({ markdown }),
+  });
+}
+
 export async function stopRun(runId: string): Promise<{ status: string }> {
   return request(`/runs/${runId}/stop`, { method: "POST" });
 }

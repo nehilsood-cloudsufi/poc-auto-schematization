@@ -24,6 +24,8 @@ import {
   stopRun,
   regeneratePlan,
   addPlanNote,
+  removePlanNote,
+  savePlanMarkdown,
   getRun,
 } from "@/lib/api";
 import { toast } from "sonner";
@@ -173,6 +175,29 @@ export function ReviewPlanPage({
     }
   };
 
+  const handleRemoveNote = async (index: number) => {
+    if (!runId) return;
+    try {
+      const result = await removePlanNote(runId, index);
+      setPlan(prev => prev ? { ...prev, engineer_notes: result.notes } : prev);
+      toast.success("Note removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove note");
+    }
+  };
+
+  const handleSaveMarkdown = async () => {
+    if (!runId || !editText) return;
+    try {
+      await savePlanMarkdown(runId, editText);
+      setMarkdown(editText);
+      setEditMode(false);
+      toast.success("Markdown saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save markdown");
+    }
+  };
+
   const handleRegenerate = async (feedback: string, deep: boolean) => {
     if (!runId) return;
     const previousPlan = plan;
@@ -307,13 +332,19 @@ export function ReviewPlanPage({
           </div>
 
           {editMode ? (
-            <textarea
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              className="w-full font-mono text-xs leading-relaxed p-3 rounded-md border bg-muted/30 resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
-              rows={30}
-              spellCheck={false}
-            />
+            <div className="space-y-2">
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full font-mono text-xs leading-relaxed p-3 rounded-md border bg-muted/30 resize-vertical focus:outline-none focus:ring-2 focus:ring-ring"
+                rows={30}
+                spellCheck={false}
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveMarkdown}>Save Edits</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditMode(false)}>Cancel</Button>
+              </div>
+            </div>
           ) : (
             <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-table:text-xs prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-td:py-1 prose-th:py-1 prose-pre:bg-muted prose-pre:text-foreground prose-pre:border prose-pre:border-border prose-pre:rounded-md prose-pre:overflow-x-auto">
               <ReactMarkdown>{markdown || "No plan content available. Click 'Regenerate' below to generate a plan."}</ReactMarkdown>
@@ -330,6 +361,7 @@ export function ReviewPlanPage({
             <PlanFeedback
               notes={plan?.engineer_notes ?? []}
               onAddNote={handleAddNote}
+              onRemoveNote={handleRemoveNote}
               onRegenerate={handleRegenerate}
               regenerating={regenerating}
             />

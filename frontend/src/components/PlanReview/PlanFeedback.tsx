@@ -5,16 +5,17 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Plus, ChevronDown } from "lucide-react";
+import { RefreshCw, Plus, ChevronDown, X } from "lucide-react";
 
 interface PlanFeedbackProps {
   notes: string[];
   onAddNote: (note: string) => void;
+  onRemoveNote?: (index: number) => void;
   onRegenerate: (feedback: string, deep: boolean) => void;
   regenerating: boolean;
 }
 
-export function PlanFeedback({ notes, onAddNote, onRegenerate, regenerating }: PlanFeedbackProps) {
+export function PlanFeedback({ notes, onAddNote, onRemoveNote, onRegenerate, regenerating }: PlanFeedbackProps) {
   const [text, setText] = useState("");
   const [showDeepMenu, setShowDeepMenu] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -52,9 +53,18 @@ export function PlanFeedback({ notes, onAddNote, onRegenerate, regenerating }: P
           <div className="text-sm font-medium mb-1.5">Your Notes</div>
           <ul className="space-y-1">
             {notes.map((note, i) => (
-              <li key={i} className="text-sm text-muted-foreground flex gap-2">
+              <li key={i} className="text-sm text-muted-foreground flex gap-2 items-start group">
                 <span className="text-muted-foreground/50">-</span>
-                <span>{note}</span>
+                <span className="flex-1">{note}</span>
+                {onRemoveNote && (
+                  <button
+                    onClick={() => onRemoveNote(i)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/50 hover:text-destructive shrink-0"
+                    title="Remove note"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </li>
             ))}
           </ul>

@@ -57,7 +57,12 @@ def plan_to_skeleton_csv(plan: "MappingPlan") -> str:
 
     # Column rows
     for col in plan.active_columns:
-        candidate = col.candidates[col.selected_index]
+        idx = col.selected_index
+        if not col.candidates or idx < 0 or idx >= len(col.candidates):
+            idx = 0  # fallback to first candidate
+        if not col.candidates:
+            continue  # skip columns with no candidates
+        candidate = col.candidates[idx]
         cells = [col.column_name] + _build_property_value_pairs(
             candidate.property, candidate.value_expression
         )
@@ -66,7 +71,12 @@ def plan_to_skeleton_csv(plan: "MappingPlan") -> str:
     # Static-properties row: empty key, then property/value pairs
     static_cells: list[str] = [""]
     for sp in plan.static_properties:
-        candidate = sp.candidates[sp.selected_index]
+        idx = sp.selected_index
+        if not sp.candidates or idx < 0 or idx >= len(sp.candidates):
+            idx = 0
+        if not sp.candidates:
+            continue
+        candidate = sp.candidates[idx]
         static_cells += _build_property_value_pairs(
             candidate.property, candidate.value_expression
         )
