@@ -13,7 +13,11 @@ _mcp_lock = threading.Lock()
 
 
 def get_or_start_mcp(port: int = 3000) -> Optional[object]:
-    """Get existing or start new MCP server, stored as module-level variables."""
+    """Get existing or start new MCP server, stored as module-level variables.
+
+    On Cloud Run, startup.sh starts MCP before uvicorn, so we first check
+    if MCP is already running before trying to spawn a new process.
+    """
     global _mcp_manager, _mcp_url
     with _mcp_lock:
         if _mcp_manager is not None:
@@ -23,6 +27,14 @@ def get_or_start_mcp(port: int = 3000) -> Optional[object]:
             from src.data_commons.api.mcp_server_manager import MCPServerManager
 
             manager = MCPServerManager(port=port)
+
+            # Check if MCP is already running (e.g., started by startup.sh on Cloud Run)
+            if manager.is_running():
+                _mcp_manager = manager
+                _mcp_url = manager.mcp_url
+                logger.info("MCP server already running at %s", manager.mcp_url)
+                return manager
+
             if manager.start(timeout=30):
                 _mcp_manager = manager
                 _mcp_url = manager.mcp_url

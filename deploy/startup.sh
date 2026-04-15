@@ -9,7 +9,7 @@ datacommons-mcp serve http --port 3000 &
 
 # Wait for MCP health (max 30s)
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+  if curl -sf http://localhost:3000/mcp/health > /dev/null 2>&1; then
     echo "{\"severity\":\"INFO\",\"message\":\"MCP ready\",\"seconds\":$i}"
     break
   fi

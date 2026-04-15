@@ -8,6 +8,7 @@ dependencies = [
     # Data Commons
     "datacommons-client>=2.1.4",
     "datacommons-mcp>=1.2.0",  # MCP server for Data Commons (1.2+ fixes FastMCP custom_route)
+    "fastmcp>=2.0",  # datacommons-mcp needs custom_route (added in fastmcp 2.x)
 
     # Data Processing
     "pandas>=2.3.3",
