@@ -110,7 +110,7 @@ export function ConfigurePage({
                 step={1}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                How many validation-feedback-retry cycles to run
+                How many statvar processing-feedback-retry cycles to run
               </p>
             </div>
           </CardContent>

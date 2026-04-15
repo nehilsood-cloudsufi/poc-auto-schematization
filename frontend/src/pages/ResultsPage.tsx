@@ -174,9 +174,9 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
 
       const res = await revalidate(runId);
       if (res.success) {
-        toast.success(`Validation passed: ${res.data_rows} data rows`);
+        toast.success(`StatVar Processing passed: ${res.data_rows} data rows`);
       } else {
-        toast.error(`Validation failed: ${res.error}`);
+        toast.error(`StatVar Processing failed: ${res.error}`);
       }
       setStale(false);
       setInputDirty(false);
@@ -201,7 +201,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
       editedPvmap.current = null;
       editedMetadata.current = null;
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Revalidation failed");
+      toast.error(err instanceof Error ? err.message : "StatVar Processing failed");
     } finally {
       setRevalidating(false);
     }
@@ -360,12 +360,12 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
             {revalidating ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Running stat_var_processor...</>
             ) : (
-              "Save & Revalidate"
+              "Save & Reprocess"
             )}
           </Button>
           {stale && !revalidating && (
             <div className="flex items-center gap-2 text-amber-600 text-sm">
-              <AlertTriangle className="h-4 w-4" /> Output files may be outdated. Save & Revalidate to refresh.
+              <AlertTriangle className="h-4 w-4" /> Output files may be outdated. Save & Reprocess to refresh.
             </div>
           )}
         </div>

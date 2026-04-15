@@ -247,7 +247,7 @@ export const PHASE_LABELS: Record<string, string> = {
   StatVarDiscovery: "Discovering StatVars (MCP)",
   Generator: "Generating PVMAP",
   MetadataGenerator: "Generating metadata config",
-  Validator: "Validating PVMAP",
+  Validator: "Processing StatVars",
   MCPSpotCheck: "Spot-checking mappings (MCP)",
   MCPErrorResolver: "Resolving errors (MCP)",
   QualityEvaluator: "Evaluating quality",

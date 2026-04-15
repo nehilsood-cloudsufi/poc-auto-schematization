@@ -27,7 +27,7 @@ const TAB_CONFIG = [
   { key: "processed.tmcf", label: "TMCF", icon: FileCode },
   { key: "processed_stat_vars.mcf", label: "StatVars", icon: FileText },
   { key: "generation_notes.md", label: "Notes", icon: StickyNote },
-  { key: "processed_counters.txt", label: "Metrics", icon: BarChart3 },
+  { key: "processed_counters.txt", label: "statvar_processor_logs", icon: BarChart3 },
 ];
 
 interface OutputViewerProps {
@@ -77,7 +77,7 @@ export function ResultBanner({ result }: { result: PipelineResult }) {
         )}
         <div>
           <p className={`text-sm font-medium ${passed ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`}>
-            {passed ? "Validation Passed" : "Validation Failed"}
+            {passed ? "StatVar Processing Passed" : "StatVar Processing Failed"}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {attempts} attempt{attempts !== 1 ? "s" : ""} — {exitReason}
