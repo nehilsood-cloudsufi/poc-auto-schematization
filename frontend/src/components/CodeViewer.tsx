@@ -16,7 +16,19 @@ export function CodeViewer({ content }: CodeViewerProps) {
   const lines = content.split("\n");
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(content);
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      // Fallback for when clipboard API is blocked (e.g., iframe, permissions)
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
