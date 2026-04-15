@@ -29,6 +29,7 @@ export function DevFeedbackForm({ runId }: DevFeedbackFormProps) {
   const [text, setText] = useState("");
   const [category, setCategory] = useState("Bug Report");
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   async function handleSubmit() {
     if (!text.trim()) {
@@ -40,9 +41,9 @@ export function DevFeedbackForm({ runId }: DevFeedbackFormProps) {
       await submitDevFeedback(runId, text.trim(), category);
       toast.success("Feedback submitted — thank you!");
       setText("");
-      setOpen(false);
+      setSubmitted(true);
     } catch (e) {
-      toast.error("Failed to submit feedback");
+      toast.error(`Failed to submit feedback: ${e instanceof Error ? e.message : "Unknown error"}`);
     } finally {
       setSubmitting(false);
     }
@@ -61,29 +62,43 @@ export function DevFeedbackForm({ runId }: DevFeedbackFormProps) {
 
       {open && (
         <div className="mt-3 space-y-3">
-          <Select value={category} onValueChange={(v) => setCategory(v ?? "Bug Report")}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {submitted ? (
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <span>Feedback submitted successfully.</span>
+              <button
+                onClick={() => { setSubmitted(false); }}
+                className="underline text-muted-foreground hover:text-foreground"
+              >
+                Submit another
+              </button>
+            </div>
+          ) : (
+            <>
+              <Select value={category} onValueChange={(v) => setCategory(v ?? "Bug Report")}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-          <Textarea
-            placeholder="Describe the issue or suggestion..."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={3}
-          />
+              <Textarea
+                placeholder="Describe the issue or suggestion..."
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={3}
+              />
 
-          <Button onClick={handleSubmit} disabled={submitting} size="sm">
-            {submitting ? "Submitting..." : "Submit Feedback"}
-          </Button>
+              <Button onClick={handleSubmit} disabled={submitting} size="sm">
+                {submitting ? "Submitting..." : "Submit Feedback"}
+              </Button>
+            </>
+          )}
         </div>
       )}
     </div>

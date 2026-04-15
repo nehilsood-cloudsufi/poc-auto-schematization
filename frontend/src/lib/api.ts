@@ -75,9 +75,12 @@ export async function startRun(req: StartRunRequest): Promise<{ run_id: string; 
   return request("/runs", { method: "POST", body: JSON.stringify(req) });
 }
 
-export async function listRuns(includeArchived = false): Promise<Run[]> {
-  const params = includeArchived ? "?include_archived=true" : "";
-  return request(`/runs${params}`);
+export async function listRuns(includeArchived = false, mineOnly = true): Promise<Run[]> {
+  const params = new URLSearchParams();
+  if (includeArchived) params.set("include_archived", "true");
+  if (mineOnly) params.set("mine_only", "true");
+  const qs = params.toString();
+  return request(`/runs${qs ? `?${qs}` : ""}`);
 }
 
 export async function getRun(runId: string): Promise<Run> {
