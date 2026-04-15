@@ -78,11 +78,11 @@ cryptography==46.0.4
     #   google-auth
     #   pyjwt
     #   pyopenssl
-datacommons-client==2.1.5
+datacommons-client==2.1.6
     # via
     #   poc-auto-schematization (pyproject.toml)
     #   datacommons-mcp
-datacommons-mcp==1.1.4
+datacommons-mcp==1.2.1
     # via poc-auto-schematization (pyproject.toml)
 decorator==5.2.1
     # via
@@ -237,6 +237,7 @@ google-cloud-speech==2.36.1
 google-cloud-storage==3.8.0
     # via
     #   poc-auto-schematization (pyproject.toml)
+    #   datacommons-mcp
     #   gcsfs
     #   google-adk
     #   google-cloud-aiplatform

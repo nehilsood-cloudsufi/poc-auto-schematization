@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Data Commons
     "datacommons-client>=2.1.4",
-    "datacommons-mcp>=1.1.0",  # MCP server for Data Commons
+    "datacommons-mcp>=1.2.0",  # MCP server for Data Commons (1.2+ fixes FastMCP custom_route)
 
     # Data Processing
     "pandas>=2.3.3",
