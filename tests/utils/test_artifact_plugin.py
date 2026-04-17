@@ -276,7 +276,7 @@ class TestArtifactLoggingPlugin:
         )
 
         # New impl uses _pending dict keyed by agent_name:id(ctx)
-        key = f"Generator:{id(ctx)}"
+        key = "Generator"
         assert key in self.plugin._pending
         assert self.plugin._pending[key]["start_wall"] > 0
 
@@ -293,7 +293,7 @@ class TestArtifactLoggingPlugin:
             callback_context=ctx, llm_request=req
         )
 
-        key = f"Generator:{id(ctx)}"
+        key = "Generator"
         pending = self.plugin._pending[key]
         assert pending["temperature"] == 0.5
         assert pending["max_output_tokens"] == 8192
@@ -312,7 +312,7 @@ class TestArtifactLoggingPlugin:
         )
 
         # Pending entry IS created for all agents now
-        key = f"SchemaSelector:{id(ctx)}"
+        key = "SchemaSelector"
         assert key in plugin._pending
 
     async def test_before_model_does_not_inject_thinking_config(self):

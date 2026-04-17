@@ -43,9 +43,11 @@ class ArtifactLoggingPlugin(BasePlugin):
         self._jsonl_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _pending_key(self, ctx: CallbackContext) -> str:
-        # Use an attribute placed on the context if present; otherwise fall
-        # back to agent_name (still correct for serial pipeline phases).
-        return f"{ctx.agent_name}:{id(ctx)}"
+        # ADK passes fresh CallbackContext instances to before/after callbacks,
+        # so id(ctx) is unstable. Agent names are unique at any moment within
+        # a serial pipeline; a single agent never has more than one in-flight
+        # LLM call at a time in our current pipeline.
+        return ctx.agent_name
 
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest,

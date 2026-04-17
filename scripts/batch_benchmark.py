@@ -65,7 +65,11 @@ def _load_datasets(args) -> List[str]:
 
 
 def run_one(dataset: str, slot: int, port: int, output_dir: Path, pipeline_args: str, timeout: int) -> dict:
-    ds_out = output_dir / "runs" / dataset
+    # Pipeline appends dataset_name to --output-dir internally, so we pass the
+    # parent runs/ directory; artifacts land at runs/<dataset>/...
+    runs_dir = output_dir / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    ds_out = runs_dir / dataset
     ds_out.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "MCP_PORT": str(port), "BATCH_WORKER_ID": str(slot),
            "PYTHONPATH": f"{os.environ.get('PYTHONPATH','')}:{os.getcwd()}:{os.getcwd()}/src"}
@@ -73,7 +77,7 @@ def run_one(dataset: str, slot: int, port: int, output_dir: Path, pipeline_args:
     cmd = [
         sys.executable, "src/run_pipeline.py",
         "--dataset", dataset,
-        "--output-dir", str(ds_out),
+        "--output-dir", str(runs_dir),
         *shlex.split(pipeline_args),
     ]
     t0 = time.time()
@@ -83,7 +87,15 @@ def run_one(dataset: str, slot: int, port: int, output_dir: Path, pipeline_args:
                 cmd, env=env, stdout=f, stderr=subprocess.STDOUT,
                 timeout=timeout, check=False,
             )
-        status = "ok" if proc.returncode == 0 else f"exit_{proc.returncode}"
+        # run_pipeline.py returns 2 when validation fails but the run completed
+        # and produced artifacts. That's a RESULT, not a rerun-worthy failure —
+        # aggregator still reads per-dataset telemetry. Treat it as ok.
+        if proc.returncode == 0:
+            status = "ok"
+        elif proc.returncode == 2 and (ds_out / "run_manifest.json").exists():
+            status = "ok_validation_failed"
+        else:
+            status = f"exit_{proc.returncode}"
     except subprocess.TimeoutExpired:
         status = "timeout"
     except Exception as e:  # unexpected
