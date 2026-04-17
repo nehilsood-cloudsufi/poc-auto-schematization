@@ -144,6 +144,10 @@ def main(argv=None) -> int:
     for run_dir in sorted(runs_dir.iterdir()):
         if not run_dir.is_dir():
             continue
+        # Skip non-dataset directories (e.g. the pipeline's shared `logs/`
+        # directory). A real per-dataset run always has a run_manifest.json.
+        if not (run_dir / "run_manifest.json").exists():
+            continue
         dataset = run_dir.name
         input_csv = None
         base = Path("input") / dataset / "test_data"

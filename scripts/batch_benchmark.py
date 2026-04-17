@@ -74,10 +74,13 @@ def run_one(dataset: str, slot: int, port: int, output_dir: Path, pipeline_args:
     env = {**os.environ, "MCP_PORT": str(port), "BATCH_WORKER_ID": str(slot),
            "PYTHONPATH": f"{os.environ.get('PYTHONPATH','')}:{os.getcwd()}:{os.getcwd()}/src"}
     log = ds_out / "pipeline.log"
+    # Pass --mcp-port explicitly because run_pipeline.py loads .env with
+    # override=True, which clobbers MCP_PORT set via env=. CLI arg wins.
     cmd = [
         sys.executable, "src/run_pipeline.py",
         "--dataset", dataset,
         "--output-dir", str(runs_dir),
+        "--mcp-port", str(port),
         *shlex.split(pipeline_args),
     ]
     t0 = time.time()
@@ -133,7 +136,7 @@ def main(argv=None) -> int:
             r = fut.result()
             checkpoint.append(r)
             logger.info("done: %s status=%s duration=%.1fs", r["dataset"], r["status"], r["duration_s"])
-            if r["status"] != "ok":
+            if r["status"] not in ("ok", "ok_validation_failed"):
                 failed.append(r)
 
     (output_dir / "failed.json").write_text(json.dumps(failed, indent=2))
