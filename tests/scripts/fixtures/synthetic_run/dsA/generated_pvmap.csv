@@ -1,0 +1,4 @@
+Node,observationAbout,observationDate,value
+dcid:A,observationAbout,{Data},{Number}
+dcid:B,observationAbout,{Data},{Number}
+dcid:C,observationAbout,{Data},{Number}
