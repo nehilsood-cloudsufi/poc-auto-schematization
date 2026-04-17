@@ -222,18 +222,34 @@ class TestArtifactLoggingPlugin:
 
     # ---- agent name filtering ----
 
-    async def test_ignores_non_generator_agents(self):
-        """Callbacks from non-generator agents should be skipped."""
-        parts = [_make_part("should be ignored")]
+    async def test_non_generator_agents_skip_state_stash(self, tmp_path):
+        """Non-generator agents still get the JSONL log but do NOT get the pvmap_llm_result state stash."""
+        # Re-instantiate with tmp_path so JSONL dir creation works.
+        plugin = ArtifactLoggingPlugin(output_dir=tmp_path, dataset_name="test")
+        parts = [_make_part("should be in jsonl only")]
         resp = _make_llm_response(parts=parts)
         state = {}
         ctx = _make_callback_context("Validator", state)
+        req = _make_llm_request(model="gemini-2.5-pro")
 
-        await self.plugin.after_model_callback(
+        await plugin.before_model_callback(
+            callback_context=ctx, llm_request=req
+        )
+        await plugin.after_model_callback(
             callback_context=ctx, llm_response=resp
         )
 
+        # State stash should NOT be present for non-generator agents
         assert "pvmap_llm_result" not in state
+
+        # But JSONL line SHOULD be written
+        jsonl = tmp_path / "test" / "llm_calls.jsonl"
+        assert jsonl.exists(), f"JSONL not written at {jsonl}"
+        lines = jsonl.read_text().strip().splitlines()
+        assert len(lines) == 1
+        import json
+        rec = json.loads(lines[0])
+        assert rec["agent"] == "Validator"
 
     async def test_accepts_pvmap_generator_agent_name(self):
         """Should also work with 'PVMAPGenerator' agent name."""
@@ -387,7 +403,8 @@ class TestArtifactLoggingPlugin:
     async def test_callbacks_return_none(self):
         """Both callbacks should return None (don't modify request/response)."""
         req = _make_llm_request()
-        ctx = _make_callback_context("Generator")
+        state = {}
+        ctx = _make_callback_context("Generator", state)
 
         before_result = await self.plugin.before_model_callback(
             callback_context=ctx, llm_request=req
@@ -396,10 +413,8 @@ class TestArtifactLoggingPlugin:
 
         parts = [_make_part("ok")]
         resp = _make_llm_response(parts=parts)
-        state = {}
-        ctx2 = _make_callback_context("Generator", state)
         after_result = await self.plugin.after_model_callback(
-            callback_context=ctx2, llm_response=resp
+            callback_context=ctx, llm_response=resp
         )
         assert after_result is None
 
