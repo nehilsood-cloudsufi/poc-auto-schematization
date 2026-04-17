@@ -382,6 +382,12 @@ class MappingPlanAgent(BaseAgent):
 
         When *use_v2* is True, uses the EnrichedMappingPlan schema with a
         larger output-token budget so the LLM can return the richer plan.
+
+        Wide datasets (e.g. India NFHS, World Bank commodities, CDC SVI) can
+        produce JSON that exceeds 32K tokens and gets truncated mid-structure,
+        causing a Pydantic JSON_INVALID error that aborts the pipeline.
+        Budget v2 generously and fall back to the v1 (leaner) schema on
+        truncation failures.
         """
         client = genai.Client()
 
@@ -389,7 +395,9 @@ class MappingPlanAgent(BaseAgent):
             from src.api.models.plan import EnrichedMappingPlan
 
             plan_schema = EnrichedMappingPlan.model_json_schema()
-            max_tokens = 32768
+            # Gemini 2.5 / 3.x Pro support up to 65536 output tokens — use the
+            # full budget for the enriched plan so wide datasets don't truncate.
+            max_tokens = 65536
         else:
             plan_schema = MappingPlan.model_json_schema()
             max_tokens = 8192
@@ -415,6 +423,14 @@ class MappingPlanAgent(BaseAgent):
                 plan = MappingPlan.model_validate_json(response.text)
         except Exception as e:
             logger.error("Failed to parse structured output: %s. Raw: %s", e, response.text[:500])
+            if use_v2:
+                # v2 (EnrichedMappingPlan) parse failed — retry with the leaner
+                # v1 MappingPlan schema so the rest of the pipeline can proceed
+                # instead of aborting the entire run.
+                logger.warning(
+                    "EnrichedMappingPlan parse failed; falling back to v1 MappingPlan schema"
+                )
+                return await self._generate_plan(prompt, dataset_name, use_v2=False)
             raise
 
         return plan
