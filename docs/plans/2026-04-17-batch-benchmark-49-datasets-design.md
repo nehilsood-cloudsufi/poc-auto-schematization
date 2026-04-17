@@ -84,7 +84,7 @@ Three loosely-coupled components communicating via the filesystem.
 ┌────────────────────────────────────────────────────────────────────┐
 │  3. Aggregator (scripts/batch_aggregate.py)                        │
 │     • Reads: llm_calls.jsonl, phase_timings.json, run_manifest,    │
-│       all_metrics.json, generated_pvmap.csv, dataset profile,      │
+│       eval_results/diff_results.json, generated_pvmap.csv, dataset profile,      │
 │       input CSV for raw row count and file size                    │
 │     • Applies: pricing table → $USD, roll-up per agent             │
 │     • Output: batch_results.json, batch_summary.csv, report.md,    │
@@ -237,7 +237,7 @@ python scripts/batch_aggregate.py \
 - `llm_calls.jsonl` — every LLM call
 - `phase_timings.json` — wall-time per phase
 - `run_manifest.json` — config + git SHA + worker info
-- `all_metrics.json` — existing evaluation output (PV accuracy, node accuracy, raw counts)
+- `eval_results/diff_results.json` — existing evaluation output (PV accuracy, node accuracy, raw counts)
 - `generated_pvmap.csv` — for output StatVar count
 - `generation_notes.md` — for attempt count and best-attempt flag
 - `dataset_profile.json` (or skeleton) — for cleaned row count, column count, sampling strategy, skeleton bytes, schema category
@@ -336,7 +336,7 @@ output/batch_runs/2026-04-17_comparison/
    │  ├─ phase_timings.json
    │  ├─ llm_calls.jsonl                 # every LLM call, every agent
    │  ├─ generated_pvmap.csv
-   │  ├─ all_metrics.json                # existing eval output
+   │  ├─ eval_results/diff_results.json                # existing eval output
    │  ├─ generation_notes.md             # existing pipeline output
    │  └─ ... (all other existing pipeline outputs preserved)
    └─ ... (48 more)
@@ -384,7 +384,7 @@ The orchestrator automatically adds `--skip-sampling --skip-schema-selection` to
 - **Port already in use** — orchestrator bumps the port by 10 and retries once before failing.
 - **Pipeline crashes before `llm_calls.jsonl` is created** — aggregator treats missing file as `calls=0`, status = `crashed`, dataset still appears in the report with null metrics.
 - **Pipeline crashes mid-retry** — JSONL append semantics preserve all LLM calls logged before the crash.
-- **Evaluation phase fails but PVMAP exists** — `all_metrics.json` absent; record accuracy as `null`, status = `passed_with_warnings`. Not counted as a failure.
+- **Evaluation phase fails but PVMAP exists** — `eval_results/diff_results.json` absent; record accuracy as `null`, status = `passed_with_warnings`. Not counted as a failure.
 - **Preview-model pricing uncertain** — `is_estimate: true` flag in per-record cost output; report header explicitly notes estimate.
 - **Concurrent writes to `checkpoint.jsonl`** — `fcntl.flock` on append.
 - **Dataset missing from `input/`** — orchestrator skips and logs (verified all 49 exist, so this should not trigger).
