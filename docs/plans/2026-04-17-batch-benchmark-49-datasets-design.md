@@ -41,7 +41,7 @@ All 49 datasets have both `input/{ds}/` and `ground_truth/{ds}/` directories. Ve
 |---|---|
 | `--model` | `gemini-3.1-pro-preview` |
 | `--thinking-level` | `high` |
-| `--enable-mcp` | on (DC MCP only; Schema.org MCP is deprecated and not wired as a flag) |
+| `--enable-mcp` | on (DC MCP only; Schema.org MCP server is deprecated, but Schema.org ADK function tools — `search_schemaorg_vocabulary`, `lookup_schemaorg_type`, `validate_pvmap_property` — remain wired into `SchemaSelectionAgent` and `PVMAPGenerator`, reading the local `src/resources/schema_org/` cache. `SchemaOrgEnrichmentAgent` also runs as a sub-agent on every pipeline run.) |
 | `--prompt-version` | `v3` |
 | `--feedback-prompt-version` | `v1` |
 | `--use-metadata` | off |
@@ -402,7 +402,7 @@ The orchestrator automatically adds `--skip-sampling --skip-schema-selection` to
 
 - No new accuracy metrics beyond what the existing `evaluate_pvmap_diff.py` produces.
 - No changes to prompts, agents, sampling strategies, retry thresholds, or MCP behavior.
-- No Schema.org MCP (deprecated, not wired as flag).
+- No Schema.org MCP server (deprecated, not wired as flag). Schema.org function tools and the local vocab cache remain active — pipeline behavior unchanged.
 - No LLM-judge evaluation (`--use-llm-judge=off`).
 - No multi-model comparison (single model per Q1/A choice).
 - No MCP latency instrumentation beyond best-effort reuse of existing counts.
