@@ -1,0 +1,38 @@
+{
+  "_source": "https://ai.google.dev/gemini-api/docs/pricing as of 2026-04-17",
+  "_note": "Preview models marked is_estimate=true use closest stable-tier pricing. Override this file via --pricing-file if you have better numbers.",
+  "_currency": "USD",
+  "models": {
+    "gemini-3.1-pro-preview": {
+      "input_per_mtok": 1.25,
+      "output_per_mtok": 10.00,
+      "thoughts_per_mtok": 10.00,
+      "is_estimate": true
+    },
+    "gemini-2.5-pro": {
+      "input_per_mtok": 1.25,
+      "output_per_mtok": 10.00,
+      "thoughts_per_mtok": 10.00,
+      "is_estimate": false
+    },
+    "gemini-3-flash-preview": {
+      "input_per_mtok": 0.15,
+      "output_per_mtok": 0.60,
+      "thoughts_per_mtok": 0.60,
+      "is_estimate": true
+    },
+    "gemini-2.5-flash": {
+      "input_per_mtok": 0.15,
+      "output_per_mtok": 0.60,
+      "thoughts_per_mtok": 0.60,
+      "is_estimate": false
+    }
+  },
+  "fallback": {
+    "input_per_mtok": 1.25,
+    "output_per_mtok": 10.00,
+    "thoughts_per_mtok": 10.00,
+    "is_estimate": true,
+    "_note": "Used when a model name is not in the models map; conservative pro-tier pricing."
+  }
+}
