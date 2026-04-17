@@ -37,6 +37,8 @@ from google.genai import types
 from google.adk.events import Event, EventActions
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
+from src.utils.phase_timer import PhaseTimer
+from src.utils.run_manifest import write_run_manifest
 from src.agents.discovery_agent import DiscoveryAgent
 from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
@@ -562,6 +564,46 @@ def run_dataset_pipeline(
         extra_plugins=extra_plugins,
     )
 
+    # Phase timer (per-phase wall-time) — always set since dataset_name is required here
+    dataset_out = output_dir / dataset_name
+    dataset_out.mkdir(parents=True, exist_ok=True)
+    phase_timer = PhaseTimer(output_path=dataset_out / "phase_timings.json")
+
+    # Run manifest (git state + CLI/config snapshot)
+    try:
+        worker_id_env = int(os.environ.get("BATCH_WORKER_ID", "-1"))
+        worker_id_val = worker_id_env if worker_id_env >= 0 else None
+    except ValueError:
+        worker_id_val = None
+    try:
+        mcp_port_env = int(os.environ.get("MCP_PORT", "0"))
+        mcp_port_val = mcp_port_env if mcp_port_env > 0 else None
+    except ValueError:
+        mcp_port_val = None
+    write_run_manifest(
+        output_dir=dataset_out,
+        dataset=dataset_name,
+        cli_args={
+            "model": model,
+            "thinking_level": thinking_level,
+            "enable_mcp": enable_mcp,
+            "prompt_version": prompt_version,
+            "feedback_prompt_version": feedback_prompt_version,
+            "use_metadata": use_metadata,
+            "use_llm_judge": use_llm_judge,
+            "skip_sampling": skip_sampling,
+            "skip_schema_selection": skip_schema_selection,
+            "max_retries": max_retries,
+        },
+        pipeline_config={
+            "prompt_version": prompt_version,
+            "feedback_prompt_version": feedback_prompt_version,
+            "sampling_mode": "programmatic",
+        },
+        worker_id=worker_id_val,
+        mcp_port=mcp_port_val,
+    )
+
     # Auto-enable use_metadata if metadata_file_path is provided
     if metadata_file_path:
         use_metadata = True
@@ -761,54 +803,58 @@ def run_dataset_pipeline(
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
                     logger.warning("Runner cleanup in finally (non-fatal): %s", e)
 
-        for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
-            try:
-                # Use explicit event loop instead of asyncio.run() to avoid
-                # shutdown_asyncgens/shutdown_default_executor deadlocks when
-                # MCP connections are open in daemon threads.
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(_create_session_and_run())
-                finally:
-                    # Cancel pending tasks but skip shutdown_asyncgens
-                    # (which deadlocks when MCP connections are open).
+        try:
+            with phase_timer.phase("pipeline_total"):
+                for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
                     try:
-                        pending = asyncio.all_tasks(loop)
-                        for task in pending:
-                            task.cancel()
-                        if pending:
-                            loop.run_until_complete(
-                                asyncio.gather(*pending, return_exceptions=True)
-                            )
+                        # Use explicit event loop instead of asyncio.run() to avoid
+                        # shutdown_asyncgens/shutdown_default_executor deadlocks when
+                        # MCP connections are open in daemon threads.
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(_create_session_and_run())
+                        finally:
+                            # Cancel pending tasks but skip shutdown_asyncgens
+                            # (which deadlocks when MCP connections are open).
+                            try:
+                                pending = asyncio.all_tasks(loop)
+                                for task in pending:
+                                    task.cancel()
+                                if pending:
+                                    loop.run_until_complete(
+                                        asyncio.gather(*pending, return_exceptions=True)
+                                    )
+                            except Exception as e:
+                                logger.warning("Event loop cleanup error (non-fatal): %s", e)
+                            finally:
+                                loop.close()
+                        break  # Success — exit retry loop
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "Pipeline timed out after %ds (%d attempts x %ds). "
+                            "Collected %d events before timeout.",
+                            pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT,
+                            len(events),
+                        )
+                        break  # Timeout = proceed to artifact check, don't retry
                     except Exception as e:
-                        logger.warning("Event loop cleanup error (non-fatal): %s", e)
-                    finally:
-                        loop.close()
-                break  # Success — exit retry loop
-            except asyncio.TimeoutError:
-                logger.error(
-                    "Pipeline timed out after %ds (%d attempts x %ds). "
-                    "Collected %d events before timeout.",
-                    pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT,
-                    len(events),
-                )
-                break  # Timeout = proceed to artifact check, don't retry
-            except Exception as e:
-                err_str = str(e)
-                is_transient = any(s in err_str for s in [
-                    "429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
-                    "Internal Server Error", "ServiceUnavailable",
-                ])
-                if is_transient and pipeline_attempt < MAX_PIPELINE_RETRIES:
-                    logger.warning(
-                        "Transient API error (attempt %d/%d): %s. Sleeping 60s...",
-                        pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
-                    )
-                    time.sleep(60)
-                    events.clear()
-                else:
-                    raise
+                        err_str = str(e)
+                        is_transient = any(s in err_str for s in [
+                            "429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
+                            "Internal Server Error", "ServiceUnavailable",
+                        ])
+                        if is_transient and pipeline_attempt < MAX_PIPELINE_RETRIES:
+                            logger.warning(
+                                "Transient API error (attempt %d/%d): %s. Sleeping 60s...",
+                                pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
+                            )
+                            time.sleep(60)
+                            events.clear()
+                        else:
+                            raise
+        finally:
+            phase_timer.finalize()
 
         # ADK's InMemorySessionService doesn't persist agent state changes back
         # to the stored session. Instead, determine success by checking artifacts.
