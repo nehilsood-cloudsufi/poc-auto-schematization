@@ -272,7 +272,14 @@ def _execute_stratified_with_coverage(
         coverage_indices = set()
         for dim_col in valid_dims:
             for val in df[dim_col].unique():
-                candidates = df[df[dim_col] == val].index
+                # NaN != NaN in pandas, so equality-based lookup returns empty.
+                # Use isna() for NaN, equality otherwise.
+                if pd.isna(val):
+                    candidates = df[df[dim_col].isna()].index
+                else:
+                    candidates = df[df[dim_col] == val].index
+                if len(candidates) == 0:
+                    continue
                 # Pick the first candidate not already selected
                 added = False
                 for idx in candidates:

@@ -453,3 +453,36 @@ class TestMetadataRowExclusion:
         # Unit descriptor row "($/bbl)" should NOT be in the sample
         assert "($/bbl)" not in sampled["Price_2020"].astype(str).values
         assert "(units)" not in sampled["Commodity"].values
+
+
+class TestNaNInDimensionColumns:
+    """Regression: NaN values in dimension columns used to trigger
+    'index 0 is out of bounds for axis 0 with size 0' because
+    df[df[col] == NaN] is always empty (NaN != NaN in pandas).
+    """
+
+    def test_nan_in_dimension_does_not_crash(self, tmp_path):
+        """Sampling must succeed when dimension columns contain NaN."""
+        rows = []
+        for sex in ["Female", "Male"]:
+            for race in ["A", "B"]:
+                rows.append({"Sex": sex, "Race": race, "Place": "US", "Year": 2020, "Value": 100})
+        # Add rows with NaN in dimension columns
+        for _ in range(5):
+            rows.append({"Sex": None, "Race": None, "Place": "US", "Year": 2020, "Value": 200})
+        df = pd.DataFrame(rows)
+        csv_path = tmp_path / "with_nan_dims.csv"
+        df.to_csv(csv_path, index=False)
+
+        profile = profile_dataset(csv_path)
+        output = tmp_path / "sampled.csv"
+
+        result = _execute_stratified_with_coverage(
+            file_path=csv_path,
+            output_path=output,
+            target_rows=20,
+            dimension_columns=["Sex", "Race"],
+            profile=profile,
+        )
+        assert result["success"] is True
+        assert result["rows_sampled"] > 0
