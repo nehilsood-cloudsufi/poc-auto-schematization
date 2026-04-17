@@ -44,7 +44,10 @@ def _parse_baseline(doc_path: Optional[Path]) -> Dict[str, Dict[str, float]]:
         i = text.find(start_header)
         if i < 0:
             return []
-        j = text.find("---", i)
+        # Section ends at the next top-level heading ("## ") or EOF. Don't
+        # use "---" because the markdown table delimiter ("|---|") appears
+        # inside the section just below the header row.
+        j = text.find("\n## ", i + len(start_header))
         return text[i:(j if j > 0 else None)].splitlines()
 
     # Rows look like: | dataset | gb | claude | g3pro |
