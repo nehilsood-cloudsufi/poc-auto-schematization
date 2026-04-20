@@ -179,6 +179,8 @@ If an approved mapping plan is present above, you MUST follow its column-role de
 
 **Schema.org tools:** If schema.org vocabulary tools are available, call `lookup_schemaorg_type` for your chosen populationType and `validate_pvmap_property` for key dimension properties before generating output.
 
+**Tool-call budget (strict):** Call `validate_pvmap_property` at most **5 times total** across the entire generation. Call `resolve_place_names`, `validate_statvar_observation`, and `get_entity_type` at most **3 times each**. After you hit these caps, stop calling tools and emit your best PVMAP immediately — do not keep refining minor issues via more tool calls. If a tool returns an ambiguous or unhelpful result, move on rather than retrying with variations.
+
 ## Dimension Mapping Strategy
 
 Choose the correct pattern based on the number of unique values in a dimension column:
