@@ -77,3 +77,70 @@ class TestStartRun:
             "dataset_name": "test",
         })
         assert response.status_code == 404
+
+
+class TestRunOwnerAuthorization:
+    """Verify that run-specific endpoints reject non-owners with 403."""
+
+    def _create_owned_run(self, tmp_path, run_id: str, owner: str) -> str:
+        run_dir = tmp_path / run_id
+        (run_dir / "output" / "ds").mkdir(parents=True)
+        (run_dir / "run_info.json").write_text(
+            f'{{"run_id": "{run_id}", "dataset_name": "ds", "owner": "{owner}"}}'
+        )
+        return str(run_dir)
+
+    def test_get_run_denies_non_owner(self, tmp_path):
+        run_state._runs.clear()
+        self._create_owned_run(tmp_path, "owned1", owner="someone.else@google.com")
+        # TestClient hits BaseHTTPMiddleware with CLOUD_RUN=False → request.state.user_email = local-dev@localhost
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+        response = client.get("/api/runs/owned1")
+        assert response.status_code == 403
+        run_state._runs.clear()
+
+    def test_patch_run_denies_non_owner(self, tmp_path):
+        run_state._runs.clear()
+        self._create_owned_run(tmp_path, "owned2", owner="stranger@cloudsufi.com")
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+        response = client.patch("/api/runs/owned2", json={"display_name": "x"})
+        assert response.status_code == 403
+        run_state._runs.clear()
+
+    def test_delete_run_denies_non_owner(self, tmp_path):
+        run_state._runs.clear()
+        self._create_owned_run(tmp_path, "owned3", owner="stranger@google.com")
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+        response = client.delete("/api/runs/owned3", headers={"X-Confirm-Delete": "true"})
+        assert response.status_code == 403
+        # Confirm directory still exists
+        assert (tmp_path / "owned3").exists()
+        run_state._runs.clear()
+
+    def test_get_legacy_run_without_owner_is_accessible(self, tmp_path):
+        """Backwards-compat: runs written before the owner field existed stay readable."""
+        run_state._runs.clear()
+        run_dir = tmp_path / "legacy1"
+        (run_dir / "output" / "ds").mkdir(parents=True)
+        (run_dir / "run_info.json").write_text(
+            '{"run_id": "legacy1", "dataset_name": "ds"}'
+        )
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+        response = client.get("/api/runs/legacy1")
+        assert response.status_code == 200
+        run_state._runs.clear()
+
+    def test_get_owned_run_returns_data_for_owner(self, tmp_path):
+        """Owner (local-dev@localhost in tests) sees their own run."""
+        run_state._runs.clear()
+        self._create_owned_run(tmp_path, "mine1", owner="local-dev@localhost")
+        app = create_app(output_dir=tmp_path)
+        client = TestClient(app)
+        response = client.get("/api/runs/mine1")
+        assert response.status_code == 200
+        assert response.json()["run_id"] == "mine1"
+        run_state._runs.clear()

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from src.api.services.run_state import get_or_load_run
 from src.api.services.revalidation_service import revalidate as revalidate_pvmap
 from src.api.services.file_manager import get_output_files
+from src.api.middleware.auth import require_run_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -30,6 +31,7 @@ def revalidate(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     lock = _get_revalidation_lock(run_id)
     if not lock.acquire(blocking=False):

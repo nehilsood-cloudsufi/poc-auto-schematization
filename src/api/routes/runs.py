@@ -19,6 +19,7 @@ from src.api.services.run_state import (
 from src.api.services.file_manager import delete_run_directory, discover_historical_runs
 from src.api.services.pipeline_runner import PipelineConfig, launch_pipeline
 from src.api.services.mcp_lifecycle import get_or_start_mcp, get_mcp_url
+from src.api.middleware.auth import require_run_access
 from src.api.config import MCP_DEFAULT_PORT, MIN_PIPELINE_ATTEMPTS
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ async def get_run_status(run_id: str, request: Request):
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     run_dir = output_dir / run_id
+    require_run_access(run_dir, request)
     info = read_run_info(run_dir)
     return {
         "run_id": run.run_id,
@@ -138,6 +140,7 @@ async def update_run(run_id: str, req: UpdateRunRequest, request: Request):
     run_dir = _resolve_run_dir(output_dir, run_id)
     if not (run_dir / "run_info.json").exists():
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(run_dir, request)
 
     updates = {}
     if req.display_name is not None:
@@ -166,6 +169,7 @@ async def toggle_archive_run(run_id: str, request: Request):
     info = read_run_info(run_dir)
     if not info:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(run_dir, request)
 
     new_archived = not info.get("archived", False)
     write_run_info(run_dir, {"archived": new_archived})
@@ -192,6 +196,7 @@ async def remove_run(
     run_dir = _resolve_run_dir(output_dir, run_id)
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(run_dir, request)
 
     delete_run_directory(str(run_dir))
     delete_run(run_id)

@@ -40,14 +40,17 @@ def _parse_baseline(doc_path: Optional[Path]) -> Dict[str, Dict[str, float]]:
         return out
     text = doc_path.read_text(encoding="utf-8", errors="replace")
 
+    _next_h2_re = re.compile(r"\n##\s+")
+
     def _section(start_header: str) -> List[str]:
         i = text.find(start_header)
         if i < 0:
             return []
-        # Section ends at the next top-level heading ("## ") or EOF. Don't
-        # use "---" because the markdown table delimiter ("|---|") appears
-        # inside the section just below the header row.
-        j = text.find("\n## ", i + len(start_header))
+        # Section ends at the next H2 heading (tolerant of `## ` with any
+        # whitespace after the hashes) or EOF. Don't use "---" — the markdown
+        # table delimiter ("|---|") appears inside the section below the header.
+        m = _next_h2_re.search(text, i + len(start_header))
+        j = m.start() if m else -1
         return text[i:(j if j > 0 else None)].splitlines()
 
     # Rows look like: | dataset | gb | claude | g3pro |

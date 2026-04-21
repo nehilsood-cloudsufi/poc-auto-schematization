@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from src.api.models.plan import MappingPlan
 from src.api.services.run_state import get_run, get_or_load_run
+from src.api.middleware.auth import require_run_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,6 +44,7 @@ async def get_plan(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
@@ -83,6 +85,7 @@ async def get_plan_markdown(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
@@ -133,6 +136,7 @@ async def update_plan(run_id: str, body: dict, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     # Validate against the appropriate model
     try:
@@ -183,6 +187,7 @@ async def approve_plan(run_id: str, body: ApprovePlanRequest, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     # Use EnrichedMappingPlan if statvar_blueprint is present, else MappingPlan
     if isinstance(body.plan, dict) and "statvar_blueprint" in body.plan:
@@ -223,6 +228,7 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     if run.status == "running":
         raise HTTPException(status_code=409, detail="Pipeline is already running")
@@ -318,6 +324,7 @@ async def add_plan_note(run_id: str, body: AddNoteRequest, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
@@ -364,6 +371,7 @@ async def remove_plan_note(run_id: str, note_index: int, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
@@ -408,6 +416,7 @@ async def save_plan_markdown(run_id: str, body: SaveMarkdownRequest, request: Re
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     dataset_name = run.dataset_name
@@ -433,6 +442,7 @@ async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     if run.status == "running":
         raise HTTPException(status_code=409, detail="Pipeline is already running")
@@ -511,6 +521,7 @@ async def stop_run(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     if run.status != "running":
         raise HTTPException(status_code=409, detail=f"Run is not running (status: {run.status})")
@@ -528,6 +539,7 @@ async def resume_run(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     run_dir = Path(run.run_dir)
     checkpoint_path = run_dir / "checkpoint.json"
@@ -594,6 +606,7 @@ async def preview_data(run_id: str, request: Request, rows: int = 100):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     csv_path = Path(run.run_dir) / "input" / "input.csv"
     if not csv_path.exists():

@@ -10,30 +10,32 @@ from fastapi.responses import Response
 
 from src.api.services.run_state import get_or_load_run
 from src.api.services.file_manager import get_output_files
+from src.api.middleware.auth import require_run_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_output_dir(run_id: str, base_dir: Path) -> Path:
-    """Get the output directory for a run, or raise 404."""
+def _resolve_output_dir(run_id: str, base_dir: Path, request: Request) -> Path:
+    """Get the output directory for a run, or raise 404/403."""
     run = get_or_load_run(run_id, base_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
     return output_dir
 
 
 @router.get("/runs/{run_id}/files")
 async def list_files(run_id: str, request: Request):
-    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir, request)
     files = get_output_files(output_dir)
     return {"files": list(files.keys())}
 
 
 @router.get("/runs/{run_id}/files/{filename}")
 async def get_file(run_id: str, filename: str, request: Request):
-    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir, request)
     fpath = (output_dir / filename).resolve()
 
     # Prevent path traversal (e.g., ../../etc/passwd)
@@ -97,7 +99,7 @@ async def get_file(run_id: str, filename: str, request: Request):
 @router.put("/runs/{run_id}/files/{filename}")
 async def update_file(run_id: str, filename: str, body: dict, request: Request):
     """Save edited file. Body: {"rows": [...]} for CSV, {"content": "..."} for text."""
-    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir, request)
     fpath = (output_dir / filename).resolve()
 
     # Prevent path traversal
@@ -133,7 +135,7 @@ async def update_file(run_id: str, filename: str, body: dict, request: Request):
 
 @router.get("/runs/{run_id}/download")
 async def download_zip(run_id: str, request: Request):
-    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir)
+    output_dir = _resolve_output_dir(run_id, request.app.state.output_dir, request)
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Output directory not found")
 

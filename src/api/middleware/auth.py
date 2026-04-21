@@ -10,11 +10,14 @@ emails are allowed. Returns 403 for all other domains.
 In local dev (no K_SERVICE env var), user_email defaults to "local-dev@localhost".
 """
 import contextvars
+import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
+from fastapi import HTTPException, WebSocket
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -135,3 +138,75 @@ class UserEmailLogFilter(logging.Filter):
     def filter(self, record):
         record.user_email = user_email_var.get("")
         return True
+
+
+# ---------------------------------------------------------------------------
+# Per-run authorization helpers
+# ---------------------------------------------------------------------------
+
+def _read_owner(run_dir: Path) -> str:
+    """Return the `owner` field from run_info.json, or "" if absent/unreadable."""
+    info_path = run_dir / "run_info.json"
+    if not info_path.exists():
+        return ""
+    try:
+        return json.loads(info_path.read_text()).get("owner", "") or ""
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+
+def check_run_owner(run_dir: Path, user_email: str) -> bool:
+    """Return True if user_email may access the run, else False.
+
+    Runs without a recorded owner (legacy pre-authz runs) are accessible by any
+    authenticated user. Once an owner is recorded, access is exclusive.
+    """
+    owner = _read_owner(run_dir)
+    if not owner:
+        return True
+    return owner == user_email
+
+
+def require_run_access(run_dir: Path, request: Request) -> None:
+    """Raise HTTPException(403) if the current user is not the run owner.
+
+    Uses `request.state.user_email` set by IAPAuthMiddleware. In local dev that
+    value is `local-dev@localhost`, which matches uploads made in local dev.
+    """
+    user_email = getattr(request.state, "user_email", "")
+    if not check_run_owner(run_dir, user_email):
+        logger.warning(
+            "Access denied: user=%s attempted to access run owned by another user (%s)",
+            user_email, run_dir,
+        )
+        raise HTTPException(status_code=403, detail="Access denied: not run owner")
+
+
+async def authorize_websocket(websocket: WebSocket) -> Optional[str]:
+    """Authenticate a WebSocket upgrade. Returns user email or None after closing.
+
+    BaseHTTPMiddleware does NOT run on WebSocket requests, so each WS route must
+    call this helper before accepting. Mirrors IAPAuthMiddleware.dispatch.
+    """
+    if not CLOUD_RUN:
+        return "local-dev@localhost"
+
+    jwt_assertion = websocket.headers.get("x-goog-iap-jwt-assertion")
+    email = _decode_iap_jwt(jwt_assertion) if jwt_assertion else None
+    if not email:
+        await websocket.close(code=4401)
+        return None
+
+    domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+    if domain not in ALLOWED_DOMAINS:
+        await websocket.close(code=4403)
+        return None
+    return email
+
+
+async def require_ws_run_access(websocket: WebSocket, run_dir: Path, user_email: str) -> bool:
+    """Close the WebSocket and return False if user is not the run owner."""
+    if not check_run_owner(run_dir, user_email):
+        await websocket.close(code=4403)
+        return False
+    return True

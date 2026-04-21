@@ -56,5 +56,7 @@ def write_scatter(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    try:
+        fig.savefig(out_path, dpi=120)
+    finally:
+        plt.close(fig)

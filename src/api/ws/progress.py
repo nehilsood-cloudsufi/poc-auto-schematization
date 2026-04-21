@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.api.services.run_state import get_run, write_run_info
+from src.api.middleware.auth import authorize_websocket, require_ws_run_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,11 +39,20 @@ def _safe_serialize(obj, _depth: int = 0):
 
 @router.websocket("/ws/progress/{run_id}")
 async def progress_stream(websocket: WebSocket, run_id: str):
+    # BaseHTTPMiddleware does not run for WebSocket upgrades, so authenticate
+    # here explicitly. Close + return on failure; these helpers close the socket.
+    user_email = await authorize_websocket(websocket)
+    if user_email is None:
+        return
+
     run = get_run(run_id)
     if run is None:
         await websocket.accept()
         await websocket.send_json({"type": "error", "agent": "system", "message": f"Run {run_id} not found"})
         await websocket.close(code=4004)
+        return
+
+    if not await require_ws_run_access(websocket, Path(run.run_dir), user_email):
         return
 
     await websocket.accept()

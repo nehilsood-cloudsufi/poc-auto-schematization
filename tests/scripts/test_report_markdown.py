@@ -57,3 +57,27 @@ def test_render_report_handles_empty():
     md = render_report(records=[], pricing_raw={}, run_meta={})
     assert "# Batch Benchmark Report" in md
     assert "No datasets" in md or "0 datasets" in md
+
+
+def test_render_report_handles_asymmetric_none_accuracy():
+    """pv_accuracy present but node_accuracy None must not raise TypeError."""
+    records = [
+        {
+            "dataset": "asym", "status": "passed",
+            "complexity": {"raw_rows": 100, "cleaned_rows": 100, "columns": 5, "file_size_mb": 0.1, "skeleton_bytes": 100, "observation_rows": None},
+            "accuracy": {
+                "pv_accuracy": 42.0, "node_accuracy": None, "node_coverage": None,
+                "pvs_matched": 1, "pvs_modified": 0, "pvs_deleted": 0,
+                "nodes_matched": None, "nodes_gt": None, "nodes_generated": None,
+                "delta_pv_vs_doc_gemini3pro": None, "delta_node_vs_doc_gemini3pro": None,
+            },
+            "tokens_total": {"prompt": 0, "thoughts": 0, "response": 0, "total": 0},
+            "tokens_by_agent": {},
+            "cost_usd": {"total": 0.0, "by_agent": {}, "pricing_version": "v1"},
+            "timing_seconds": {"total": 1.0},
+            "run_meta": {"attempt_count": 1, "git_sha": "abc", "schema_category": "Health", "sampling_strategy": "head"},
+        },
+    ]
+    md = render_report(records=records, pricing_raw={}, run_meta={})
+    assert "Average PV accuracy: **42.0%**" in md
+    assert "Average Node accuracy: **0.0%**" in md  # no node values → default 0.0

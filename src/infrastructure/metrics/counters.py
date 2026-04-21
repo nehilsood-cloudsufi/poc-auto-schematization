@@ -79,8 +79,7 @@ class Counters():
          .add_counter('output_rows', 10)
       counters.add_counter('processed', 1)
 
-      # Min/Max counters
-      counters.min_counter('min_area', 12.34)
+      # Max counters (tracks peak value)
       counters.max_counter('max_temp', 36.5)
 
       # Print counters on STDERR
@@ -88,7 +87,6 @@ class Counters():
       #       my_process_input_rows =          1
       #      my_process_output_rows =         10
       #         my_process_max_temp =      36.50
-      #         my_process_min_area =      12.34
 
     Note: This object is not thread-safe.
     '''

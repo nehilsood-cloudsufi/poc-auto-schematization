@@ -37,9 +37,10 @@ def render_report(
     passed = [r for r in records if r["status"] in ("passed", "passed_with_warnings")]
     failed = [r for r in records if r["status"] not in ("passed", "passed_with_warnings")]
 
-    acc_datasets = [r for r in passed if r["accuracy"]["pv_accuracy"] is not None]
-    avg_pv = round(sum(r["accuracy"]["pv_accuracy"] for r in acc_datasets) / len(acc_datasets), 2) if acc_datasets else 0.0
-    avg_node = round(sum(r["accuracy"]["node_accuracy"] for r in acc_datasets) / len(acc_datasets), 2) if acc_datasets else 0.0
+    pv_values = [r["accuracy"]["pv_accuracy"] for r in passed if r["accuracy"]["pv_accuracy"] is not None]
+    node_values = [r["accuracy"]["node_accuracy"] for r in passed if r["accuracy"]["node_accuracy"] is not None]
+    avg_pv = round(sum(pv_values) / len(pv_values), 2) if pv_values else 0.0
+    avg_node = round(sum(node_values) / len(node_values), 2) if node_values else 0.0
 
     lines.append("## Summary")
     lines.append("")

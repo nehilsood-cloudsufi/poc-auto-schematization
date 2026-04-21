@@ -11,6 +11,7 @@ from src.api.models.feedback import (
     FeedbackType, FeedbackEntry, FeedbackLedger, FeedbackEntryInput,
 )
 from src.api.services.run_state import get_or_load_run, create_run
+from src.api.middleware.auth import require_run_access
 from src.api.services.file_manager import (
     get_latest_version,
     snapshot_version,
@@ -48,6 +49,7 @@ async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
 
@@ -153,6 +155,7 @@ async def get_feedback_ledger(run_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
     ledger = load_ledger_from_disk(output_dir)
@@ -165,6 +168,7 @@ async def retract_feedback_entry(run_id: str, entry_id: str, request: Request):
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     output_dir = Path(run.run_dir) / "output" / run.dataset_name
     ledger = load_ledger_from_disk(output_dir)
@@ -182,6 +186,7 @@ async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest, request: Req
     run = get_or_load_run(run_id, request.app.state.output_dir)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
 
     user_email = getattr(request.state, "user_email", "")
 
