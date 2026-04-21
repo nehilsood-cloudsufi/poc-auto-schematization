@@ -1,4 +1,5 @@
 """Feedback and re-run endpoints."""
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -7,10 +8,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from src.api.config import MCP_DEFAULT_PORT, MIN_PIPELINE_ATTEMPTS
 from src.api.models.feedback import (
     FeedbackType, FeedbackEntry, FeedbackLedger, FeedbackEntryInput,
 )
-from src.api.services.run_state import get_or_load_run, create_run
+from src.api.services.run_state import get_or_load_run, create_run, write_run_info
 from src.api.middleware.auth import require_run_access
 from src.api.services.file_manager import (
     get_latest_version,
@@ -24,6 +26,8 @@ from src.api.services.google_sheets_service import (
     append_feedback_to_sheet,
     is_sheets_configured,
 )
+from src.api.services.mcp_lifecycle import get_or_start_mcp, get_mcp_url
+from src.api.services.pipeline_runner import PipelineConfig, launch_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -125,6 +129,70 @@ async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
             "skip_sampling": True,
         },
     )
+
+    # Build PipelineConfig for re-run and launch the pipeline. Without this
+    # the new RunState sits at status="pending" forever and the UI spins
+    # indefinitely on the progress page.
+    run_dir = Path(run.run_dir)
+    prior = run.config or {}
+
+    mcp_url = None
+    if prior.get("enable_mcp", True):
+        get_or_start_mcp(MCP_DEFAULT_PORT)
+        mcp_url = get_mcp_url()
+
+    new_config = PipelineConfig(
+        run_id=new_run_id,
+        dataset_name=run.dataset_name,
+        input_dir=str(run_dir / "input"),
+        output_dir=str(run_dir / "output"),
+        input_file=prior.get("input_file"),
+        model=prior.get("model", "gemini-3.1-pro-preview"),
+        enable_mcp=prior.get("enable_mcp", True),
+        mcp_url=mcp_url,
+        skip_sampling=True,
+        skip_schema_selection=True,
+        use_metadata=prior.get("use_metadata", False),
+        metadata_file_path=prior.get("metadata_file_path"),
+        human_feedback=human_feedback,
+        min_attempts=prior.get("min_attempts", MIN_PIPELINE_ATTEMPTS),
+        max_retries=prior.get("max_retries", 1),
+        use_schema_examples=prior.get("use_schema_examples", True),
+        thinking_level=prior.get("thinking_level"),
+        plan_only=False,
+    )
+
+    # Populate extra_state so Phase 2 can reuse Phase 1 artifacts (skeleton,
+    # schema vocab, approved plan) instead of regenerating them.
+    extra_state: dict = {"feedback_ledger_json": ledger.model_dump_json()}
+    phase1_path = run_dir / "phase1_state.json"
+    if phase1_path.exists():
+        try:
+            phase1 = json.loads(phase1_path.read_text())
+            for key in (
+                "skeleton_summary", "schema_category", "schema_vocab_content",
+                "sampled_data_path", "data_context", "schemaorg_column_mappings",
+            ):
+                if key in phase1:
+                    extra_state[key] = phase1[key]
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to read phase1_state.json for run %s", run_id)
+
+    # Prefer the user-approved plan; fall back to the original generated plan.
+    approved_plan = output_dir / "approved_plan.md"
+    plan_path = approved_plan if approved_plan.exists() else output_dir / "mapping_plan.md"
+    if plan_path.exists():
+        extra_state["from_plan"] = str(plan_path)
+
+    new_config.extra_state = extra_state
+
+    new_run.config = new_config.__dict__
+    new_run.status = "running"
+    write_run_info(run_dir, {"status": "running", "dataset_name": run.dataset_name})
+
+    thread = launch_pipeline(new_config, new_run.progress_queue, run_state=new_run)
+    new_run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
 
     # RLHF + activity logging
     user_email = getattr(request.state, "user_email", "")

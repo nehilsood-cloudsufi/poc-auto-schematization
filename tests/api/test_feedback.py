@@ -1,4 +1,6 @@
 """Tests for feedback endpoints."""
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,9 +9,23 @@ from src.api.services import run_state
 
 
 @pytest.fixture
-def client_with_run(tmp_path):
+def client_with_run(tmp_path, monkeypatch):
+    # Stub pipeline + MCP so feedback submission doesn't spawn a real run.
+    launched: dict = {}
+
+    def fake_launch(config, progress_queue, run_state=None):
+        launched["config"] = config
+        launched["run_state"] = run_state
+        # Return a dummy thread whose target is a no-op so .start() is safe.
+        return threading.Thread(target=lambda: None, daemon=True)
+
+    monkeypatch.setattr("src.api.routes.feedback.launch_pipeline", fake_launch)
+    monkeypatch.setattr("src.api.routes.feedback.get_or_start_mcp", lambda port: None)
+    monkeypatch.setattr("src.api.routes.feedback.get_mcp_url", lambda: None)
+
     app = create_app(output_dir=tmp_path)
     client = TestClient(app)
+    client._launched = launched  # expose to tests
 
     run_dir = tmp_path / "run1"
     output_dir = run_dir / "output" / "test_ds"
@@ -33,6 +49,19 @@ class TestFeedback:
         assert response.status_code == 200
         data = response.json()
         assert "new_run_id" in data
+        # Pipeline must be launched for the new run, otherwise the UI spins forever.
+        launched = client_with_run._launched
+        assert launched, "launch_pipeline was not called"
+        cfg = launched["config"]
+        assert cfg.run_id == data["new_run_id"]
+        assert cfg.skip_sampling is True
+        assert cfg.skip_schema_selection is True
+        assert cfg.plan_only is False
+        assert cfg.human_feedback and "Fix column mapping" in cfg.human_feedback
+        assert "feedback_ledger_json" in cfg.extra_state
+        new_run = run_state.get_run(data["new_run_id"])
+        assert new_run is not None
+        assert new_run.status == "running"
 
     def test_submit_feedback_missing_run(self, client_with_run):
         response = client_with_run.post(
