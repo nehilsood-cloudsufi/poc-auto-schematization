@@ -11,6 +11,8 @@ export interface UploadResponse {
   run_dir: string;
   input_path: string;
   metadata_path: string | null;
+  sdmx_metadata_xml_path?: string | null;
+  sdmx_mode?: boolean;
   rows: number;
   columns: number;
   column_names: string[];
@@ -29,6 +31,7 @@ export interface StartRunRequest {
   use_metadata?: boolean;
   human_feedback?: string | null;
   thinking_level?: string;
+  sdmx_mode?: boolean;
 }
 
 /** A pipeline run (from GET /api/runs or GET /api/runs/{id}) */
@@ -131,6 +134,7 @@ export interface PipelineConfig {
   enable_mcp: boolean;
   use_schema_examples: boolean;
   human_feedback: string | null;
+  sdmx_mode?: boolean;
 }
 
 /** Pipeline phases for progress display */

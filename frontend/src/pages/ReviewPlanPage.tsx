@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { WizardStepper } from "@/components/WizardStepper";
 import { ProgressTracker } from "@/components/ProgressTracker";
@@ -65,6 +66,7 @@ export function ReviewPlanPage({
   const [editMode, setEditMode] = useState(false);
   const [editText, setEditText] = useState("");
   const [readOnly, setReadOnly] = useState(false);
+  const [sdmxMode, setSdmxMode] = useState(false);
 
   // --- On mount: load run status + plan data in one coordinated flow ---
   useEffect(() => {
@@ -76,6 +78,8 @@ export function ReviewPlanPage({
       try {
         const run = await getRun(runId!);
         if (cancelled) return;
+        const cfg = run.config as { sdmx_mode?: boolean } | undefined;
+        if (cfg?.sdmx_mode) setSdmxMode(true);
         const isCompleted = run.status !== "plan_ready" && run.status !== "pending" && run.status !== "running";
         if (isCompleted) setReadOnly(true);
       } catch {
@@ -309,8 +313,11 @@ export function ReviewPlanPage({
           <span className="text-sm text-green-600 dark:text-green-400 font-medium">Plan Ready</span>
         </div>
       </div>
-      <p className="text-muted-foreground mb-4">
-        Dataset: <span className="font-mono font-medium">{plan?.dataset_name || datasetName}</span>
+      <p className="text-muted-foreground mb-4 flex items-center gap-2 flex-wrap">
+        <span>Dataset: <span className="font-mono font-medium">{plan?.dataset_name || datasetName}</span></span>
+        {sdmxMode && (
+          <Badge variant="outline" className="text-[11px]" title="SDMX dataset — DSD drove plan generation">SDMX</Badge>
+        )}
       </p>
 
       {/* Plan content */}

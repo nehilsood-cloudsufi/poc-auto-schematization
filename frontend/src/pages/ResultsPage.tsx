@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { WizardStepper } from "@/components/WizardStepper";
 import { OutputViewer, ResultBanner } from "@/components/OutputViewer";
@@ -39,6 +40,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
   const [loading, setLoading] = useState(false);
   const [runStatus, setRunStatus] = useState<string>("");
   const [resuming, setResuming] = useState(false);
+  const [sdmxMode, setSdmxMode] = useState(false);
 
   // Run metadata editing
   const [displayName, setDisplayName] = useState("");
@@ -87,6 +89,8 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         setDatasetName(run.dataset_name ?? "");
         setDisplayName(run.display_name || run.dataset_name || "");
         setNotes(run.notes || "");
+        const cfg = run.config as { sdmx_mode?: boolean } | undefined;
+        setSdmxMode(Boolean(cfg?.sdmx_mode));
         if (run.result && Object.keys(run.result).length > 0) {
           setResult(run.result as PipelineResult);
         }
@@ -248,6 +252,11 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
                       onClick={() => setEditingName(true)}
                     >
                       {displayName || datasetName || "Untitled Run"}
+                      {sdmxMode && (
+                        <Badge variant="outline" className="text-[11px] font-normal" title="SDMX dataset">
+                          SDMX
+                        </Badge>
+                      )}
                       <Pencil className="h-4 w-4 opacity-0 group-hover:opacity-50 transition-opacity" />
                     </h1>
                   )}

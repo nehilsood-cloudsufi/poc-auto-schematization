@@ -42,6 +42,7 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
   const [stopping, setStopping] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [sdmxMode, setSdmxMode] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,6 +50,8 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
   useEffect(() => {
     if (!runId) return;
     getRun(runId).then((run) => {
+      const cfg = run.config as { sdmx_mode?: boolean } | undefined;
+      if (cfg?.sdmx_mode) setSdmxMode(true);
       if (run.status === "complete" || run.status === "error" || run.status === "stopped") {
         navigate(`/runs/${runId}/results`, { replace: true });
       }
@@ -137,7 +140,12 @@ export function ProgressPage({ startTime, onComplete, onError }: ProgressPagePro
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 text-primary animate-spin" />
               <div>
-                <h1 className="text-lg font-semibold">Generating PVMAP</h1>
+                <h1 className="text-lg font-semibold flex items-center gap-2">
+                  Generating PVMAP
+                  {sdmxMode && (
+                    <Badge variant="outline" className="text-[10px]" title="SDMX dataset">SDMX</Badge>
+                  )}
+                </h1>
                 <div className="flex items-center gap-2 mt-0.5">
                   {currentAttempt > 0 && (
                     <Badge variant="secondary" className="text-xs">
