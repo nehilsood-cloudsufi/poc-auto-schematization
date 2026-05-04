@@ -30,7 +30,11 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
 
-from src.tools.heuristic_quality import calculate_heuristic_score, format_quality_report
+from src.tools.heuristic_quality import (
+    calculate_heuristic_score,
+    check_column_completeness,
+    format_quality_report,
+)
 from src.tools.evaluation_tools import compare_pvmaps
 
 import logging
@@ -85,20 +89,31 @@ class QualityEvaluationAgent(BaseAgent):
     # Quality thresholds (ClassVar to avoid Pydantic field treatment)
     QUALITY_THRESHOLD: ClassVar[float] = 70.0  # Heuristic score threshold (out of 100)
     PV_ACCURACY_THRESHOLD: ClassVar[float] = 30.0  # GT PV accuracy threshold (%)
+    COLUMN_COVERAGE_THRESHOLD: ClassVar[float] = 80.0  # Non-GT quality gate
     STAGNATION_RATIO: ClassVar[float] = 0.10  # Minimum improvement as fraction of previous accuracy
 
     # Private attribute for min_attempts enforcement (not a Pydantic field)
     _min_attempts: Optional[int] = PrivateAttr(default=None)
+    _escalate_on_quality: bool = PrivateAttr(default=True)
 
-    def __init__(self, name: str = "QualityEvaluator", min_attempts: Optional[int] = None):
+    def __init__(
+        self,
+        name: str = "QualityEvaluator",
+        min_attempts: Optional[int] = None,
+        escalate_on_quality: bool = True,
+    ):
         """Initialize QualityEvaluationAgent.
 
         Args:
             name: Agent name
             min_attempts: Minimum attempts before allowing quality exit (optional)
+            escalate_on_quality: Whether to escalate on quality_acceptable/stagnant.
+                When False, still sets all state flags but yields escalate=False.
+                Useful in SequentialAgent where escalation propagates up.
         """
         super().__init__(name=name)
         self._min_attempts = min_attempts
+        self._escalate_on_quality = escalate_on_quality
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -180,24 +195,48 @@ class QualityEvaluationAgent(BaseAgent):
                 )
 
         # =====================================================================
-        # Step 1b-ii: Re-evaluate quality_acceptable with PV accuracy (Priority 2)
-        # PV accuracy < 30% overrides heuristic acceptance when GT is available.
+        # Step 1b-ii: Re-evaluate quality_acceptable based on GT availability
+        # With GT: PV accuracy >= 30% OR heuristic >= 70 (existing behavior)
+        # Without GT: column_coverage >= 80% gates retries (heuristic still logged)
         # =====================================================================
+        gt_available = bool(gt_pvmap_path)
         gt_pv_accuracy = quality_metrics.get("gt_pv_accuracy")
-        if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
-            quality_acceptable = False  # Override even if heuristic was fine
-            quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
-            if not quality_diff_summary:
-                quality_diff_summary = format_quality_report(
-                    {"total": quality_metrics.get("heuristic_score", 0),
-                     "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
-                     "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
-                     "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
-                     "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
-                     "issues": ""}
-                )
-        elif not quality_acceptable:
-            quality_metrics["quality_reject_reason"] = "heuristic_low"
+
+        if gt_available:
+            # GT path: PV accuracy < 30% overrides heuristic acceptance
+            if gt_pv_accuracy is not None and gt_pv_accuracy < self.PV_ACCURACY_THRESHOLD:
+                quality_acceptable = False  # Override even if heuristic was fine
+                quality_metrics["quality_reject_reason"] = "pv_accuracy_low"
+                if not quality_diff_summary:
+                    quality_diff_summary = format_quality_report(
+                        {"total": quality_metrics.get("heuristic_score", 0),
+                         "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                         "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                         "column_coverage": quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0),
+                         "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                         "issues": ""}
+                    )
+            elif not quality_acceptable:
+                quality_metrics["quality_reject_reason"] = "heuristic_low"
+        else:
+            # Non-GT path: only column_coverage gates retries
+            col_cov = quality_metrics.get("heuristic_breakdown", {}).get("column_coverage", 0)
+            quality_acceptable = col_cov >= self.COLUMN_COVERAGE_THRESHOLD
+            if not quality_acceptable:
+                quality_metrics["quality_reject_reason"] = "column_coverage_low"
+                if not quality_diff_summary:
+                    quality_diff_summary = format_quality_report(
+                        {"total": quality_metrics.get("heuristic_score", 0),
+                         "row_coverage": quality_metrics.get("heuristic_breakdown", {}).get("row_coverage", 0),
+                         "prop_coverage": quality_metrics.get("heuristic_breakdown", {}).get("prop_coverage", 0),
+                         "column_coverage": col_cov,
+                         "format_score": quality_metrics.get("heuristic_breakdown", {}).get("format_score", 0),
+                         "issues": ""}
+                    )
+            logger.info(
+                "Non-GT quality gate: column_coverage=%.1f%%, threshold=%.1f%%, acceptable=%s",
+                col_cov, self.COLUMN_COVERAGE_THRESHOLD, quality_acceptable,
+            )
 
         # =====================================================================
         # Step 1c: Enrich diff summary with counter metrics (when quality low)
@@ -344,7 +383,7 @@ class QualityEvaluationAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[types.Part(text=message)]),
-                actions=EventActions(escalate=True)
+                actions=EventActions(escalate=self._escalate_on_quality)
             )
 
         elif quality_stagnant:
@@ -364,7 +403,7 @@ class QualityEvaluationAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[types.Part(text=message)]),
-                actions=EventActions(escalate=True)
+                actions=EventActions(escalate=self._escalate_on_quality)
             )
 
         else:
@@ -424,6 +463,26 @@ class QualityEvaluationAgent(BaseAgent):
             heuristic_result["total"], self.QUALITY_THRESHOLD, quality_acceptable,
         )
         quality_diff_summary = heuristic_result.get("issues", "")
+
+        # Column completeness check (hard gate for critical columns)
+        column_manifest = ctx.session.state.get("column_manifest")
+        if column_manifest and pvmap_csv:
+            completeness = check_column_completeness(pvmap_csv, column_manifest)
+            quality_metrics["column_completeness"] = completeness
+            if completeness["severity"] == "critical":
+                quality_acceptable = False
+                logger.warning(
+                    "Column completeness CRITICAL: missing %s",
+                    [m["column"] for m in completeness["missing_must_map"]],
+                )
+            elif completeness["severity"] == "warning":
+                logger.info(
+                    "Column completeness WARNING: missing dimensions %s",
+                    [m["column"] for m in completeness["missing_must_map"]],
+                )
+            # Store report for feedback agent
+            from src.pipeline.pvmap_skeleton.skeleton_generator import format_completeness_report
+            ctx.session.state["column_completeness_report"] = format_completeness_report(completeness)
 
         # Add formatted report for feedback
         if not quality_acceptable:

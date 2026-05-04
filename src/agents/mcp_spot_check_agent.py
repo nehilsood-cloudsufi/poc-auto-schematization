@@ -185,4 +185,4 @@ def _resolve_sample_place(sample_places: list, resolve_fn) -> str:
                         return dcid
 
     # Fallback defaults: try US (most common in DC datasets)
-    return "geoId/06"  # California — common default for US state data
+    return ""  # No fallback — skip spot-check for datasets with unknown geography

@@ -59,8 +59,8 @@ def test_coordinator_custom_max_retries():
     """Test coordinator with custom max_retries."""
     coordinator = create_pipeline_coordinator(max_retries=5)
 
-    # Find PVMAP retry loop (LoopAgent)
-    from google.adk.agents import LoopAgent
+    # Find PVMAP retry loop (SequentialAgent since tiered correction refactor)
+    from google.adk.agents import SequentialAgent
     pvmap_agent = None
     for agent in coordinator.sub_agents:
         if agent.name == "PVMAPRetryLoop":
@@ -68,8 +68,7 @@ def test_coordinator_custom_max_retries():
             break
 
     assert pvmap_agent is not None
-    assert isinstance(pvmap_agent, LoopAgent)
-    assert pvmap_agent.max_iterations == 5 + 1  # max_retries + 1
+    assert isinstance(pvmap_agent, SequentialAgent)
 
 
 def test_coordinator_custom_model():
@@ -121,7 +120,7 @@ def test_coordinator_agent_types():
     """Test that coordinator contains correct agent types."""
     coordinator = create_pipeline_coordinator()
 
-    from google.adk.agents import BaseAgent, LlmAgent, LoopAgent
+    from google.adk.agents import BaseAgent, LlmAgent, SequentialAgent
     from src.agents.discovery_agent import DiscoveryAgent
     from src.agents.evaluation_agent import EvaluationAgent
 
@@ -134,7 +133,7 @@ def test_coordinator_agent_types():
     from src.agents.sampling_agent import ProgrammaticSamplingAgent
     assert isinstance(coordinator.sub_agents[1], ProgrammaticSamplingAgent)  # SamplingAgent
     assert isinstance(coordinator.sub_agents[2], LlmAgent)  # SchemaSelectionAgent
-    assert isinstance(coordinator.sub_agents[3], LoopAgent)  # PVMAPRetryLoop
+    assert isinstance(coordinator.sub_agents[3], SequentialAgent)  # PVMAPRetryLoop
     assert isinstance(coordinator.sub_agents[4], EvaluationAgent)
 
 

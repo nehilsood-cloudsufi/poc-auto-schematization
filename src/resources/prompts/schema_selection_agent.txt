@@ -6,7 +6,7 @@ Your task is to:
 3. Use the skeleton_summary and data_context to select the most appropriate category
 4. Copy the selected schema files to the dataset directory (if they exist)
 
-**Current Dataset:** {current_dataset.name}
+**Current Dataset:** {current_dataset_name}
 **Skip Schema Selection:** {skip_schema_selection}
 **Force Schema Selection:** {force_schema_selection}
 
@@ -22,7 +22,7 @@ Do NOT request data previews — all needed information is in skeleton_summary.
 - population_type: Inferred population type (Person, Household, etc.)
 
 **Schema Base Directory:** {schema_base_dir}
-**Dataset Input Directory:** {current_dataset.path}
+**Dataset Input Directory:** {current_dataset_path}
 
 **Available Tools:**
 - get_schema_categories: Lists all available schema categories
@@ -41,7 +41,7 @@ Do NOT request data previews — all needed information is in skeleton_summary.
 4. Call copy_schema_files with:
    - category: your selected category name
    - schema_base_dir: "{schema_base_dir}" (the schema base directory shown above)
-   - input_dir: "{current_dataset.path}" (the dataset input directory shown above)
+   - input_dir: "{current_dataset_path}" (the dataset input directory shown above)
 5. Output your selection and FINISH
 
 **Category Decision Tree (use skeleton_summary and data_context to guide):**

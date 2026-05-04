@@ -140,7 +140,7 @@ class MCPServerManager:
 
             # Try health check
             try:
-                resp = requests.get(f"{self.base_url}/health", timeout=2)
+                resp = requests.get(f"{self.base_url}/mcp/health", timeout=2)
                 if resp.status_code == 200:
                     logger.info(f"MCP server started successfully on port {self.port}")
                     return True
@@ -188,7 +188,7 @@ class MCPServerManager:
             True if server is running and healthy, False otherwise
         """
         try:
-            resp = requests.get(f"{self.base_url}/health", timeout=2)
+            resp = requests.get(f"{self.base_url}/mcp/health", timeout=2)
             return resp.status_code == 200
         except requests.RequestException:
             return False

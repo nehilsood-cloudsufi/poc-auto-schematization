@@ -16,6 +16,7 @@ Usage:
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -28,6 +29,7 @@ class SchemaOrgVocab:
     """Singleton schema.org vocabulary API backed by local JSON cache."""
 
     _instance: Optional["SchemaOrgVocab"] = None
+    _instance_lock = threading.Lock()
 
     def __init__(self, cache_dir: Optional[Path] = None):
         self._cache_dir = cache_dir or DEFAULT_CACHE_DIR
@@ -35,6 +37,7 @@ class SchemaOrgVocab:
         self._properties: Optional[Dict[str, dict]] = None
         self._hierarchy: Optional[Dict[str, List[str]]] = None
         self._dc_mapping: Optional[dict] = None
+        self._load_lock = threading.Lock()
 
         # Case-insensitive lookup indexes (built lazily)
         self._type_index: Optional[Dict[str, str]] = None
@@ -43,9 +46,10 @@ class SchemaOrgVocab:
     @classmethod
     def instance(cls, cache_dir: Optional[Path] = None) -> "SchemaOrgVocab":
         """Get or create the singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls(cache_dir=cache_dir)
-        return cls._instance
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = cls(cache_dir=cache_dir)
+            return cls._instance
 
     @classmethod
     def reset(cls) -> None:
@@ -60,54 +64,57 @@ class SchemaOrgVocab:
         """Load cache files on first access."""
         if self._types is not None:
             return
+        with self._load_lock:
+            if self._types is not None:
+                return
 
-        types_path = self._cache_dir / "types.json"
-        props_path = self._cache_dir / "properties.json"
-        hierarchy_path = self._cache_dir / "type_hierarchy.json"
-        mapping_path = self._cache_dir / "dc_mapping.json"
+            types_path = self._cache_dir / "types.json"
+            props_path = self._cache_dir / "properties.json"
+            hierarchy_path = self._cache_dir / "type_hierarchy.json"
+            mapping_path = self._cache_dir / "dc_mapping.json"
 
-        if not types_path.exists():
-            logger.warning(
-                f"Schema.org cache not found at {self._cache_dir}. "
-                "Run: python tools/build_schemaorg_cache.py"
-            )
-            self._types = {}
-            self._properties = {}
-            self._hierarchy = {}
-            self._dc_mapping = {"population_types": {}, "properties": {}, "enums": {}}
-            self._type_index = {}
-            self._prop_index = {}
-            return
-
-        try:
-            self._types = json.loads(types_path.read_text(encoding="utf-8"))
-            self._properties = json.loads(props_path.read_text(encoding="utf-8"))
-            self._hierarchy = json.loads(hierarchy_path.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.error(f"Failed to load schema.org cache: {e}")
-            self._types = {}
-            self._properties = {}
-            self._hierarchy = {}
-            self._type_index = {}
-            self._prop_index = {}
-
-        try:
-            if mapping_path.exists():
-                self._dc_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-            else:
+            if not types_path.exists():
+                logger.warning(
+                    f"Schema.org cache not found at {self._cache_dir}. "
+                    "Run: python tools/build_schemaorg_cache.py"
+                )
+                self._types = {}
+                self._properties = {}
+                self._hierarchy = {}
                 self._dc_mapping = {"population_types": {}, "properties": {}, "enums": {}}
-        except Exception as e:
-            logger.warning(f"Failed to load DC mapping: {e}")
-            self._dc_mapping = {"population_types": {}, "properties": {}, "enums": {}}
+                self._type_index = {}
+                self._prop_index = {}
+                return
 
-        # Build case-insensitive indexes
-        self._type_index = {name.lower(): name for name in self._types}
-        self._prop_index = {name.lower(): name for name in self._properties}
+            try:
+                self._types = json.loads(types_path.read_text(encoding="utf-8"))
+                self._properties = json.loads(props_path.read_text(encoding="utf-8"))
+                self._hierarchy = json.loads(hierarchy_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.error(f"Failed to load schema.org cache: {e}")
+                self._types = {}
+                self._properties = {}
+                self._hierarchy = {}
+                self._type_index = {}
+                self._prop_index = {}
 
-        logger.info(
-            f"Schema.org vocab loaded: {len(self._types)} types, "
-            f"{len(self._properties)} properties"
-        )
+            try:
+                if mapping_path.exists():
+                    self._dc_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+                else:
+                    self._dc_mapping = {"population_types": {}, "properties": {}, "enums": {}}
+            except Exception as e:
+                logger.warning(f"Failed to load DC mapping: {e}")
+                self._dc_mapping = {"population_types": {}, "properties": {}, "enums": {}}
+
+            # Build case-insensitive indexes
+            self._type_index = {name.lower(): name for name in self._types}
+            self._prop_index = {name.lower(): name for name in self._properties}
+
+            logger.info(
+                f"Schema.org vocab loaded: {len(self._types)} types, "
+                f"{len(self._properties)} properties"
+            )
 
     def _resolve_type_name(self, name: str) -> Optional[str]:
         """Resolve a type name with case-insensitive matching (exact-first)."""

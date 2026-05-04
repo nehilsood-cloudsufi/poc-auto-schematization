@@ -233,7 +233,7 @@ def _profile_column(
 
     # Basic stats
     cardinality = series.nunique()
-    cardinality_ratio = cardinality / n_analysis if n_analysis > 0 else 0
+    cardinality_ratio = cardinality / total_rows if total_rows > 0 else 0
     null_count = series.isna().sum()
     null_pct = (null_count / n_analysis * 100) if n_analysis > 0 else 0
 

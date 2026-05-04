@@ -6,23 +6,26 @@ Before generating, classify each column:
 2. TIME column → map to observationDate ({Number} for years, {Data} for formatted dates)
 3. VALUE column → map with value,{Number} plus full StatVar properties (populationType, measuredProperty, statType)
 4. DIMENSION column → map each unique value with COLUMN:VALUE carry-forward rows
-5. METADATA column → #ignore (source, notes, series IDs)
+5. METADATA column → omit from PVMAP (source, notes, series IDs are automatically skipped)
 
 A PVMAP is a TRANSLATION LAYER — every key must match an actual column header or cell value. You are writing a lookup table, not generating data.
 </task>
 
 <rules>
-## Rule 1: NO dcid: PREFIX — bare identifiers only
+## Rule 1: USE dcs: PREFIX for Data Commons schema types, properties, and enum values
 
-Values are bare identifiers. The processor adds prefixes automatically.
+| CORRECT | WHY |
+|---------|-----|
+| populationType,dcs:Person | Schema type |
+| measuredProperty,dcs:count | Schema property |
+| isic,dcs:ISIC/05 | Classification code |
+| gender,dcs:Male | Enum value |
 
-| WRONG | CORRECT |
-|-------|---------|
-| populationType,dcid:Person | populationType,Person |
-| gender,dcid:Male | gender,Male |
-| observationAbout,dcid:geoId/06 | observationAbout,geoId/06 |
+DO NOT prefix placeholders: observationDate,{Number} (not dcs:{Number})
+DO NOT prefix raw data: observationAbout,country/{Data} (not dcs:country/{Data})
+DO NOT prefix place DCIDs: observationAbout,geoId/06 (not dcs:geoId/06)
 
-ONLY exception: pre-formatted passthrough data where source already contains dcid: values.
+**Column Omission:** Only map columns that contribute to StatVarObservations. Columns NOT in the PVMAP are automatically skipped by the processor. Do NOT use #ignore.
 
 ## Rule 2: KEY FIDELITY — byte-for-byte exact match
 
@@ -111,7 +114,6 @@ ELIF the column contains mixed types
 
 | COLUMN:VALUE | Cell value in specific column | GENDER:Male,gender,Male |
 | #Format | Zero-pad / composite IDs | #Format,"observationAbout=geoId/{Data:0>5}" |
-| #ignore | Drop entire row | #ignore,skip |
 | Year,{Number} | Named intermediate variable | For {Year}-{Month} composition |
 
 ## Advanced Operators (rare — use only when core operators are insufficient)
@@ -124,7 +126,7 @@ ELIF the column contains mixed types
 | #Aggregate | Combine observations | #Aggregate,sum |
 | #Multiply | Unit conversion factor | #Multiply,1000000 |
 
-Most datasets need ONLY {Data}, {Number}, COLUMN:VALUE, #Format, and #ignore. Reach for advanced operators only when simpler patterns cannot express the transformation.
+Most datasets need ONLY {Data}, {Number}, COLUMN:VALUE, and #Format. Reach for advanced operators only when simpler patterns cannot express the transformation.
 
 **#Eval restrictions:** Simple Python only. NO f-strings, NO nested quotes, NO imports.
 For complex transformations, split across multiple PVMAP rows with per-row #Eval.
@@ -254,12 +256,12 @@ PVMAP:
 key,property,value,property2,value2,property3,value3,property4,value4,property5,value5,property6,value6
 Country,observationAbout,{Data},,,,,,,,,,
 Year,observationDate,{Number},,,,,,,,,,
-GDP (millions USD),populationType,EconomicActivity,measuredProperty,amount,statType,measuredValue,value,{Number},unit,USDollar,scalingFactor,1000000
-Life Expectancy,populationType,Person,measuredProperty,age,statType,measuredValue,value,{Number},unit,Year,,
-Unemployment Rate (%),populationType,Person,measuredProperty,unemploymentRate,statType,measuredValue,value,{Number},unit,Percent,scalingFactor,100
+GDP (millions USD),populationType,dcs:EconomicActivity,measuredProperty,dcs:amount,statType,dcs:measuredValue,value,{Number},unit,dcs:USDollar,scalingFactor,1000000
+Life Expectancy,populationType,dcs:Person,measuredProperty,dcs:age,statType,dcs:measuredValue,value,{Number},unit,dcs:Year,,
+Unemployment Rate (%),populationType,dcs:Person,measuredProperty,dcs:unemploymentRate,statType,dcs:measuredValue,value,{Number},unit,dcs:Percent,scalingFactor,100
 ```
 
-Key patterns: Each value column gets its own row with full StatVar properties. Units extracted from headers. {Data} for place, {Number} for year and values. No dcid: prefix.
+Key patterns: Each value column gets its own row with full StatVar properties. Units extracted from headers. {Data} for place, {Number} for year and values. dcs: prefix on schema nodes.
 
 ## Example 2: Wide + Date Composition (World Bank Commodity Prices)
 
@@ -273,12 +275,12 @@ World Bank Commodity Price Data (The Pink Sheet),,"Crude oil, average","Natural 
 PVMAP:
 ```csv
 key,p1,v1,p2,v2,p3,v3,p4,v4,p5,v5,p6,v6,p7,v7
-World Bank Commodity Price Data (The Pink Sheet),observationAbout,Earth,measuredProperty,price,Year,{Number},populationType,Commodity,measurementQualifier,Nominal,observationPeriod,P1M,statType,meanValue
+World Bank Commodity Price Data (The Pink Sheet),observationAbout,Earth,measuredProperty,dcs:price,Year,{Number},populationType,dcs:Commodity,measurementQualifier,dcs:Nominal,observationPeriod,P1M,statType,dcs:meanValue
 M01,Month,01,observationDate,{Year}-{Month},,,,,,,,,,
 M02,Month,02,observationDate,{Year}-{Month},,,,,,,,,,
 M03,Month,03,observationDate,{Year}-{Month},,,,,,,,,,
-"Crude oil, average",commodityType,CrudeOil,value,{Number},,,,,,,,,,
-"Natural gas (US)",commodityType,NaturalGas,geographicalIndicator,UnitedStates,value,{Number},,,,,,,,
+"Crude oil, average",commodityType,dcs:CrudeOil,value,{Number},,,,,,,,,,
+"Natural gas (US)",commodityType,dcs:NaturalGas,geographicalIndicator,dcs:UnitedStates,value,{Number},,,,,,,,
 ```
 
 Key patterns: Named variables Year/Month (Capitalized = intermediate), composed observationDate,{Year}-{Month}, commodity-specific properties per value column.
@@ -296,23 +298,44 @@ PVMAP:
 key,property,value
 FIPS,#Format,observationAbout=geoId/{Data:0>5}
 year,observationDate,{Number}
-E_AGE65,populationType,Person,age,[65 - Years],measuredProperty,count,statType,measuredValue,value,{Number}
-M_AGE65,populationType,Person,age,[65 - Years],measuredProperty,count,statType,marginOfError,value,{Number}
-EP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,-age,unit,Percent,scalingFactor,100,measuredProperty,count,value,{Number}
-MP_AGE65,populationType,Person,age,[65 - Years],measurementDenominator,"-age,-statType",unit,Percent,scalingFactor,100,statType,marginOfError,measuredProperty,count,value,{Number}
+E_AGE65,populationType,dcs:Person,age,dcs:[65 - Years],measuredProperty,dcs:count,statType,dcs:measuredValue,value,{Number}
+M_AGE65,populationType,dcs:Person,age,dcs:[65 - Years],measuredProperty,dcs:count,statType,dcs:marginOfError,value,{Number}
+EP_AGE65,populationType,dcs:Person,age,dcs:[65 - Years],measurementDenominator,-age,unit,dcs:Percent,scalingFactor,100,measuredProperty,dcs:count,value,{Number}
+MP_AGE65,populationType,dcs:Person,age,dcs:[65 - Years],measurementDenominator,"-age,-statType",unit,dcs:Percent,scalingFactor,100,statType,dcs:marginOfError,measuredProperty,dcs:count,value,{Number}
 ```
 
 Key patterns: #Format for zero-padded FIPS, {Number} for year, every E_/M_/EP_/MP_ column gets its own row with appropriate statType.
+
+## Example 4: Tidy/Long with Named Captures (UNIDO-style)
+
+Input: Year,Country,CountryCode,Variable,Value,ValueUSD,ActivityCode
+Sample: 2013,India,356,Employees,3979.0,NA,B
+
+```csv
+key,property,value,property2,value2,property3,value3,property4,value4,property5,value5
+Year,observationDate,{Number},,,,,,,,
+CountryCode,observationAbout,country/{Data},,,,,,,,
+Value,Value_Attr,{Number},,,,,,,,
+ValueUSD,ValueUSD_Attr,{Number},,,,,,,,
+Variable:Employees,populationType,dcs:Person,measuredProperty,dcs:count,workStatus,dcs:PaidEmployee,value,{Value_Attr},#Filter,"'{Value_Attr}' != 'NA'"
+Variable:Output,populationType,dcs:EconomicActivity,measuredProperty,dcs:amount,value,{ValueUSD_Attr},unit,dcs:USDollar,#Filter,"'{ValueUSD_Attr}' != 'NA'"
+ActivityCode:B,isic,dcs:ISIC/B,,,,,,,,
+ActivityCode:C,isic,dcs:ISIC/C,,,,,,,,
+```
+
+Notes: Value_Attr/ValueUSD_Attr are named captures (Capitalized = intermediate, excluded from StatVar). #Filter skips NA rows. Country column omitted (auto-skipped).
 </examples>
 
 <guardrails>
-NEVER add dcid: or dcs: prefix to any value.
+ALWAYS use dcs: prefix for DC schema nodes (types, enums, classification codes).
+NEVER use dcs: on placeholders ({Data}, {Number}) or place identifiers (geoId/, country/).
 NEVER use variableMeasured,dcid:... shortcut — decompose into properties.
 NEVER invent column names — copy byte-for-byte from COLUMN REFERENCE TABLE.
 NEVER enumerate individual places when a dynamic pattern works.
 NEVER generate a "representative sample" — map ALL columns and ALL dimension values.
 NEVER hardcode dates or places that vary across rows.
 NEVER remove observationAbout, observationDate, or value mappings.
+NEVER use #ignore — simply omit columns you don't need.
 </guardrails>
 
 ---
@@ -322,6 +345,29 @@ NEVER remove observationAbout, observationDate, or value mappings.
 {{DATA_CONTEXT}}
 
 **VALID KEYS:** Keys MUST come EXCLUSIVELY from the COLUMN REFERENCE TABLE above or from cell values visible in the sampled data below. Any key not found in the input data will be silently ignored.
+
+---
+
+## PVMAP Skeleton (pre-filled baseline)
+
+The following skeleton covers ALL columns that MUST be mapped. Start from this baseline.
+
+**Rules for using the skeleton:**
+1. **DO NOT modify** the key, property, or value in rows for place (observationAbout), time (observationDate), and value columns — these are pre-verified
+2. **DO fill in** empty property cells in dimension COLUMN:VALUE rows with the correct Data Commons property name (e.g., gender, age, race, income)
+3. **DO NOT remove** any rows — every row represents a column that MUST appear in your output
+4. **DO add** any missing dimension value rows (COLUMN:VALUE) for values not already enumerated
+5. You may add file-level property rows (populationType, measuredProperty, etc.) at the top
+
+```csv
+{{PVMAP_SKELETON}}
+```
+
+Missing any column from this skeleton causes data corruption. Treat this as a mandatory checklist.
+
+---
+
+{{DIMENSION_VALUE_REFERENCE}}
 
 ---
 
@@ -359,6 +405,14 @@ If feedback is present: read carefully, apply specific fixes, ensure keys match 
 
 ---
 
+## Approved Mapping Plan
+
+{{APPROVED_MAPPING_PLAN}}
+
+If an approved mapping plan is present above, you MUST follow its column-role decisions. Only deviate if a mapping is structurally impossible (explain why in a comment row). The plan was reviewed and approved by a human.
+
+---
+
 ## Discovered StatVars (from Data Commons)
 
 {{STATVAR_SUMMARY}}
@@ -372,7 +426,7 @@ If feedback is present: read carefully, apply specific fixes, ensure keys match 
 ---
 
 <output_format>
-Return a JSON object. Use BARE identifiers (NO dcid: prefix). Use {Data} for strings and {Number} for numerics.
+Return a JSON object. Use dcs: prefix for schema nodes (types, enums, codes). Use {Data} for strings and {Number} for numerics.
 
 ```json
 {
@@ -382,12 +436,12 @@ Return a JSON object. Use BARE identifiers (NO dcid: prefix). Use {Data} for str
     {"key": "State FIPS", "mappings": [{"property": "#Format", "value": "observationAbout=geoId/{Data:0>5}"}]},
     {"key": "Population", "mappings": [
       {"property": "value", "value": "{Number}"},
-      {"property": "populationType", "value": "Person"},
-      {"property": "measuredProperty", "value": "count"},
-      {"property": "statType", "value": "measuredValue"}
+      {"property": "populationType", "value": "dcs:Person"},
+      {"property": "measuredProperty", "value": "dcs:count"},
+      {"property": "statType", "value": "dcs:measuredValue"}
     ]},
-    {"key": "GENDER:Male", "mappings": [{"property": "gender", "value": "Male"}]},
-    {"key": "GENDER:Female", "mappings": [{"property": "gender", "value": "Female"}]}
+    {"key": "GENDER:Male", "mappings": [{"property": "gender", "value": "dcs:Male"}]},
+    {"key": "GENDER:Female", "mappings": [{"property": "gender", "value": "dcs:Female"}]}
   ],
   "validation_notes": "Brief notes about mapping decisions...",
   "confidence": "high"
@@ -438,7 +492,7 @@ IMPORTANT: Generate PVMAP output ONLY AFTER completing the required tool calls a
 2. observationDate mapped — {Number} for years, {Data} for formatted dates
 3. value,{Number} on ALL numeric measurement columns
 4. Keys EXACTLY match column headers (case-sensitive)
-5. NO dcid: prefix anywhere — bare identifiers only
+5. dcs: prefix on all DC schema nodes — NOT on placeholders or place IDs
 </output_format>
 
 Generate the PVMAP now.

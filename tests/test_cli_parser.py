@@ -99,13 +99,9 @@ class TestDefaults:
         args = parse_args([])
         assert args.thinking_level == "high"
 
-    def test_enable_mcp_default_false(self):
+    def test_enable_mcp_default_true(self):
         args = parse_args([])
-        assert args.enable_mcp is False
-
-    def test_enable_schemaorg_mcp_default_false(self):
-        args = parse_args([])
-        assert args.enable_schemaorg_mcp is False
+        assert args.enable_mcp is True
 
     def test_no_schema_examples_default_false(self):
         args = parse_args([])
@@ -131,9 +127,9 @@ class TestDefaults:
         args = parse_args([])
         assert args.structured_output is True
 
-    def test_no_structured_output_default_false(self):
+    def test_no_structured_output_default_true(self):
         args = parse_args([])
-        assert args.no_structured_output is False
+        assert args.structured_output is True
 
     def test_verbose_default_false(self):
         args = parse_args([])
@@ -224,10 +220,6 @@ class TestIndividualFlags:
         args = parse_args(["--enable-mcp"])
         assert args.enable_mcp is True
 
-    def test_enable_schemaorg_mcp(self):
-        args = parse_args(["--enable-schemaorg-mcp"])
-        assert args.enable_schemaorg_mcp is True
-
     def test_no_schema_examples(self):
         args = parse_args(["--no-schema-examples"])
         assert args.no_schema_examples is True
@@ -254,7 +246,7 @@ class TestIndividualFlags:
 
     def test_no_structured_output(self):
         args = parse_args(["--no-structured-output"])
-        assert args.no_structured_output is True
+        assert args.structured_output is False
 
     def test_verbose(self):
         args = parse_args(["--verbose"])
@@ -337,10 +329,6 @@ class TestInvalidValues:
 class TestRemovedFlags:
     """Flags that have been removed should cause SystemExit."""
 
-    def test_prompt_version_removed(self):
-        with pytest.raises(SystemExit):
-            parse_args(["--prompt-version", "v2"])
-
     def test_sampling_mode_removed(self):
         with pytest.raises(SystemExit):
             parse_args(["--sampling-mode", "legacy"])
@@ -372,11 +360,6 @@ class TestFlagCombinations:
         assert args.skip_schema_selection is True
         assert args.skip_evaluation is True
 
-    def test_both_mcp_flags(self):
-        args = parse_args(["--enable-mcp", "--enable-schemaorg-mcp"])
-        assert args.enable_mcp is True
-        assert args.enable_schemaorg_mcp is True
-
     def test_dry_run_with_dataset(self):
         args = parse_args(["--dry-run", "--dataset", "test_ds"])
         assert args.dry_run is True
@@ -403,10 +386,9 @@ class TestFlagCombinations:
         assert args.force_schema_selection is True
 
     def test_structured_output_and_no_structured_output(self):
-        """Both flags can technically be set; consumer code decides precedence."""
+        """Last flag wins with BooleanOptionalAction."""
         args = parse_args(["--structured-output", "--no-structured-output"])
-        assert args.structured_output is True
-        assert args.no_structured_output is True
+        assert args.structured_output is False
 
     def test_all_ground_truth_options(self):
         args = parse_args([
@@ -477,14 +459,19 @@ class TestHelperFunctions:
             "dataset", "resume_from", "dry_run",
             "skip_sampling", "force_resample",
             "skip_schema_selection", "force_schema_selection", "schema_base_dir",
-            "skip_evaluation", "ground_truth_repo", "ground_truth_pvmap", "ground_truth_dir",
+            "skip_evaluation", "use_llm_judge",
+            "ground_truth_repo", "ground_truth_pvmap", "ground_truth_dir",
             "input_dir", "output_dir",
             "model", "thinking_level",
-            "enable_mcp", "enable_schemaorg_mcp",
+            "enable_mcp",
             "no_schema_examples",
             "input_file", "use_metadata", "metadata_file_path", "schema_file",
-            "structured_output", "no_structured_output",
+            "structured_output",
             "verbose",
+            "skip_column_discovery",
+            "prompt_version",
+            "feedback_prompt_version",
+            "plan_only", "from_plan", "auto_approve",
         }
         assert expected_keys == set(result.keys())
 

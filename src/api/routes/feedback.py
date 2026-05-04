@@ -1,0 +1,294 @@
+"""Feedback and re-run endpoints."""
+import json
+import logging
+import uuid
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from src.api.config import MCP_DEFAULT_PORT, MIN_PIPELINE_ATTEMPTS
+from src.api.models.feedback import (
+    FeedbackType, FeedbackEntry, FeedbackLedger, FeedbackEntryInput,
+)
+from src.api.services.run_state import get_or_load_run, create_run, write_run_info
+from src.api.middleware.auth import require_run_access
+from src.api.services.file_manager import (
+    get_latest_version,
+    snapshot_version,
+    save_run_manifest,
+)
+from src.api.services.feedback_store import (
+    save_feedback, load_ledger_from_disk, save_ledger_to_disk,
+)
+from src.api.services.google_sheets_service import (
+    append_feedback_to_sheet,
+    is_sheets_configured,
+)
+from src.api.services.mcp_lifecycle import get_or_start_mcp, get_mcp_url
+from src.api.services.pipeline_runner import PipelineConfig, launch_pipeline
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+class FeedbackRequest(BaseModel):
+    # Legacy fields (backward compat)
+    text: Optional[str] = None
+    category: Optional[str] = None
+    severity: int = 3
+    # New structured fields
+    entries: Optional[list[FeedbackEntryInput]] = None
+
+
+class DevFeedbackRequest(BaseModel):
+    text: str
+    category: str
+
+
+@router.post("/runs/{run_id}/feedback")
+async def submit_feedback(run_id: str, req: FeedbackRequest, request: Request):
+    """Submit feedback and prepare for re-run."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
+
+    output_dir = Path(run.run_dir) / "output" / run.dataset_name
+
+    # Snapshot current output into the next version slot
+    current_version = get_latest_version(output_dir)
+    next_version = current_version + 1
+    snapshot_version(output_dir, next_version)
+    save_run_manifest(output_dir, current_version, run.config, run.result)
+
+    # Load existing ledger (accumulate across rounds)
+    ledger = load_ledger_from_disk(output_dir)
+    ledger.clear_auto_entries()  # Fresh start for auto-analysis
+
+    # Add new entries to ledger
+    if req.entries:
+        for ei in req.entries:
+            ledger.add_entry(FeedbackEntry(
+                type=ei.type,
+                round=next_version,
+                source="human",
+                content=ei.content,
+                target=ei.target,
+            ))
+    elif req.text:
+        # Legacy: wrap text+category as a single entry
+        entry_input = FeedbackEntryInput.from_legacy(
+            category=req.category or "Other",
+            content=req.text,
+        )
+        ledger.add_entry(FeedbackEntry(
+            type=entry_input.type,
+            round=next_version,
+            source="human",
+            content=req.text,
+            target=entry_input.target,
+        ))
+
+    # Build human feedback string (for backward compat)
+    if req.text:
+        human_feedback = (
+            f"USER FEEDBACK: {req.text}\n"
+            f"CATEGORY: {req.category or 'Other'}\n"
+            f"SEVERITY: {req.severity}\n\n"
+            f"Previous run: {run.result.get('retry_count', 0) + 1} attempts, "
+            f"exit reason: {run.result.get('exit_reason', 'unknown')}"
+        )
+    else:
+        human_feedback = ""
+
+    # Save feedback JSON + ledger
+    feedback_entry = {
+        "run_id": run_id,
+        "text": req.text or "",
+        "category": req.category or "Other",
+        "severity": req.severity,
+        "dataset_name": run.dataset_name,
+    }
+    next_feedback_dir = output_dir / f"v{next_version}"
+    next_feedback_dir.mkdir(parents=True, exist_ok=True)
+    save_feedback(feedback_entry, next_feedback_dir)
+    save_ledger_to_disk(ledger, output_dir)
+
+    # Create new run with ledger
+    new_run_id = uuid.uuid4().hex[:12]
+    new_run = create_run(
+        run_id=new_run_id,
+        dataset_name=run.dataset_name,
+        run_dir=run.run_dir,
+        config={
+            **run.config,
+            "human_feedback": human_feedback,
+            "feedback_ledger_json": ledger.model_dump_json(),
+            "skip_sampling": True,
+        },
+    )
+
+    # Build PipelineConfig for re-run and launch the pipeline. Without this
+    # the new RunState sits at status="pending" forever and the UI spins
+    # indefinitely on the progress page.
+    run_dir = Path(run.run_dir)
+    prior = run.config or {}
+
+    mcp_url = None
+    if prior.get("enable_mcp", True):
+        get_or_start_mcp(MCP_DEFAULT_PORT)
+        mcp_url = get_mcp_url()
+
+    new_config = PipelineConfig(
+        run_id=new_run_id,
+        dataset_name=run.dataset_name,
+        input_dir=str(run_dir / "input"),
+        output_dir=str(run_dir / "output"),
+        input_file=prior.get("input_file"),
+        model=prior.get("model", "gemini-3.1-pro-preview"),
+        enable_mcp=prior.get("enable_mcp", True),
+        mcp_url=mcp_url,
+        skip_sampling=True,
+        skip_schema_selection=True,
+        use_metadata=prior.get("use_metadata", False),
+        metadata_file_path=prior.get("metadata_file_path"),
+        human_feedback=human_feedback,
+        min_attempts=prior.get("min_attempts", MIN_PIPELINE_ATTEMPTS),
+        max_retries=prior.get("max_retries", 1),
+        use_schema_examples=prior.get("use_schema_examples", True),
+        thinking_level=prior.get("thinking_level"),
+        plan_only=False,
+    )
+
+    # Populate extra_state so Phase 2 can reuse Phase 1 artifacts (skeleton,
+    # schema vocab, approved plan) instead of regenerating them.
+    extra_state: dict = {"feedback_ledger_json": ledger.model_dump_json()}
+    phase1_path = run_dir / "phase1_state.json"
+    if phase1_path.exists():
+        try:
+            phase1 = json.loads(phase1_path.read_text())
+            for key in (
+                "skeleton_summary", "schema_category", "schema_vocab_content",
+                "sampled_data_path", "data_context", "schemaorg_column_mappings",
+            ):
+                if key in phase1:
+                    extra_state[key] = phase1[key]
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to read phase1_state.json for run %s", run_id)
+
+    # Prefer the user-approved plan; fall back to the original generated plan.
+    approved_plan = output_dir / "approved_plan.md"
+    plan_path = approved_plan if approved_plan.exists() else output_dir / "mapping_plan.md"
+    if plan_path.exists():
+        extra_state["from_plan"] = str(plan_path)
+
+    new_config.extra_state = extra_state
+
+    new_run.config = new_config.__dict__
+    new_run.status = "running"
+    write_run_info(run_dir, {"status": "running", "dataset_name": run.dataset_name})
+
+    thread = launch_pipeline(new_config, new_run.progress_queue, run_state=new_run)
+    new_run.thread = thread  # assign before start to avoid race with fast crash
+    thread.start()
+
+    # RLHF + activity logging
+    user_email = getattr(request.state, "user_email", "")
+    from src.api.services.rlhf_log import log_interaction
+    from src.api.services.activity_log import log_activity
+    log_interaction(Path(run.run_dir), user_email, "pipeline_feedback", {
+        "text": req.text or "",
+        "category": req.category or "",
+        "severity": req.severity,
+        "entries_count": len(req.entries) if req.entries else 0,
+    })
+    log_activity(request.app.state.output_dir, user_email, "feedback_submit", {
+        "run_id": run_id, "new_run_id": new_run_id,
+    })
+
+    logger.info("Feedback submitted for run %s, new run %s created", run_id, new_run_id)
+
+    return {
+        "new_run_id": new_run_id,
+        "version": next_version,
+        "human_feedback_length": len(human_feedback),
+    }
+
+
+@router.get("/runs/{run_id}/feedback/ledger")
+async def get_feedback_ledger(run_id: str, request: Request):
+    """Return the full feedback ledger for a run."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
+
+    output_dir = Path(run.run_dir) / "output" / run.dataset_name
+    ledger = load_ledger_from_disk(output_dir)
+    return ledger.model_dump()
+
+
+@router.delete("/runs/{run_id}/feedback/{entry_id}")
+async def retract_feedback_entry(run_id: str, entry_id: str, request: Request):
+    """Retract a specific feedback entry."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
+
+    output_dir = Path(run.run_dir) / "output" / run.dataset_name
+    ledger = load_ledger_from_disk(output_dir)
+
+    if not ledger.retract(entry_id):
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+    save_ledger_to_disk(ledger, output_dir)
+    return {"retracted": True, "entry_id": entry_id}
+
+
+@router.post("/runs/{run_id}/dev-feedback")
+async def submit_dev_feedback(run_id: str, req: DevFeedbackRequest, request: Request):
+    """Submit developer feedback (bug reports, suggestions)."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
+
+    user_email = getattr(request.state, "user_email", "")
+
+    entry = {
+        "type": "developer_feedback",
+        "run_id": run_id,
+        "dataset_name": run.dataset_name,
+        "text": req.text,
+        "category": req.category,
+        "submitter_email": user_email,
+    }
+
+    output_dir = Path(run.run_dir) / "output" / run.dataset_name
+    if output_dir.exists():
+        save_feedback(entry, output_dir)
+
+    if is_sheets_configured():
+        append_feedback_to_sheet(
+            run_id=run_id,
+            dataset_name=run.dataset_name,
+            feedback_text=req.text,
+            category=req.category,
+            pipeline_status=run.status,
+            submitter_email=user_email,
+        )
+
+    # RLHF + activity logging
+    from src.api.services.rlhf_log import log_interaction
+    from src.api.services.activity_log import log_activity
+    log_interaction(Path(run.run_dir), user_email, "dev_feedback", {
+        "text": req.text, "category": req.category,
+    })
+    log_activity(request.app.state.output_dir, user_email, "dev_feedback_submit", {
+        "run_id": run_id,
+    })
+
+    return {"saved": True}

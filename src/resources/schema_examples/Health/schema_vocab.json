@@ -255,5 +255,93 @@
       "placeOfResidenceClassification",
       "race"
     ]
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "Percent_WorkRelatedPhysicalActivity_ModerateActivityOrHeavyActivity_In_Count_Person_Male_IncomeOf80To100Percentile",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person_Male_IncomeOf80To100Percentile",
+      "gender": "dcs:Male",
+      "income": "dcs:Percentile80To100",
+      "healthBehavior": "dcs:WorkRelatedPhysicalActivity",
+      "physicalActivityEffortLevel": "dcs:ModerateActivityLevel__HeavyActivityLevel"
+    },
+    {
+      "dcid": "Count_MedicalConditionIncident_ConditionDengueDisease_OtherRace",
+      "populationType": "dcs:MedicalConditionIncident",
+      "measuredProperty": "dcs:count",
+      "race": "dcs:CDC_OtherRace",
+      "medicalCondition": "dcs:DengueDisease"
+    },
+    {
+      "dcid": "Percent_150To299Minutes_HealthEnhancingPhysicalActivity_In_Count_Person_UpperSecondaryEducationOrPostSecondaryNonTertiaryEducation_Female",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person_UpperSecondaryEducationOrPostSecondaryNonTertiaryEducation_Female",
+      "gender": "dcs:Female",
+      "educationalAttainment": "dcs:UpperSecondaryEducation__PostSecondaryNonTertiaryEducation",
+      "healthBehavior": "dcs:HealthEnhancingPhysicalActivity",
+      "activityDuration": "dcs:Minute150To299"
+    },
+    {
+      "dcid": "Count_MedicalConditionIncident_ConditionSyphilisPrimaryAndSecondary_NonUSResident",
+      "populationType": "dcs:MedicalConditionIncident",
+      "measuredProperty": "dcs:count",
+      "residentStatus": "dcs:NonUSResident",
+      "medicalCondition": "dcs:SyphilisPrimaryAndSecondary"
+    },
+    {
+      "dcid": "Count_MedicalConditionIncident_ConditionMusculoSkeletalCondition_AsAFractionOf_Count_Person",
+      "populationType": "dcs:MedicalConditionIncident",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person",
+      "medicalCondition": "dcs:MusculoSkeletalCondition"
+    },
+    {
+      "dcid": "Percent_NotInTheLast12Months_AlcoholConsumption_In_Count_Person_Rural_Female",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person_Rural_Female",
+      "gender": "dcs:Female",
+      "placeOfResidenceClassification": "dcs:Rural",
+      "healthBehavior": "dcs:AlcoholConsumption",
+      "activityFrequency": "dcs:NotInTheLast12Months"
+    },
+    {
+      "dcid": "Count_Person_45To49Years_ConditionDiseasesOfHeart",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "age": "dcs:Years45To49",
+      "medicalCondition": "dcs:DiseasesOfHeart"
+    },
+    {
+      "dcid": "Count_MedicalConditionIncident_15To29Years_Male_ConditionCancer_Urban_AsAFractionOf_Count_Person",
+      "populationType": "dcs:MedicalConditionIncident",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person",
+      "gender": "dcs:Male",
+      "age": "dcs:Years15To29",
+      "placeOfResidenceClassification": "dcs:Urban",
+      "medicalCondition": "dcs:Cancer"
+    },
+    {
+      "dcid": "Count_MedicalConditionIncident_60To69Years_ConditionEyeCondition_Urban_AsAFractionOf_Count_Person",
+      "populationType": "dcs:MedicalConditionIncident",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person",
+      "age": "dcs:Years60To69",
+      "placeOfResidenceClassification": "dcs:Urban",
+      "medicalCondition": "dcs:EyeCondition"
+    },
+    {
+      "dcid": "Count_Person_Male_BodyMassIndexBelowNormal_Rural_AsAFractionOf_Count_Person_Rural_Male",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Person_Rural_Male",
+      "gender": "dcs:Male",
+      "placeOfResidenceClassification": "dcs:Rural",
+      "healthBehavior": "dcs:BodyMassIndexBelowNormal"
+    }
+  ]
 }

@@ -245,3 +245,12 @@ CLAUDE.md
 docs/superpowers/
 .worktrees/
 output_test_cleanup/
+feedback/
+.superpowers
+
+# Frontend (React + Vite)
+frontend/node_modules/
+frontend/dist/
+# Un-ignore frontend/src/lib/ (root .gitignore has lib/ pattern for Python venvs)
+!frontend/src/lib/
+!frontend/src/lib/**

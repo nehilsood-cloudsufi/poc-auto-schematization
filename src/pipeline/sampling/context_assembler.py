@@ -27,6 +27,7 @@ from src.agents.sampling.schemas import (
     SemanticAnalysis,
 )
 from src.agents.template_utils import escape_pvmap_placeholders
+from src.pipeline.pvmap_skeleton.skeleton_generator import PASSTHROUGH_CARDINALITY_THRESHOLD
 from src.pipeline.sampling.profiler import DatasetProfile
 from src.pipeline.sampling.statvar_grounder import GroundedStatVar
 
@@ -231,7 +232,7 @@ def _generate_place_hints(
         'ISO_2': ('country/{val}', 'country/'),
         'ISO_3': ('country/{val}', 'country/'),
         'DC_DCID': ('{val}', ''),
-        'NAME': ('wikidataId/{val}', 'wikidataId/'),
+        'NAME': ('{val}', ''),  # NAME needs per-value resolution, not wikidataId/ prefix
         'NUMERIC_CODE': ('geoId/{val}', 'geoId/'),
     }
 
@@ -255,6 +256,10 @@ def _generate_place_hints(
                 suggested = f"geoId/{raw_str}"
         elif geo_format == 'DC_DCID':
             suggested = raw_str
+        elif geo_format == 'NAME':
+            # NAME format: suggest country/ prefix as a hint, but mark as
+            # needing resolution (wikidataId/{name} is NOT a valid DCID)
+            suggested = f"country/TODO_RESOLVE_{raw_str.replace(' ', '_')}"
         elif prefix:
             suggested = f"{prefix}{raw_str}"
         else:
@@ -266,6 +271,14 @@ def _generate_place_hints(
         })
 
     return hints
+
+
+def _get_dc_property_for_dim(skeleton: RelationalSkeleton, dim: str) -> str:
+    """Extract dc_property for a dimension from skeleton edges."""
+    for edge in skeleton.edges:
+        if edge.source == dim and edge.dc_property:
+            return edge.dc_property
+    return ""
 
 
 def _generate_one_shot(
@@ -298,6 +311,8 @@ def _generate_one_shot(
     if geo_info:
         geo_col = geo_info.get("column", "")
         geo_format = geo_info.get("format", "NAME")
+        geo_unique = geo_info.get("unique_values", 0)
+        geo_samples = geo_info.get("sample_values", [])
         format_info = GEO_FORMAT_MAP.get(geo_format)
         if format_info:
             _, prefix = format_info
@@ -307,6 +322,16 @@ def _generate_one_shot(
                 lines.append(f'{geo_col},#Format,observationAbout=geoId/{{Number:0>5}}')
             elif geo_format == 'DC_DCID':
                 lines.append(f'{geo_col},observationAbout,{{Data}}')
+            elif geo_format == 'NAME' and 0 < geo_unique <= 10 and geo_samples:
+                # For NAME format with low cardinality, enumerate per-value
+                # rows so the LLM sees it must resolve each name to a DCID.
+                # wikidataId/{name} is NOT valid — the LLM must find real DCIDs.
+                for val in geo_samples:
+                    val_str = str(val).strip()
+                    lines.append(
+                        f'{geo_col}:{val_str},observationAbout,'
+                        f'TODO_RESOLVE_DCID_FOR_{val_str.replace(" ", "_")}'
+                    )
             elif prefix:
                 lines.append(f'{geo_col},observationAbout,{prefix}{{Data}}')
             else:
@@ -314,19 +339,28 @@ def _generate_one_shot(
         else:
             lines.append(f'{geo_col},observationAbout,{{Data}}')
 
-    # Time anchor
+    # Time anchor — use {Number} for numeric year formats, {Data} otherwise
     if time_info:
         time_col = time_info.get("column", "")
-        lines.append(f'{time_col},observationDate,{{Data}}')
+        time_format = time_info.get("format", "")
+        NUMERIC_TIME_FORMATS = {"YYYY", "YEAR", "year", "yyyy"}
+        if time_format in NUMERIC_TIME_FORMATS:
+            lines.append(f'{time_col},observationDate,{{Number}}')
+        else:
+            lines.append(f'{time_col},observationDate,{{Data}}')
 
-    # Dimension values (enumerate for dims with <=10 values)
+    # Dimension values: enumerate for low-cardinality, passthrough for high-cardinality
     for dim in skeleton.dimension_columns:
         values = dimension_domains.get(dim, [])
-        if 0 < len(values) <= 10:
+        if 0 < len(values) <= PASSTHROUGH_CARDINALITY_THRESHOLD:
             for val in values:
                 val_str = str(val)
                 dim_prop = dim.lower().replace(' ', '')
                 lines.append(f'{dim}:{val_str},{dim_prop},{val_str}')
+        elif len(values) > PASSTHROUGH_CARDINALITY_THRESHOLD:
+            # High-cardinality: use passthrough pattern instead of enumerating
+            dc_prop = _get_dc_property_for_dim(skeleton, dim) or dim.lower().replace(' ', '')
+            lines.append(f'{dim},{dc_prop},{{Data}}')
 
     # Value column with StatVar properties
     if value_columns:
@@ -374,7 +408,11 @@ def _assemble_skeleton_summary(
 ) -> str:
     """Assemble the 11-section skeleton summary markdown."""
     lines = []
-    dataset_name = Path(profile.file_path).parent.parent.name
+    # Derive dataset name: prefer the grandparent directory, but fall back
+    # to parent if grandparent is a generic name like "output" or "test_data"
+    _gp = Path(profile.file_path).parent.parent.name
+    _p = Path(profile.file_path).parent.name
+    dataset_name = _p if _gp in ("output", "test_data", "input", ".") else _gp
 
     # === Section 1: Topology & Structure ===
     lines.append("## 1. TOPOLOGY & STRUCTURE")
@@ -473,6 +511,12 @@ def _assemble_skeleton_summary(
             if len(values) > 15:
                 values_str += f", ... ({len(values)} total)"
             lines.append(f"- **`{dim}`** ({len(values)} values): [{values_str}]")
+            # Cardinality-based mapping strategy guidance
+            if len(values) > PASSTHROUGH_CARDINALITY_THRESHOLD:
+                lines.append(
+                    f"  **MAPPING STRATEGY:** Use passthrough `{dim},dc_property,{{Data}}` "
+                    f"— do NOT enumerate all {len(values)} values individually"
+                )
             agg_flags_dict = skeleton.get_aggregate_flags_dict()
             agg_vals = agg_flags_dict.get(dim, [])
             if agg_vals:
@@ -647,14 +691,26 @@ def _apply_size_guardrail(
     )
 
     # Trim 1: Reduce Section 4 dimension values (15 -> 5)
-    # This is a rough trim via string replacement
-    for dim, values in dimension_domains.items():
-        if len(values) > 5:
-            old_preview = ", ".join(str(v) for v in values[:15])
-            new_preview = ", ".join(str(v) for v in values[:5])
+    # Scoped to Section 4 only to avoid corrupting other sections
+    sec4_start = skeleton.find("## 4.")
+    sec5_start = skeleton.find("## 5.", sec4_start + 1 if sec4_start >= 0 else 0)
+    if sec4_start >= 0 and sec5_start > sec4_start:
+        sec4 = skeleton[sec4_start:sec5_start]
+        for dim, values in dimension_domains.items():
             if len(values) > 5:
+                old_preview = ", ".join(str(v) for v in values[:15])
+                new_preview = ", ".join(str(v) for v in values[:5])
                 new_preview += f", ... ({len(values)} total)"
-            skeleton = skeleton.replace(old_preview, new_preview, 1)
+                sec4 = sec4.replace(old_preview, new_preview, 1)
+        skeleton = skeleton[:sec4_start] + sec4 + skeleton[sec5_start:]
+    else:
+        # Fallback: apply globally if section markers not found
+        for dim, values in dimension_domains.items():
+            if len(values) > 5:
+                old_preview = ", ".join(str(v) for v in values[:15])
+                new_preview = ", ".join(str(v) for v in values[:5])
+                new_preview += f", ... ({len(values)} total)"
+                skeleton = skeleton.replace(old_preview, new_preview, 1)
 
     if len(skeleton) <= MAX_SKELETON_SIZE:
         return skeleton
@@ -721,8 +777,14 @@ def _build_data_context_dict(
         vals = dimension_domains.get(dim, [])
         total_combos *= max(1, len(vals))
 
+    # Derive dataset name: prefer the grandparent directory, but fall back
+    # to parent if grandparent is a generic name like "output" or "test_data"
+    _gp = Path(profile.file_path).parent.parent.name
+    _p = Path(profile.file_path).parent.name
+    dataset_name = _p if _gp in ("output", "test_data", "input", ".") else _gp
+
     return {
-        "dataset_name": Path(profile.file_path).parent.parent.name,
+        "dataset_name": dataset_name,
         "topology": analysis.topology,
         "population_type": analysis.population_type,
         "geography": geo_info,
@@ -750,7 +812,7 @@ def _build_data_context_dict(
         "skeleton_summary": skeleton_summary,
         "success": True,
         "data_context": {
-            "dataset_name": Path(profile.file_path).parent.parent.name,
+            "dataset_name": dataset_name,
             "column_roles": column_roles,
             "dimension_columns": skeleton.dimension_columns,
             "row_count": profile.total_rows,

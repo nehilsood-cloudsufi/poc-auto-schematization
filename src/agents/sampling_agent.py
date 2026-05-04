@@ -74,14 +74,16 @@ class ProgrammaticSamplingAgent(BaseAgent):
         if skip_sampling:
             yield self._emit("Sampling skipped per skip_sampling flag")
             ctx.session.state["sampling_success"] = True
-            ctx.session.state["skeleton_summary"] = ""
+            # Preserve existing skeleton_summary from Phase 1 state (if injected
+            # via extra_initial_state). Only set to empty if not already present.
+            if not ctx.session.state.get("skeleton_summary"):
+                ctx.session.state["skeleton_summary"] = ""
             return
 
         current_dataset = ctx.session.state.get("current_dataset")
         if not current_dataset:
             yield self._emit("No current_dataset in session state")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = "No current_dataset specified"
+            self._set_failure_defaults(ctx, "No current_dataset specified")
             return
 
         # Resolve input file
@@ -91,8 +93,7 @@ class ProgrammaticSamplingAgent(BaseAgent):
 
         if not input_file or not input_file.exists():
             yield self._emit(f"No input file found for {current_dataset.name}")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = "No input data file available"
+            self._set_failure_defaults(ctx, "No input data file available")
             return
 
         # Output paths
@@ -154,8 +155,7 @@ class ProgrammaticSamplingAgent(BaseAgent):
             )
             if not sample_result.success:
                 yield self._emit(f"Sampling failed: {sample_result.error}")
-                ctx.session.state["sampling_success"] = False
-                ctx.session.state["error"] = sample_result.error
+                self._set_failure_defaults(ctx, sample_result.error)
                 return
             yield self._emit(
                 f"Sampled {sample_result.rows_sampled} rows "
@@ -199,8 +199,7 @@ class ProgrammaticSamplingAgent(BaseAgent):
         except Exception as e:
             logger.exception("Programmatic sampling failed")
             yield self._emit(f"ERROR: Sampling failed: {e}")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = str(e)
+            self._set_failure_defaults(ctx, str(e))
 
     async def _run_semantic_analysis(
         self, profile: 'DatasetProfile'
@@ -361,6 +360,22 @@ class ProgrammaticSamplingAgent(BaseAgent):
                 fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
                 if fallback.exists():
                     ctx.session.state["sampled_data_path"] = str(fallback)
+
+    def _set_failure_defaults(self, ctx: InvocationContext, error: str) -> None:
+        """Populate safe defaults on sampling failure.
+
+        Downstream agent instructions reference {skeleton_summary} and
+        {data_context} via ADK template resolution. If sampling fails and those
+        keys aren't set, ADK raises 'Context variable not found' and aborts the
+        pipeline. Writing empty defaults lets downstream agents either recover
+        or produce a clean failure that surfaces the underlying cause.
+        """
+        ctx.session.state["sampling_success"] = False
+        ctx.session.state["error"] = error
+        if not ctx.session.state.get("skeleton_summary"):
+            ctx.session.state["skeleton_summary"] = ""
+        if "data_context" not in ctx.session.state:
+            ctx.session.state["data_context"] = {}
 
     def _emit(self, text: str) -> Event:
         """Create an event with text content."""

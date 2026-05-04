@@ -27,3 +27,4 @@ test_input/
 test_output/
 http_cache.sqlite
 src/resources/schema_org/schemaorg_full.jsonld
+frontend/node_modules/

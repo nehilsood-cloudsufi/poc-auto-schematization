@@ -9,7 +9,7 @@ Tests:
 
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.agents.pvmap_generator_agent import (
     create_pvmap_generator,
@@ -42,12 +42,8 @@ class TestPvmapGeneratorWithMCP:
         else:
             assert generator.model == "gemini-3.1-pro-preview"
 
-    @patch("src.data_commons.api.mcp_toolset_factory.create_dc_mcp_toolset")
-    def test_with_mcp_has_tools(self, mock_toolset):
-        """Generator with MCP has MCP toolset in tools list."""
-        mock_ts = MagicMock()
-        mock_toolset.return_value = mock_ts
-
+    def test_with_mcp_has_local_dc_tools(self):
+        """Generator with MCP has local DC tools (no MCP toolset — moved to plan phase)."""
         generator = create_pvmap_generator(
             model="gemini-3.1-pro-preview",
             name="TestGen",
@@ -55,25 +51,29 @@ class TestPvmapGeneratorWithMCP:
             mcp_url="http://localhost:3000/mcp",
         )
 
-        assert mock_ts in generator.tools
+        tool_names = [t.__name__ for t in generator.tools if callable(t)]
+        assert "validate_pvmap_property" in tool_names
+        assert "resolve_place_names" in tool_names
+        assert "validate_statvar_observation" in tool_names
+        assert "get_entity_type" in tool_names
 
     def test_mcp_enabled_without_url_no_mcp_tools(self):
-        """MCP enabled but no URL = no MCP toolset added (schema.org + local DC tools present)."""
+        """MCP enabled but no URL = validate tool + local DC tools present, no MCP toolset."""
         generator = create_pvmap_generator(
             model="gemini-3.1-pro-preview",
             enable_mcp=True,
             mcp_url=None,
         )
 
-        # Should have schema.org tools + local DC tools but no MCP toolset
+        # Should have validate_pvmap_property + local DC tools but no MCP toolset
         tools = getattr(generator, 'tools', []) or []
-        assert len(tools) == 8  # 5 schema.org + 3 local DC tools
+        assert len(tools) == 4  # 1 schema.org validate + 3 local DC tools
         tool_names = [t.__name__ for t in tools if callable(t)]
-        assert "lookup_schemaorg_type" in tool_names
-        assert "lookup_schemaorg_property" in tool_names
-        assert "search_schemaorg_vocabulary" in tool_names
         assert "validate_pvmap_property" in tool_names
-        assert "get_schemaorg_type_hierarchy" in tool_names
+        assert "lookup_schemaorg_type" not in tool_names
+        assert "lookup_schemaorg_property" not in tool_names
+        assert "search_schemaorg_vocabulary" not in tool_names
+        assert "get_schemaorg_type_hierarchy" not in tool_names
         assert "resolve_place_names" in tool_names
         assert "validate_statvar_observation" in tool_names
         assert "get_entity_type" in tool_names
@@ -111,12 +111,11 @@ class TestPvmapGeneratorWithMCP:
         assert "{{STATVAR_SUMMARY}}" in template
         assert "{{MCP_TOOLS_INSTRUCTION}}" in template
 
-    def test_template_has_no_dcid_rule(self):
-        """Template bans dcid: prefix in Rule 1."""
+    def test_template_has_dcs_prefix_rule(self):
+        """Template requires dcs: prefix in Rule 1."""
         template = TEMPLATE_PATH.read_text(encoding="utf-8")
-        assert "NO dcid: PREFIX" in template
-        assert "dcid:Person" in template  # WRONG example
-        assert "populationType,Person" in template  # CORRECT example
+        assert "USE dcs: PREFIX" in template
+        assert "populationType,dcs:Person" in template  # CORRECT example
 
     def test_template_has_json_output_format(self):
         """Template describes JSON output format (not CSV)."""
@@ -138,11 +137,9 @@ class TestPvmapGeneratorWithMCP:
         generator = create_pvmap_generator(model="gemini-3.1-pro-preview")
         assert generator.output_schema == PVMAPOutput
 
-    @patch("src.data_commons.api.mcp_toolset_factory.create_dc_mcp_toolset")
-    def test_output_schema_with_mcp(self, mock_toolset):
+    def test_output_schema_with_mcp(self):
         """Generator with MCP still has output_schema."""
         from src.agents.pvmap_generation.schemas import PVMAPOutput
-        mock_toolset.return_value = MagicMock()
 
         generator = create_pvmap_generator(
             enable_mcp=True,
@@ -155,7 +152,11 @@ class TestPvmapHelpersPromptPopulation:
     """Tests for build_prompt_with_feedback template population."""
 
     def test_all_placeholders_replaced(self, temp_dir):
-        """All template placeholders get replaced."""
+        """All template placeholders get replaced.
+
+        Uses the v3 two-section feedback placeholders. Legacy error_feedback
+        is routed into {{AUTO_FEEDBACK}} for backward compatibility.
+        """
         from src.agents.pvmap_generation.helpers import build_prompt_with_feedback
 
         template_path = temp_dir / "template.txt"
@@ -164,7 +165,8 @@ class TestPvmapHelpersPromptPopulation:
             "Schema: {{SCHEMA_EXAMPLES}}\n"
             "Data: {{SAMPLED_DATA}}\n"
             "Metadata: {{METADATA_CONFIG}}\n"
-            "Feedback: {{ERROR_FEEDBACK}}\n"
+            "Human: {{HUMAN_FEEDBACK}}\n"
+            "Auto: {{AUTO_FEEDBACK}}\n"
             "StatVars: {{STATVAR_SUMMARY}}\n"
             "MCP: {{MCP_TOOLS_INSTRUCTION}}\n"
         )
@@ -182,6 +184,7 @@ class TestPvmapHelpersPromptPopulation:
         assert "my_schema" in prompt
         assert "my_data" in prompt
         assert "my_metadata" in prompt
+        # Legacy error_feedback goes into AUTO_FEEDBACK section
         assert "fix the key" in prompt
         assert "Count_Person HIGH" in prompt
         assert "column table here" in prompt
@@ -197,7 +200,7 @@ class TestPvmapHelpersPromptPopulation:
             "Schema: {{SCHEMA_EXAMPLES}}\n"
             "Data: {{SAMPLED_DATA}}\n"
             "Metadata: {{METADATA_CONFIG}}\n"
-            "Feedback: {{ERROR_FEEDBACK}}\n"
+            "Auto: {{AUTO_FEEDBACK}}\n"
             "StatVars: {{STATVAR_SUMMARY}}\n"
         )
 
@@ -208,5 +211,5 @@ class TestPvmapHelpersPromptPopulation:
             metadata_content="metadata",
         )
 
-        assert "Feedback: \n" in prompt  # Empty feedback
+        assert "Auto: \n" in prompt  # Empty auto feedback
         assert "StatVars: \n" in prompt  # Empty statvars

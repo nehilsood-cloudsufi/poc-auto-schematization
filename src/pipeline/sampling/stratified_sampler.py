@@ -264,14 +264,22 @@ def _execute_stratified_with_coverage(
 
         valid_dims = [c for c in dimension_columns if c in df.columns]
         if not valid_dims:
-            # Fallback to random if no valid dimension columns
-            return _sample_random(file_path, output_path, target_rows)
+            # Fallback to random — use cleaned df (metadata rows excluded)
+            df.sample(n=min(target_rows, len(df))).to_csv(output_path, index=False)
+            return {"success": True, "rows_sampled": min(target_rows, len(df))}
 
         # PASS 1: Coverage guarantee — one representative row per unique value per dimension
         coverage_indices = set()
         for dim_col in valid_dims:
             for val in df[dim_col].unique():
-                candidates = df[df[dim_col] == val].index
+                # NaN != NaN in pandas, so equality-based lookup returns empty.
+                # Use isna() for NaN, equality otherwise.
+                if pd.isna(val):
+                    candidates = df[df[dim_col].isna()].index
+                else:
+                    candidates = df[df[dim_col] == val].index
+                if len(candidates) == 0:
+                    continue
                 # Pick the first candidate not already selected
                 added = False
                 for idx in candidates:

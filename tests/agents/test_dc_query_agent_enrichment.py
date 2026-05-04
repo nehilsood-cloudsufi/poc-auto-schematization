@@ -286,9 +286,18 @@ class TestInstructionTemplates:
         assert "{pvmap_csv}" in ERROR_RESOLVER_INSTRUCTION
 
     def test_mcp_tools_instruction_content(self):
-        """MCP tools instruction mentions both tools."""
-        assert "search_indicators" in MCP_TOOLS_INSTRUCTION
-        assert "get_observations" in MCP_TOOLS_INSTRUCTION
+        """MCP tools instruction lists only tools actually wired into the PVMAP
+        generator. search_indicators / get_observations live in a separate MCP
+        toolset and are NOT available here — the instruction must not claim
+        they are, because the LLM hallucinates those tool names and ADK aborts
+        the pipeline with 'Tool not found'.
+        """
+        assert "resolve_place_names" in MCP_TOOLS_INSTRUCTION
+        assert "validate_statvar_observation" in MCP_TOOLS_INSTRUCTION
+        assert "get_entity_type" in MCP_TOOLS_INSTRUCTION
+        # The generator does NOT have search_indicators or get_observations
+        # exposed. Only mention them to explicitly forbid calling them.
+        assert "search_indicators" not in MCP_TOOLS_INSTRUCTION.split("NOT available")[-1]
 
 
 # =============================================================================

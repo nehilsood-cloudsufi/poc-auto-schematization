@@ -1,0 +1,9 @@
+{
+  "nodes-ground-truth": 14,
+  "nodes-auto-generated": 16,
+  "nodes-matched": 2,
+  "PVs-matched": 12,
+  "pvs-modified": 18,
+  "pvs-deleted": 3,
+  "pvs-added": 5
+}

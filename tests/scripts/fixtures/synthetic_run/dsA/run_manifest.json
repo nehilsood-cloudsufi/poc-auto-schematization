@@ -1,0 +1,11 @@
+{
+  "dataset": "dsA",
+  "git_sha": "abc1234",
+  "git_branch": "test-branch",
+  "git_dirty": false,
+  "started_at": "2026-04-17T11:59:45",
+  "cli_args": {"model": "gemini-3.1-pro-preview", "enable_mcp": true, "prompt_version": "v3"},
+  "pipeline_config": {"prompt_version": "v3", "sampling_mode": "programmatic"},
+  "worker_id": 0,
+  "mcp_port": 3000
+}

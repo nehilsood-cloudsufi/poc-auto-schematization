@@ -23,13 +23,7 @@ from google.adk.agents import LlmAgent
 from src.agents.pvmap_generation.schemas import PVMAPOutput
 from src.agents.retry_config import create_resilient_model
 from src.agents.template_utils import build_thinking_config
-from src.tools.schemaorg_tools import (
-    lookup_schemaorg_type,
-    lookup_schemaorg_property,
-    search_schemaorg_vocabulary,
-    validate_pvmap_property,
-    get_schemaorg_type_hierarchy,
-)
+from src.tools.schemaorg_tools import validate_pvmap_property
 
 
 # ============================================================================
@@ -84,14 +78,8 @@ def create_pvmap_generator(
     # Build tools list
     tools = []
 
-    # Schema.org vocabulary lookup tools (always available)
-    tools.extend([
-        lookup_schemaorg_type,
-        lookup_schemaorg_property,
-        search_schemaorg_vocabulary,
-        validate_pvmap_property,
-        get_schemaorg_type_hierarchy,
-    ])
+    # Schema.org validation tool (lightweight, always available)
+    tools.append(validate_pvmap_property)
 
     # Local DC tools (always available when MCP enabled, no server required)
     if enable_mcp:
@@ -99,11 +87,6 @@ def create_pvmap_generator(
             resolve_place_names, validate_statvar_observation, get_entity_type,
         )
         tools.extend([resolve_place_names, validate_statvar_observation, get_entity_type])
-
-    if enable_mcp and mcp_url:
-        from src.data_commons.api.mcp_toolset_factory import create_dc_mcp_toolset
-        mcp_toolset = create_dc_mcp_toolset(mcp_url=mcp_url)
-        tools.append(mcp_toolset)
 
     kwargs = dict(
         name=name,

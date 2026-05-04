@@ -97,7 +97,6 @@ python src/run_pipeline.py --dry-run
 | `--model` or `-m` | Override default LLM model | `gemini-3.1-pro-preview` | `--model=gemini-2.5-pro` |
 | **MCP Integration** |
 | `--enable-mcp` | Enable Data Commons MCP for StatVar discovery | False | `--enable-mcp` |
-| `--enable-schemaorg-mcp` | Enable Schema.org MCP for vocabulary lookup | False | `--enable-schemaorg-mcp` |
 | **Model & Generation** |
 | `--thinking-level` | Gemini thinking level: low, medium, high, minimal, none | `high` | `--thinking-level=medium` |
 | `--prompt-version` | PVMAP prompt template version (v1 or v2) | `v2` | `--prompt-version=v1` |

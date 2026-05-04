@@ -28,7 +28,7 @@ Key ADK features used:
 import os
 import sys
 from pathlib import Path
-from typing import Optional, AsyncGenerator
+from typing import Any, Optional, AsyncGenerator
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -40,7 +40,7 @@ import re
 
 from pydantic import PrivateAttr
 
-from google.adk.agents import LoopAgent, BaseAgent, LlmAgent
+from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
@@ -154,6 +154,27 @@ def _compact_dimension_section(section_text: str, max_values: int = 5) -> str:
                     line = line[:bracket_start + 1] + trimmed + ', ' + total + ']'
         result.append(line)
     return '\n'.join(result)
+
+
+def format_statvar_examples_for_prompt(examples, max_chars=3000):
+    """Format StatVar examples as compact reference for the LLM prompt."""
+    if not examples:
+        return ""
+    lines = [
+        "## Real Data Commons StatVar Decompositions",
+        "Use these as reference for property names and dcs: prefix usage.",
+        "Every StatVar MUST decompose into: populationType + measuredProperty + constraint properties.",
+        "",
+    ]
+    for sv in examples:
+        dcid = sv.get("dcid", "")
+        props = [f"{k}: {v}" for k, v in sv.items() if k != "dcid"]
+        line = f"  {dcid}: {', '.join(props)}"
+        candidate = "\n".join(lines + [line])
+        if len(candidate) > max_chars:
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _compact_skeleton_for_feedback(skeleton: str) -> str:
@@ -323,6 +344,28 @@ def _compact_vocab_for_generator(vocab_content: str, budget: int = 15000) -> str
     return compacted
 
 
+def classify_validation_error(validation_output: str, data_rows: int) -> str:
+    """Classify a validation error as Tier 1 (syntax) or Tier 2 (semantic).
+
+    Tier 1 (syntax): bad CSV format, wrong prefix, missing key match
+    Tier 2 (semantic): duplicate observations, wrong column roles, zero data rows
+
+    Returns: "tier1_syntax" or "tier2_semantic"
+    """
+    output_lower = validation_output.lower() if validation_output else ""
+
+    # Tier 2 signals: semantic/structural problems requiring plan revision
+    if data_rows == 0:
+        return "tier2_semantic"
+    if "duplicate observation" in output_lower or "duplicate statvar" in output_lower:
+        return "tier2_semantic"
+    if "no data rows" in output_lower or "0 data rows" in output_lower:
+        return "tier2_semantic"
+
+    # Everything else is Tier 1: syntax/formatting
+    return "tier1_syntax"
+
+
 class GeneratorWrapperAgent(BaseAgent):
     """Wrapper that creates a fresh Generator per iteration.
 
@@ -447,11 +490,29 @@ class StatePreparationAgent(BaseAgent):
         # =====================================================================
         if attempt == 0:
             ctx.session.state["quality_metrics_history"] = []
-            # Preserve human feedback if injected (for UI re-runs)
-            if not ctx.session.state.get("human_feedback_provided"):
+            # Initialize or load feedback ledger
+            ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+            if ledger_json:
+                # Ledger was passed from feedback.py (accumulated feedback)
+                pass  # ledger already in state
+            elif ctx.session.state.get("human_feedback_provided"):
+                # Legacy: human_feedback was injected as raw string, wrap in ledger
+                from src.api.models.feedback import FeedbackEntry, FeedbackType, FeedbackLedger as FL
+                raw = ctx.session.state.get("error_feedback", "")
+                ledger = FL()
+                if raw:
+                    ledger.add_entry(FeedbackEntry(
+                        type=FeedbackType.FREE_TEXT, round=1,
+                        source="human", content=raw,
+                    ))
+                ctx.session.state["feedback_ledger_json"] = ledger.model_dump_json()
+            else:
+                from src.api.models.feedback import FeedbackLedger as FL
+                ctx.session.state["feedback_ledger_json"] = FL().model_dump_json()
                 ctx.session.state["error_feedback"] = ""
             ctx.session.state["exit_reason"] = None
             ctx.session.state["validation_counter_summary"] = ""
+            ctx.session.state["column_completeness_report"] = ""
             # Initialize best-attempt tracking
             ctx.session.state["best_data_rows"] = 0
             ctx.session.state["best_pvmap_csv"] = None
@@ -460,9 +521,108 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["best_heuristic_score"] = 0
             ctx.session.state["best_pv_accuracy"] = None
             ctx.session.state["best_quality_metrics"] = {}
+            ctx.session.state["quality_metrics_display"] = ""
 
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
+
+            # Generate PVMAP skeleton + verify properties + write artifact
+            skip_discovery = ctx.session.state.get("skip_column_discovery", False)
+            data_context = ctx.session.state.get("data_context", {})
+            if not skip_discovery and data_context and data_context.get("column_roles"):
+                try:
+                    from src.pipeline.pvmap_skeleton.skeleton_generator import (
+                        build_column_manifest, generate_pvmap_skeleton,
+                        write_discovery_artifact,
+                    )
+                    from src.pipeline.pvmap_skeleton.skeleton_verifier import (
+                        verify_skeleton_properties,
+                        correct_skeleton_from_verification,
+                    )
+                    manifest = build_column_manifest(data_context)
+                    pvmap_skeleton = generate_pvmap_skeleton(manifest, data_context)
+
+                    # Verify properties against Schema.org + DC API + MCP
+                    mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+                    mcp_url = ctx.session.state.get("mcp_url")
+                    # Only use DC API if key is configured
+                    import os as _os
+                    dc_api_available = bool(_os.environ.get("DC_API_KEY") or _os.environ.get("GEMINI_API_KEY"))
+                    verification = verify_skeleton_properties(
+                        skeleton_csv=pvmap_skeleton,
+                        manifest=manifest,
+                        data_context=data_context,
+                        use_dc_api=dc_api_available,
+                        use_mcp=mcp_enabled,
+                        mcp_url=mcp_url,
+                    )
+
+                    # Correct invalid properties in skeleton using verification results
+                    pvmap_skeleton = correct_skeleton_from_verification(
+                        pvmap_skeleton, verification,
+                    )
+
+                    ctx.session.state["pvmap_skeleton"] = pvmap_skeleton
+                    ctx.session.state["column_manifest"] = manifest
+                    ctx.session.state["column_verification"] = verification
+
+                    # Write discovery artifact
+                    current_dataset = ctx.session.state.get("current_dataset")
+                    if current_dataset and hasattr(current_dataset, 'output_dir'):
+                        write_discovery_artifact(
+                            manifest, verification, data_context,
+                            str(current_dataset.output_dir),
+                        )
+
+                    logger.info(
+                        "Column discovery: %d/%d properties verified, sources=%s",
+                        verification.get("properties_valid", 0),
+                        verification.get("properties_checked", 0),
+                        verification.get("verification_sources", []),
+                    )
+
+                    # Phase 3: MCP enrichment (if MCP available)
+                    mcp_enabled = ctx.session.state.get("mcp_enabled", False)
+                    mcp_url_val = ctx.session.state.get("mcp_url")
+                    if mcp_enabled and mcp_url_val:
+                        try:
+                            from src.pipeline.pvmap_skeleton.mcp_enrichment import (
+                                enrich_via_mcp_hybrid,
+                                enrich_skeleton_with_results,
+                                format_dimension_reference,
+                            )
+                            enrichment = await enrich_via_mcp_hybrid(
+                                data_context=data_context,
+                                verification=verification,
+                                mcp_url=mcp_url_val,
+                            )
+                            if enrichment.get("enrichment_success"):
+                                pvmap_skeleton = enrich_skeleton_with_results(
+                                    pvmap_skeleton, enrichment,
+                                    verification=verification,
+                                )
+                                ctx.session.state["pvmap_skeleton"] = pvmap_skeleton
+                                dim_ref = format_dimension_reference(enrichment)
+                                ctx.session.state["dimension_value_reference"] = dim_ref
+                                ctx.session.state["mcp_enrichment"] = enrichment
+                                logger.info(
+                                    "MCP enrichment: %d mappings, %d patterns, %d suggestions",
+                                    len(enrichment.get("column_mappings", {})),
+                                    len(enrichment.get("cross_column_patterns", [])),
+                                    len(enrichment.get("llm_suggestions", {})),
+                                )
+                        except Exception as e:
+                            logger.warning("MCP enrichment failed (non-fatal): %s", e)
+                            ctx.session.state["dimension_value_reference"] = ""
+                    else:
+                        ctx.session.state["dimension_value_reference"] = ""
+
+                except Exception as e:
+                    logger.warning("Failed to generate/verify PVMAP skeleton: %s", e)
+                    ctx.session.state["pvmap_skeleton"] = ""
+                    ctx.session.state["column_manifest"] = {}
+                    ctx.session.state["column_verification"] = {}
+                    ctx.session.state["dimension_value_reference"] = ""
 
         # =====================================================================
         # Reset per-iteration flags
@@ -641,6 +801,8 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["skeleton_summary"] = ""
         if "statvar_summary" not in ctx.session.state:
             ctx.session.state["statvar_summary"] = ""
+        if "approved_mapping_plan" not in ctx.session.state:
+            ctx.session.state["approved_mapping_plan"] = ""
         if "structure_warnings" not in ctx.session.state:
             ctx.session.state["structure_warnings"] = ""
         if "quality_diff_summary" not in ctx.session.state:
@@ -700,16 +862,66 @@ class StatePreparationAgent(BaseAgent):
             )
 
         # =====================================================================
-        # CRITICAL: Escape PVMAP placeholders in feedback to prevent templating errors
+        # Parse auto_feedback_raw from previous iteration into ledger
+        # =====================================================================
+        auto_raw = ctx.session.state.pop("auto_feedback_raw", "")
+        if auto_raw and attempt > 0:
+            ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+            if ledger_json:
+                from src.api.models.feedback import FeedbackEntry, FeedbackType, FeedbackLedger as FL
+                ledger = FL.model_validate_json(ledger_json)
+                ledger.clear_auto_entries()
+                ledger.add_entry(FeedbackEntry(
+                    type=FeedbackType.AUTO, round=attempt,
+                    source="auto", content=auto_raw,
+                ))
+                ctx.session.state["feedback_ledger_json"] = ledger.model_dump_json()
+
+        # =====================================================================
+        # CRITICAL: Render feedback ledger into prompt sections and escape
+        # PVMAP placeholders to prevent ADK templating errors.
         # The generator instruction uses {error_feedback},
         # which may contain PVMAP snippets with {Data}/{Number} from LLM analysis
         # =====================================================================
-        error_feedback = ctx.session.state.get("error_feedback", "")
-        if error_feedback:
-            # Cap feedback size to prevent token overflow across iterations
-            if len(error_feedback) > 4000:
-                error_feedback = error_feedback[:4000] + "\n...[truncated for token budget]"
-            ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
+        ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+        if ledger_json:
+            from src.api.models.feedback import FeedbackLedger as FL
+            from src.api.services.feedback_merger import FeedbackMerger
+            ledger = FL.model_validate_json(ledger_json)
+            merger = FeedbackMerger()
+            human_text, auto_text = merger.render_separate(ledger)
+            merged = merger.merge(ledger)
+
+            # Cap and escape each section
+            if len(merged) > 4000:
+                merged = merged[:4000] + "\n...[truncated for token budget]"
+
+            ctx.session.state["human_feedback_prompt"] = escape_pvmap_placeholders(human_text)
+            ctx.session.state["auto_feedback_prompt"] = escape_pvmap_placeholders(auto_text)
+            ctx.session.state["error_feedback"] = escape_pvmap_placeholders(merged)
+            ctx.session.state["human_feedback_provided"] = ledger.has_human_entries()
+            ctx.session.state["human_instructions_summary"] = escape_pvmap_placeholders(
+                merger.render_human_summary(ledger)
+            )
+
+            # Persist ledger to disk for API access
+            try:
+                current_dataset = ctx.session.state.get("current_dataset")
+                if current_dataset and hasattr(current_dataset, "output_dir"):
+                    from src.api.services.feedback_store import save_ledger_to_disk
+                    save_ledger_to_disk(ledger, Path(current_dataset.output_dir))
+            except Exception as e:
+                logger.warning("Failed to persist ledger to disk: %s", e)
+        else:
+            # Fallback: no ledger, use raw error_feedback
+            error_feedback = ctx.session.state.get("error_feedback", "")
+            if error_feedback:
+                if len(error_feedback) > 4000:
+                    error_feedback = error_feedback[:4000] + "\n...[truncated for token budget]"
+                ctx.session.state["error_feedback"] = escape_pvmap_placeholders(error_feedback)
+            ctx.session.state.setdefault("human_feedback_prompt", "")
+            ctx.session.state.setdefault("auto_feedback_prompt", "")
+            ctx.session.state.setdefault("human_instructions_summary", "(No human instructions provided)")
 
         if "validation_counter_summary" not in ctx.session.state:
             ctx.session.state["validation_counter_summary"] = ""
@@ -762,11 +974,39 @@ class StatePreparationAgent(BaseAgent):
         'populated_pvmap_prompt', which the generator's instruction
         ({populated_pvmap_prompt}) resolves at runtime.
 
+        If an enriched mapping plan (with statvar_blueprint) is available in
+        state as 'approved_plan_json', the executor prompt is used instead of
+        the standard PVMAP prompt. The executor prompt is a simpler, more
+        mechanical translation that follows the pre-approved plan faithfully.
+
         Template placeholders ({{...}}) are filled with state values.
         PVMAP placeholders ({Data}, {Number}, {Year}, etc.) are then escaped
         to [DATA], [NUMBER], [Year] to prevent ADK template resolution errors.
         """
-        template_name = "improved_pvmap_prompt_v2.txt"
+        # =================================================================
+        # Check if we have an enriched plan — use executor prompt if so
+        # =================================================================
+        approved_plan_json = ctx.session.state.get("approved_plan_json", "")
+        use_executor = False
+        enriched_plan = None
+
+        if approved_plan_json:
+            try:
+                import json
+                plan_data = json.loads(approved_plan_json) if isinstance(approved_plan_json, str) else approved_plan_json
+                if "statvar_blueprint" in plan_data:
+                    from src.api.models.plan import EnrichedMappingPlan
+                    enriched_plan = EnrichedMappingPlan.model_validate(plan_data)
+                    use_executor = True
+            except Exception as e:
+                logger.warning("Failed to parse enriched plan, falling back to standard prompt: %s", e)
+
+        if use_executor and enriched_plan is not None:
+            self._populate_executor_prompt(ctx, enriched_plan)
+            return
+
+        prompt_version = ctx.session.state.get("prompt_version", "v2")
+        template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
         template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
 
         if not template_path.exists():
@@ -787,16 +1027,50 @@ class StatePreparationAgent(BaseAgent):
 
             skeleton = ctx.session.state.get("skeleton_summary", "")
             schema_ex = ctx.session.state.get("schema_examples", "")
+
+            # Append StatVar examples to schema context
+            schema_vocab_raw = ctx.session.state.get("schema_vocab_content", "")
+            if schema_vocab_raw:
+                try:
+                    import json as _json
+                    vocab_data = _json.loads(schema_vocab_raw) if isinstance(schema_vocab_raw, str) and schema_vocab_raw.startswith("{") else {}
+                    statvar_examples = vocab_data.get("statvar_examples", [])
+                    if statvar_examples:
+                        sv_text = format_statvar_examples_for_prompt(statvar_examples)
+                        if sv_text:
+                            schema_ex = schema_ex + "\n\n" + sv_text if schema_ex else sv_text
+                except Exception:
+                    pass  # Non-fatal: schema_vocab_content may not be JSON
+
             sampled = ctx.session.state.get("sampled_data", "")
             error_fb = ctx.session.state.get("error_feedback", "")
+
+            # Prepend repair changes to feedback so generator sees what was auto-fixed
+            repair_changes = ctx.session.state.get("pvmap_repair_changes", "")
+            if repair_changes and error_fb:
+                if isinstance(repair_changes, list):
+                    changes_text = "\n".join(f"- {c}" for c in repair_changes[:10])
+                else:
+                    changes_text = str(repair_changes)
+                if changes_text.strip() and "No auto-repairs" not in changes_text:
+                    repair_prefix = (
+                        "## AUTO-REPAIRS FROM PREVIOUS ATTEMPT\n"
+                        "These were fixed programmatically. Generate correctly this time:\n"
+                        + changes_text + "\n\n"
+                    )
+                    error_fb = repair_prefix + error_fb
+
             metadata = ctx.session.state.get("metadata", "")
             statvar_summary = ctx.session.state.get("statvar_summary", "")
+            approved_plan = ctx.session.state.get("approved_mapping_plan", "")
             mcp_instruction = ctx.session.state.get("mcp_tools_instruction", "")
 
             # Reserve space for template text + smaller/fixed sections + error_feedback
+            pvmap_skel = ctx.session.state.get("pvmap_skeleton", "")
             reserved = (
                 len(template) + len(error_fb) + len(metadata)
-                + len(statvar_summary) + len(mcp_instruction) + 5000  # safety margin
+                + len(statvar_summary) + len(mcp_instruction)
+                + len(pvmap_skel) + 5000  # safety margin
             )
             remaining = max(MAX_PROMPT_CHARS - reserved, 30000)
 
@@ -833,7 +1107,33 @@ class StatePreparationAgent(BaseAgent):
             populated = populated.replace("{{METADATA_CONFIG}}", metadata)
             populated = populated.replace("{{ERROR_FEEDBACK}}", error_fb)
             populated = populated.replace("{{STATVAR_SUMMARY}}", statvar_summary)
+            populated = populated.replace("{{APPROVED_MAPPING_PLAN}}", approved_plan)
             populated = populated.replace("{{MCP_TOOLS_INSTRUCTION}}", mcp_instruction)
+
+            # Inject dimension value reference (from MCP enrichment)
+            dim_ref = ctx.session.state.get("dimension_value_reference", "")
+            populated = populated.replace("{{DIMENSION_VALUE_REFERENCE}}", dim_ref)
+
+            # v3 split-feedback placeholders
+            human_fb_prompt = ctx.session.state.get("human_feedback_prompt", "")
+            auto_fb_prompt = ctx.session.state.get("auto_feedback_prompt", "")
+            populated = populated.replace("{{HUMAN_FEEDBACK}}", human_fb_prompt)
+            populated = populated.replace("{{AUTO_FEEDBACK}}", auto_fb_prompt)
+
+            # Inject PVMAP skeleton — strip entire section if empty
+            pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
+            if pvmap_skeleton.strip():
+                populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
+            else:
+                # Remove entire skeleton section to avoid confusing the LLM
+                import re as _re
+                populated = _re.sub(
+                    r'## PVMAP Skeleton \(pre-filled baseline\).*?Missing any column from this skeleton causes data corruption\. Treat this as a mandatory checklist\.',
+                    '',
+                    populated,
+                    flags=_re.DOTALL,
+                )
+                populated = populated.replace("{{PVMAP_SKELETON}}", "")
 
             # Escape ALL {word} patterns to prevent ADK template resolution.
             # This converts {Data}→[DATA], {Number}→[NUMBER], {Year}→[Year], etc.
@@ -861,6 +1161,153 @@ class StatePreparationAgent(BaseAgent):
             ctx.session.state["populated_pvmap_prompt"] = (
                 "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
             )
+
+    def _populate_executor_prompt(
+        self, ctx: InvocationContext, enriched_plan: "Any"
+    ) -> None:
+        """Populate the executor prompt template from an enriched mapping plan.
+
+        The executor prompt is used when a human-approved enriched plan
+        (with statvar_blueprint, value_dictionaries, etc.) is available.
+        It produces a more mechanical, plan-faithful PVMAP generation prompt.
+        """
+        template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "pvmap_executor_prompt.txt"
+        if not template_path.exists():
+            logger.error("Executor prompt template not found: %s", template_path)
+            ctx.session.state["populated_pvmap_prompt"] = (
+                "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+            )
+            return
+
+        try:
+            template = template_path.read_text(encoding="utf-8")
+
+            # --- Build {{PLAN_COLUMN_TABLE}} ---
+            table_lines = ["| Column | Role | Property | Value Expression |",
+                           "| --- | --- | --- | --- |"]
+            for col in enriched_plan.active_columns:
+                sel = col.candidates[col.selected_index] if col.candidates else None
+                prop = sel.property if sel else ""
+                val_expr = sel.value_expression if sel else ""
+                table_lines.append(
+                    f"| {col.column_name} | {col.role.value} | {prop} | {val_expr} |"
+                )
+            plan_column_table = "\n".join(table_lines)
+
+            # --- Build {{STATVAR_BLUEPRINT}} ---
+            bp = enriched_plan.statvar_blueprint
+            bp_lines = [
+                f"Base: {', '.join(f'{p.name}: {p.value}' for p in bp.base_properties)}",
+                f"Constraint columns: {bp.constraint_columns}",
+                f"Measure columns: {bp.measure_columns}",
+            ]
+            statvar_blueprint = "\n".join(bp_lines)
+
+            # --- Build {{VALUE_DICTIONARIES}} ---
+            vd_lines: list[str] = []
+            for vd in enriched_plan.value_dictionaries:
+                vd_lines.append(f"**{vd.column_name}** (property: {vd.dc_property}):")
+                for m in vd.mappings:
+                    if m.action == "MAP" and m.dcid:
+                        vd_lines.append(f"  - {m.raw_value} -> {m.dcid}")
+                    elif m.action == "DROP_CONSTRAINT":
+                        vd_lines.append(
+                            f"  - {m.raw_value} -> DROP_CONSTRAINT ({m.reason})"
+                        )
+                    elif m.action == "DROP_ROW":
+                        vd_lines.append(
+                            f"  - {m.raw_value} -> DROP_ROW ({m.reason})"
+                        )
+                    else:
+                        vd_lines.append(f"  - {m.raw_value} -> {m.dcid or m.action} ({m.reason})")
+                if vd.total_indicators:
+                    vd_lines.append(f"  Total indicators: {vd.total_indicators}")
+            value_dictionaries = "\n".join(vd_lines) if vd_lines else "(none)"
+
+            # --- Build {{PLACE_RESOLUTION}} ---
+            if enriched_plan.place_resolution:
+                pr = enriched_plan.place_resolution
+                place_lines = [
+                    f"Column: {pr.column_name}",
+                    f"Format: {pr.format_detected}",
+                    f"Prefix rule: {pr.prefix_rule}",
+                ]
+                if pr.pad_zeros is not None:
+                    place_lines.append(f"Pad zeros: {pr.pad_zeros}")
+                place_lines.append(f"Resolution rate: {pr.resolution_rate:.0%}")
+                place_resolution = "\n".join(place_lines)
+            else:
+                place_resolution = "(none)"
+
+            # --- Build {{TIME_RESOLUTION}} ---
+            if enriched_plan.time_resolution:
+                tr = enriched_plan.time_resolution
+                time_resolution = (
+                    f"Columns: {tr.columns}\n"
+                    f"Format: {tr.format_detected}\n"
+                    f"Normalization: {tr.normalization_rule}"
+                )
+            else:
+                time_resolution = "(none)"
+
+            # --- Build {{COLUMN_RELATIONSHIPS}} ---
+            rel_lines: list[str] = []
+            for cr in enriched_plan.column_relationships:
+                if cr.relationship.value != "independent":
+                    rel_lines.append(
+                        f"- {cr.column_a} <-> {cr.column_b}: "
+                        f"{cr.relationship.value} (strength={cr.strength:.2f}) — "
+                        f"{cr.pvmap_implication}"
+                    )
+            column_relationships = "\n".join(rel_lines) if rel_lines else "(none)"
+
+            # --- Build {{PVMAP_SKELETON}} from state ---
+            pvmap_skeleton = ctx.session.state.get("pvmap_skeleton", "")
+
+            # --- Build {{SAMPLED_DATA}} — header + 5 rows ---
+            sampled_data_full = ctx.session.state.get("sampled_data", "")
+            if sampled_data_full:
+                sd_lines = sampled_data_full.split("\n")
+                # Keep header + first 5 data rows
+                sampled_data = "\n".join(sd_lines[:6])
+            else:
+                sampled_data = "(no sampled data available)"
+
+            # --- Fill template ---
+            populated = template.replace("{{PLAN_COLUMN_TABLE}}", plan_column_table)
+            populated = populated.replace("{{STATVAR_BLUEPRINT}}", statvar_blueprint)
+            populated = populated.replace("{{VALUE_DICTIONARIES}}", value_dictionaries)
+            populated = populated.replace("{{PLACE_RESOLUTION}}", place_resolution)
+            populated = populated.replace("{{TIME_RESOLUTION}}", time_resolution)
+            populated = populated.replace("{{COLUMN_RELATIONSHIPS}}", column_relationships)
+            populated = populated.replace("{{PVMAP_SKELETON}}", pvmap_skeleton)
+            populated = populated.replace("{{SAMPLED_DATA}}", sampled_data)
+
+            # Escape all {word} patterns to prevent ADK template resolution
+            populated = escape_pvmap_placeholders(populated)
+
+            ctx.session.state["populated_pvmap_prompt"] = populated
+            logger.info(
+                "Populated executor prompt: %d chars (enriched plan for '%s')",
+                len(populated), enriched_plan.dataset_name,
+            )
+
+        except Exception as e:
+            logger.error("Failed to populate executor prompt: %s", e)
+            # Fall back to standard prompt population
+            logger.info("Falling back to standard prompt template after executor failure")
+            # Reset the method to use standard path by clearing the early return
+            prompt_version = ctx.session.state.get("prompt_version", "v2")
+            template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
+            fallback_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
+            if fallback_path.exists():
+                ctx.session.state["populated_pvmap_prompt"] = (
+                    escape_pvmap_placeholders(fallback_path.read_text(encoding="utf-8"))
+                )
+            else:
+                ctx.session.state["populated_pvmap_prompt"] = (
+                    "Generate a PVMAP for the dataset. Map all columns to Data Commons properties."
+                )
 
     def _trim_session_events(self, ctx: InvocationContext) -> None:
         """Trim old session events to prevent token overflow across iterations.
@@ -1038,7 +1485,7 @@ class MCPErrorResolverAgent(BaseAgent):
 
 
 # Keys whose originals are saved before feedback compaction and restored after
-_FEEDBACK_RESTORE_KEYS = ["skeleton_summary", "schema_vocab_content", "sampled_data"]
+_FEEDBACK_RESTORE_KEYS = ["skeleton_summary", "schema_vocab_content"]
 
 
 class ConditionalFeedbackAgent(BaseAgent):
@@ -1062,6 +1509,7 @@ class ConditionalFeedbackAgent(BaseAgent):
         name: str = "UnifiedFeedback",
         model: str = "gemini-2.5-flash",
         thinking_level: Optional[str] = None,
+        feedback_prompt_version: str = "v2",
     ):
         """
         Initialize ConditionalFeedbackAgent.
@@ -1070,8 +1518,11 @@ class ConditionalFeedbackAgent(BaseAgent):
             name: Agent name
             model: Gemini model for the inner LlmAgent
             thinking_level: Thinking level for Gemini models
+            feedback_prompt_version: Feedback prompt version ('v1' or 'v2')
         """
-        feedback_agent = create_feedback_agent(model=model, thinking_level=thinking_level)
+        feedback_agent = create_feedback_agent(
+            model=model, thinking_level=thinking_level, prompt_version=feedback_prompt_version
+        )
         super().__init__(
             name=name,
             feedback_agent=feedback_agent,
@@ -1111,7 +1562,7 @@ class ConditionalFeedbackAgent(BaseAgent):
                     yield event
             except Exception as e:
                 logger.error("Feedback LlmAgent crashed: %s", e, exc_info=True)
-                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                ctx.session.state["auto_feedback_raw"] = self._build_deterministic_feedback(ctx, e)
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
@@ -1174,7 +1625,7 @@ class ConditionalFeedbackAgent(BaseAgent):
                     yield event
             except Exception as e:
                 logger.error("Feedback LlmAgent crashed (quality path): %s", e, exc_info=True)
-                ctx.session.state["error_feedback"] = self._build_deterministic_feedback(ctx, e)
+                ctx.session.state["auto_feedback_raw"] = self._build_deterministic_feedback(ctx, e)
                 yield Event(
                     author=self.name,
                     content=types.Content(parts=[
@@ -1329,7 +1780,7 @@ class ConditionalFeedbackAgent(BaseAgent):
 
             # Format quality_metrics for display (writes string to state)
             metrics_str = self._format_metrics(quality_metrics)
-            ctx.session.state["quality_metrics"] = metrics_str
+            ctx.session.state["quality_metrics_display"] = metrics_str
 
             # Format GT score section
             gt_section = self._format_gt_section(quality_metrics)
@@ -1348,9 +1799,10 @@ class ConditionalFeedbackAgent(BaseAgent):
         for key in ["schema_vocab_content", "schema_category", "skeleton_summary"]:
             ctx.session.state.setdefault(key, "")
 
-        # Ensure statvar analysis and key match report are available
+        # Ensure statvar analysis, key match report, and completeness report are available
         ctx.session.state.setdefault("validation_statvar_analysis", "")
         ctx.session.state.setdefault("key_match_report", "")
+        ctx.session.state.setdefault("column_completeness_report", "")
 
         # Format pvmap_repair_changes from list to string for template rendering
         repair_changes = ctx.session.state.get("pvmap_repair_changes", [])
@@ -1361,8 +1813,7 @@ class ConditionalFeedbackAgent(BaseAgent):
             ctx.session.state["pvmap_repair_changes"] = "No auto-repairs were needed."
 
         # Escape all PVMAP-containing state
-        for key in ["pvmap_csv", "validation_error", "sampled_data",
-                     "structure_warnings", "mcp_resolved_context",
+        for key in ["pvmap_csv", "validation_error",
                      "quality_diff_summary", "pvmap_repair_changes"]:
             val = ctx.session.state.get(key, "")
             if val:
@@ -1373,9 +1824,10 @@ class ConditionalFeedbackAgent(BaseAgent):
                 elif isinstance(val, str):
                     ctx.session.state[key] = escape_pvmap_placeholders(val)
 
-        # Escape schema context, statvar analysis, and key match report
+        # Escape schema context, statvar analysis, key match report, and completeness report
         for key in ["schema_vocab_content", "skeleton_summary",
-                     "validation_statvar_analysis", "key_match_report"]:
+                     "validation_statvar_analysis", "key_match_report",
+                     "column_completeness_report"]:
             val = ctx.session.state.get(key, "")
             if val and isinstance(val, str):
                 ctx.session.state[key] = escape_pvmap_placeholders(val)
@@ -1408,12 +1860,9 @@ class ConditionalFeedbackAgent(BaseAgent):
             "pvmap_csv": 3000,
             "validation_error": 2000,
             "validation_counter_summary": 2000,
-            "sampled_data": 2000,
             "key_match_report": 1500,
             "validation_statvar_analysis": 1500,
             "quality_diff_summary": 1500,
-            "mcp_resolved_context": 1500,
-            "structure_warnings": 1500,
         }
         for key, max_chars in _FEEDBACK_CAPS.items():
             val = ctx.session.state.get(key, "")
@@ -1427,9 +1876,9 @@ class ConditionalFeedbackAgent(BaseAgent):
         # =====================================================================
         _FEEDBACK_STATE_KEYS = [
             "skeleton_summary", "schema_vocab_content", "pvmap_csv",
-            "validation_error", "sampled_data", "key_match_report",
+            "validation_error", "key_match_report",
             "validation_statvar_analysis", "quality_diff_summary",
-            "mcp_resolved_context", "validation_counter_summary",
+            "validation_counter_summary",
         ]
         MAX_FEEDBACK_TOTAL = 30000
         total = sum(len(ctx.session.state.get(k, "")) for k in _FEEDBACK_STATE_KEYS)
@@ -1452,6 +1901,18 @@ class ConditionalFeedbackAgent(BaseAgent):
                     new_size = max(len(val) // 2, 500)
                     ctx.session.state[key] = val[:new_size] + "\n...[truncated for token budget]"
                     total -= (len(val) - new_size)
+
+        # =====================================================================
+        # Inject GT feedback section conditionally for v2 prompt template.
+        # When GT is available, builds a detailed GT analysis section.
+        # When GT is not available, sets empty string (v2 prompt omits section).
+        # =====================================================================
+        gt_available = bool(ctx.session.state.get("gt_pvmap_path_cached"))
+        if gt_available:
+            gt_section = self._build_gt_feedback_section(ctx)
+        else:
+            gt_section = ""
+        ctx.session.state["gt_feedback_section"] = gt_section
 
         logger.info(
             "Feedback state sizes: skeleton=%d, vocab=%d, sampled=%d, total=%d",
@@ -1537,6 +1998,25 @@ class ConditionalFeedbackAgent(BaseAgent):
 
         return "\n".join(lines)
 
+    def _build_gt_feedback_section(self, ctx: InvocationContext) -> str:
+        """Build GT-specific feedback section for the v2 prompt template."""
+        quality_metrics = ctx.session.state.get("quality_metrics", {})
+        if isinstance(quality_metrics, str):
+            # Already formatted from prior attempt; use gt_score_section fallback
+            gt_score = ctx.session.state.get("gt_score_section", "")
+        else:
+            gt_score = self._format_gt_section(quality_metrics)
+        return f"""## Ground Truth Comparison
+{gt_score}
+
+### PV Accuracy Analysis
+The PVMAP structure may be OK but property-value pairs don't match expected patterns:
+- Cross-reference generated properties against the schema vocabulary
+- Check if dimension values use proper DCIDs from vocabulary
+- Verify populationType matches stat_var_skeletons for this domain
+- Check StatVar Analysis for corrupted/malformed values
+- If raw strings appear where DCIDs expected, suggest Column:Value mappings with vocabulary DCIDs"""
+
 
 class MaxRetriesCheckAgent(BaseAgent):
     """
@@ -1576,7 +2056,9 @@ class MaxRetriesCheckAgent(BaseAgent):
             )
             return
 
-        if attempt >= self._max_retries:
+        gt_available = bool(ctx.session.state.get("gt_pvmap_path_cached"))
+        effective_max = self._max_retries if gt_available else min(self._max_retries, 2)
+        if attempt >= effective_max:
             # Priority-based best-attempt selection + re-validation
             current_rows = ctx.session.state.get("validation_data_rows", 0)
             best_rows = ctx.session.state.get("best_data_rows", 0)
@@ -1708,17 +2190,18 @@ class MaxRetriesCheckAgent(BaseAgent):
             error_feedback = ctx.session.state.get("error_feedback", "")
             generation_success = ctx.session.state.get("generation_success", False)
 
+            gt_tag = "" if gt_available else " (non-GT reduced)"
             if generation_success:
                 # Best attempt was restored and was valid
                 best_attempt = ctx.session.state.get("best_attempt_number", "?")
                 msg = (
-                    f"Max retries ({self._max_retries + 1}) exceeded, but restored "
+                    f"Max retries ({effective_max + 1}{gt_tag}) exceeded, but restored "
                     f"validated attempt #{best_attempt} ({best_rows} data rows). "
                     f"Marking as SUCCESS."
                 )
                 ctx.session.state["error"] = None
             elif error_feedback:
-                msg = f"Max retries ({self._max_retries + 1}) exceeded. Last feedback: {error_feedback[:500]}"
+                msg = f"Max retries ({effective_max + 1}{gt_tag}) exceeded. Last feedback: {error_feedback[:500]}"
                 ctx.session.state["error"] = msg
             else:
                 quality_metrics = ctx.session.state.get("quality_metrics", {})
@@ -1726,7 +2209,7 @@ class MaxRetriesCheckAgent(BaseAgent):
                     score = quality_metrics.get("heuristic_score", 0)
                 else:
                     score = ctx.session.state.get("quality_score", 0)
-                msg = f"Max retries ({self._max_retries + 1}) exceeded. Best quality: {score:.1f}%"
+                msg = f"Max retries ({effective_max + 1}{gt_tag}) exceeded. Best quality: {score:.1f}%"
                 ctx.session.state["error"] = msg
 
             # Update generation notes with final status
@@ -1769,10 +2252,632 @@ class MaxRetriesCheckAgent(BaseAgent):
             yield Event(
                 author=self.name,
                 content=types.Content(parts=[
-                    types.Part(text=f"Attempt {attempt + 1} did not meet criteria. {self._max_retries - attempt} retries remaining.")
+                    types.Part(text=f"Attempt {attempt + 1} did not meet criteria. {effective_max - attempt} retries remaining.")
                 ]),
                 actions=EventActions(escalate=False)  # Continue loop
             )
+
+
+class TieredCorrectionAgent(BaseAgent):
+    """Tiered correction pipeline: programmatic fix -> LLM patch -> full regen.
+
+    Only runs if quality is not acceptable after attempt 0.
+    Internally runs up to 2 additional validation passes (Tier 1+2 combined, Tier 3).
+    """
+
+    _patch_agent: Any = PrivateAttr(default=None)
+    _generator_wrapper: Any = PrivateAttr(default=None)
+    _metadata_agent: Any = PrivateAttr(default=None)
+    _validation_agent: Any = PrivateAttr(default=None)
+    _model: str = PrivateAttr(default="gemini-3.1-pro-preview")
+    _thinking_level: Optional[str] = PrivateAttr(default=None)
+    _enable_mcp: bool = PrivateAttr(default=False)
+    _mcp_url: Optional[str] = PrivateAttr(default=None)
+    _use_structured_output: bool = PrivateAttr(default=True)
+    _feedback_prompt_version: str = PrivateAttr(default="v2")
+
+    def __init__(
+        self,
+        name: str = "TieredCorrection",
+        patch_agent=None,
+        generator_wrapper=None,
+        metadata_agent=None,
+        validation_agent=None,
+        model: str = "gemini-3.1-pro-preview",
+        thinking_level: Optional[str] = None,
+        enable_mcp: bool = False,
+        mcp_url: Optional[str] = None,
+        use_structured_output: bool = True,
+        feedback_prompt_version: str = "v2",
+    ):
+        super().__init__(name=name)
+        self._patch_agent = patch_agent
+        self._generator_wrapper = generator_wrapper
+        self._metadata_agent = metadata_agent
+        self._validation_agent = validation_agent
+        self._model = model
+        self._thinking_level = thinking_level
+        self._enable_mcp = enable_mcp
+        self._mcp_url = mcp_url
+        self._use_structured_output = use_structured_output
+        self._feedback_prompt_version = feedback_prompt_version
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        """Run tiered correction: programmatic -> LLM patch -> full regen."""
+        from src.pipeline.validation.log_filter import filter_counters
+        from src.pipeline.validation.pvmap_corrector import apply_correction_rules
+        from src.tools.validation_tool import run_validation
+
+        # =====================================================================
+        # GATE CHECK: skip if attempt 0 already produced acceptable quality
+        # =====================================================================
+        quality_acceptable = ctx.session.state.get("quality_acceptable", False)
+        quality_stagnant = ctx.session.state.get("quality_stagnant", False)
+        validation_passed = ctx.session.state.get("validation_passed", False)
+
+        if quality_acceptable:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Quality acceptable after attempt 0 -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        if quality_stagnant:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Quality stagnant after attempt 0 -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        if validation_passed and not ctx.session.state.get("quality_diff_summary"):
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Validation passed with no quality issues -- skipping tiered correction.")
+                ])
+            )
+            return
+
+        # =====================================================================
+        # CHECK A: Detect PLAN_ERROR from generator output
+        # =====================================================================
+        pvmap_output = ctx.session.state.get("pvmap_output", {})
+        if isinstance(pvmap_output, dict) and pvmap_output.get("status") == "PLAN_ERROR":
+            ctx.session.state["plan_revision_needed"] = True
+            ctx.session.state["plan_revision_reason"] = pvmap_output.get(
+                "reason", "Generator reported plan error"
+            )
+            logger.info(
+                "PLAN_ERROR detected from generator: %s",
+                ctx.session.state["plan_revision_reason"][:200],
+            )
+
+        # =====================================================================
+        # CHECK B: Classify validation error tier for outer loop routing
+        # =====================================================================
+        if not validation_passed:
+            validation_output = ctx.session.state.get("validation_error", "")
+            data_rows = ctx.session.state.get("validation_data_rows", 0)
+            error_tier = classify_validation_error(validation_output, data_rows)
+            ctx.session.state["error_tier"] = error_tier
+
+            if error_tier == "tier2_semantic":
+                ctx.session.state["plan_revision_needed"] = True
+                ctx.session.state["plan_revision_reason"] = (
+                    f"Semantic error: {str(validation_output)[:500]}"
+                )
+                logger.info(
+                    "Tier 2 semantic error detected — plan revision may be needed: %s",
+                    ctx.session.state["plan_revision_reason"][:200],
+                )
+            else:
+                logger.info("Tier 1 syntax error detected — correctable within retry loop")
+
+        # =====================================================================
+        # SAVE BEST-SO-FAR from attempt 0
+        # =====================================================================
+        best_pvmap = ctx.session.state.get("pvmap_csv", "")
+        best_rows = ctx.session.state.get("validation_data_rows", 0)
+        best_valid = ctx.session.state.get("validation_passed", False)
+
+        current_dataset = ctx.session.state.get("current_dataset")
+        if not current_dataset:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="ERROR: No current_dataset in state -- cannot run tiered correction.")
+                ])
+            )
+            return
+
+        yield Event(
+            author=self.name,
+            content=types.Content(parts=[
+                types.Part(text="Starting tiered correction pipeline...")
+            ])
+        )
+
+        # =====================================================================
+        # ENFORCE HUMAN FEEDBACK CONSTRAINTS
+        # =====================================================================
+        ledger_json = ctx.session.state.get("feedback_ledger_json", "")
+        if ledger_json:
+            from src.agents.feedback_enforcement import apply_enforcement
+            from src.api.models.feedback import FeedbackLedger as FL
+            ledger = FL.model_validate_json(ledger_json)
+            enforced, enforcement_changes = apply_enforcement(best_pvmap, ledger)
+            if enforcement_changes:
+                best_pvmap = enforced
+                ctx.session.state["pvmap_csv"] = enforced
+                ctx.session.state["feedback_enforcement_applied"] = True
+                ctx.session.state["feedback_enforcement_changes"] = enforcement_changes
+                # Write enforced PVMAP to disk
+                pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                pvmap_path.write_text(enforced, encoding="utf-8")
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Enforced {len(enforcement_changes)} human feedback constraint(s)")
+                    ])
+                )
+
+        # =====================================================================
+        # TIER 1: Programmatic correction
+        # =====================================================================
+        counters_path = Path(current_dataset.output_dir) / "processed_counters.txt"
+        filtered_logs = None
+
+        if counters_path.exists():
+            try:
+                filtered_logs = filter_counters(counters_path, attempt_number=1)
+                key_match_report = ctx.session.state.get("key_match_report", "")
+
+                input_data_path = None
+                if current_dataset.input_data_files:
+                    input_data_path = Path(str(current_dataset.input_data_files[0]))
+
+                column_manifest = ctx.session.state.get("column_manifest")
+                corrected, changes = apply_correction_rules(
+                    pvmap_csv=best_pvmap,
+                    filtered_logs=filtered_logs,
+                    key_match_report=key_match_report,
+                    input_data_path=input_data_path,
+                    column_manifest=column_manifest,
+                )
+
+                if changes:
+                    ctx.session.state["pvmap_csv"] = corrected
+                    # Write corrected PVMAP to file
+                    pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                    pvmap_path.write_text(corrected, encoding="utf-8")
+
+                    # Run validation
+                    tier1_result = self._run_validation_pass(
+                        ctx, current_dataset, corrected, "Tier 1"
+                    )
+
+                    if tier1_result.get("success"):
+                        ctx.session.state["validation_passed"] = True
+                        ctx.session.state["validation_data_rows"] = tier1_result.get("data_rows", 0)
+                        ctx.session.state["validation_counter_summary"] = tier1_result.get("counter_summary", "")
+
+                        tier1_rows = tier1_result.get("data_rows", 0)
+                        if tier1_rows > best_rows or (tier1_result["success"] and not best_valid):
+                            best_pvmap = corrected
+                            best_rows = tier1_rows
+                            best_valid = True
+                            ctx.session.state["best_data_rows"] = tier1_rows
+                            ctx.session.state["best_pvmap_csv"] = corrected
+                            ctx.session.state["best_attempt_number"] = ctx.session.state.get("attempt_number", 0)
+                            ctx.session.state["best_validation_passed"] = True
+
+                        # Evaluate quality to check if we can stop
+                        score, acceptable = self._evaluate_quality(ctx, corrected)
+                        # Update best heuristic AFTER quality eval computes the score
+                        if tier1_rows > best_rows or (tier1_result["success"] and not best_valid):
+                            ctx.session.state["best_heuristic_score"] = score
+                        if acceptable:
+                            ctx.session.state["quality_acceptable"] = True
+                            ctx.session.state["exit_reason"] = "quality_met"
+                            ctx.session.state["generation_success"] = True
+                            ctx.session.state["retry_count"] = 1
+                            yield Event(
+                                author=self.name,
+                                content=types.Content(parts=[
+                                    types.Part(text=f"Tier 1: {len(changes)} programmatic fixes applied. Quality acceptable (score={score:.1f}). Done.")
+                                ])
+                            )
+                            return
+                    else:
+                        # Tier 1 validation failed -- update best if more rows
+                        tier1_rows = tier1_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier1_result, best_rows, best_valid):
+                            best_pvmap = corrected
+                            best_rows = tier1_rows
+                            best_valid = tier1_result.get("success", False)
+
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Tier 1: {len(changes)} programmatic fixes applied.")
+                        ])
+                    )
+                else:
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text="Tier 1: No programmatic fixes applicable.")
+                        ])
+                    )
+            except Exception as e:
+                logger.warning("Tier 1 correction failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 1: Error ({str(e)[:100]}), continuing to Tier 2.")
+                    ])
+                )
+        else:
+            yield Event(
+                author=self.name,
+                content=types.Content(parts=[
+                    types.Part(text="Tier 1: No counters file found, skipping programmatic correction.")
+                ])
+            )
+
+        # =====================================================================
+        # TIER 2: Lightweight LLM patch
+        # =====================================================================
+        if self._patch_agent:
+            try:
+                # Start from best known PVMAP
+                ctx.session.state["pvmap_csv"] = best_pvmap
+                # Ensure state vars referenced by patch agent template exist
+                ctx.session.state.setdefault("key_match_report", "")
+                ctx.session.state.setdefault("validation_counter_summary", "")
+                if filtered_logs:
+                    ctx.session.state["validation_counter_summary"] = filtered_logs.to_summary()
+
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text="Tier 2: Running lightweight LLM patch...")
+                    ])
+                )
+
+                # Escape state before running patch agent
+                for key in ["pvmap_csv", "validation_counter_summary", "key_match_report"]:
+                    val = ctx.session.state.get(key, "")
+                    if val and isinstance(val, str):
+                        ctx.session.state[key] = escape_pvmap_placeholders(val)
+
+                async for event in self._patch_agent.run_async(ctx):
+                    yield event
+
+                # Unescape placeholders that were escaped before the patch agent ran
+                from src.agents.template_utils import unescape_pvmap_placeholders
+                for key in ["pvmap_csv", "validation_counter_summary", "key_match_report"]:
+                    val = ctx.session.state.get(key, "")
+                    if val and isinstance(val, str):
+                        ctx.session.state[key] = unescape_pvmap_placeholders(val)
+
+                patched = ctx.session.state.get("pvmap_csv", "")
+                if patched and patched != best_pvmap:
+                    # Write and validate
+                    pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                    pvmap_path.write_text(patched, encoding="utf-8")
+
+                    tier2_result = self._run_validation_pass(
+                        ctx, current_dataset, patched, "Tier 2"
+                    )
+
+                    if tier2_result.get("success"):
+                        ctx.session.state["validation_passed"] = True
+                        ctx.session.state["validation_data_rows"] = tier2_result.get("data_rows", 0)
+                        ctx.session.state["validation_counter_summary"] = tier2_result.get("counter_summary", "")
+
+                        tier2_rows = tier2_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier2_result, best_rows, best_valid):
+                            best_pvmap = patched
+                            best_rows = tier2_rows
+                            best_valid = True
+                            ctx.session.state["best_data_rows"] = tier2_rows
+                            ctx.session.state["best_pvmap_csv"] = patched
+                            ctx.session.state["best_attempt_number"] = ctx.session.state.get("attempt_number", 0)
+                            ctx.session.state["best_validation_passed"] = True
+
+                        score, acceptable = self._evaluate_quality(ctx, patched)
+                        # Update best heuristic AFTER quality eval computes the score
+                        if tier2_rows > best_rows or (tier2_result["success"] and not best_valid):
+                            ctx.session.state["best_heuristic_score"] = score
+                        if acceptable:
+                            ctx.session.state["quality_acceptable"] = True
+                            ctx.session.state["exit_reason"] = "quality_met"
+                            ctx.session.state["generation_success"] = True
+                            ctx.session.state["retry_count"] = 2
+                            yield Event(
+                                author=self.name,
+                                content=types.Content(parts=[
+                                    types.Part(text=f"Tier 2: LLM patch improved quality (score={score:.1f}). Done.")
+                                ])
+                            )
+                            return
+                    else:
+                        # Safety: discard if fewer rows than best
+                        tier2_rows = tier2_result.get("data_rows", 0)
+                        if self._is_better_attempt(tier2_result, best_rows, best_valid):
+                            best_pvmap = patched
+                            best_rows = tier2_rows
+                            best_valid = tier2_result.get("success", False)
+
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text=f"Tier 2: LLM patch applied ({tier2_result.get('data_rows', 0)} rows).")
+                        ])
+                    )
+                else:
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(parts=[
+                            types.Part(text="Tier 2: LLM patch made no changes.")
+                        ])
+                    )
+            except Exception as e:
+                logger.warning("Tier 2 LLM patch failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 2: LLM patch error ({str(e)[:100]}), continuing to Tier 3.")
+                    ])
+                )
+
+        # =====================================================================
+        # TIER 3: Full regeneration (ONE time)
+        # =====================================================================
+        if self._generator_wrapper and self._metadata_agent and self._validation_agent:
+            try:
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text="Tier 3: Full regeneration with feedback...")
+                    ])
+                )
+
+                # Prepare state for full regeneration
+                ctx.session.state["pvmap_csv"] = best_pvmap
+                ctx.session.state["attempt_number"] = -1  # StatePrep increments to 0, treating Tier 3 as a fresh start
+
+                # Save best-attempt tracking state before Tier 3 StatePrep reset
+                # (StatePrep's attempt==0 branch resets these, but we need to preserve them)
+                saved_best = {
+                    k: ctx.session.state.get(k)
+                    for k in ("best_data_rows", "best_pvmap_csv", "best_attempt_number",
+                              "best_validation_passed", "best_heuristic_score", "best_pv_accuracy",
+                              "quality_metrics_history")
+                }
+
+                # Trim session events to prevent token overflow
+                self._trim_session_events(ctx)
+
+                # Reset per-iteration flags
+                ctx.session.state["validation_passed"] = False
+                ctx.session.state["quality_acceptable"] = False
+                ctx.session.state["quality_stagnant"] = False
+
+                # Re-populate prompt template (StatePrep logic)
+                # Force re-read of file-backed state
+                ctx.session.state.pop("sampled_data", None)
+                ctx.session.state.pop("schema_examples", None)
+
+                # Clear stale feedback state before Tier 3 fresh start
+                ctx.session.state.pop("auto_feedback_raw", None)
+                ctx.session.state.pop("error_feedback", None)
+
+                # Run StatePrep to re-populate state
+                state_prep = StatePreparationAgent(name="TieredStatePrep")
+                async for event in state_prep.run_async(ctx):
+                    yield event
+
+                # Restore best-attempt tracking state after Tier 3 StatePrep
+                for k, v in saved_best.items():
+                    if v is not None:
+                        ctx.session.state[k] = v
+
+                # Run Generator -> MetadataGen -> Validate
+                for agent in [self._generator_wrapper, self._metadata_agent, self._validation_agent]:
+                    async for event in agent.run_async(ctx):
+                        yield event
+
+                tier3_valid = ctx.session.state.get("validation_passed", False)
+                tier3_rows = ctx.session.state.get("validation_data_rows", 0)
+                tier3_pvmap = ctx.session.state.get("pvmap_csv", "")
+
+                tier3_result = {
+                    "success": tier3_valid,
+                    "data_rows": tier3_rows,
+                }
+                if self._is_better_attempt(tier3_result, best_rows, best_valid):
+                    best_pvmap = tier3_pvmap
+                    best_rows = tier3_rows
+                    best_valid = tier3_valid
+
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 3: Full regeneration complete ({tier3_rows} rows, valid={tier3_valid}).")
+                    ])
+                )
+
+            except Exception as e:
+                logger.warning("Tier 3 full regeneration failed: %s", e, exc_info=True)
+                yield Event(
+                    author=self.name,
+                    content=types.Content(parts=[
+                        types.Part(text=f"Tier 3: Full regeneration error ({str(e)[:100]}).")
+                    ])
+                )
+
+        # =====================================================================
+        # FINALIZE: restore best-so-far if current is not the best
+        # =====================================================================
+        current_pvmap = ctx.session.state.get("pvmap_csv", "")
+        current_valid = ctx.session.state.get("validation_passed", False)
+        current_rows = ctx.session.state.get("validation_data_rows", 0)
+
+        should_restore = False
+        if best_pvmap and best_pvmap != current_pvmap:
+            if best_valid and not current_valid:
+                should_restore = True
+            elif not current_valid and not best_valid and best_rows > current_rows:
+                should_restore = True
+            elif best_valid and current_valid and best_rows > current_rows:
+                should_restore = True
+
+        if should_restore:
+            ctx.session.state["pvmap_csv"] = best_pvmap
+            ctx.session.state["validation_data_rows"] = best_rows
+            ctx.session.state["validation_passed"] = best_valid
+            # Re-write best PVMAP to file
+            try:
+                pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+                pvmap_path.write_text(best_pvmap, encoding="utf-8")
+            except Exception:
+                pass
+            logger.info(
+                "Restored best PVMAP: %d rows (valid=%s) vs current %d rows (valid=%s)",
+                best_rows, best_valid, current_rows, current_valid,
+            )
+
+        # Set final state
+        if not ctx.session.state.get("exit_reason"):
+            if best_valid:
+                ctx.session.state["exit_reason"] = "tiered_correction_complete"
+                ctx.session.state["generation_success"] = True
+            else:
+                ctx.session.state["exit_reason"] = "max_retries"
+                ctx.session.state["generation_success"] = False
+        if not ctx.session.state.get("retry_count"):
+            ctx.session.state["retry_count"] = ctx.session.state.get("attempt_number", 0)
+
+        yield Event(
+            author=self.name,
+            content=types.Content(parts=[
+                types.Part(text=f"Tiered correction complete: best={best_rows} rows, valid={best_valid}.")
+            ])
+        )
+
+    def _run_validation_pass(
+        self,
+        ctx: InvocationContext,
+        current_dataset,
+        pvmap_csv: str,
+        tier_label: str,
+    ) -> dict:
+        """Write PVMAP to file and run validation subprocess.
+
+        Returns:
+            Validation result dict with keys: success, data_rows, counter_summary, etc.
+        """
+        from src.tools.validation_tool import run_validation
+
+        input_file = None
+        if current_dataset.input_data_files:
+            input_file = str(current_dataset.input_data_files[0])
+
+        if not input_file or not Path(input_file).exists():
+            return {"success": False, "data_rows": 0, "error": "No input file"}
+
+        pvmap_path = Path(current_dataset.output_dir) / "generated_pvmap.csv"
+
+        # Get metadata file (same logic as ValidationAgent)
+        metadata_file = None
+        generated_config = ctx.session.state.get("generated_config_path")
+        if generated_config and Path(generated_config).exists():
+            metadata_file = generated_config
+        if not metadata_file and current_dataset.use_metadata and current_dataset.metadata_files:
+            metadata_file = str(current_dataset.metadata_files[0])
+        if not metadata_file:
+            if current_dataset.ground_truth_metadata and Path(current_dataset.ground_truth_metadata).exists():
+                gt_meta_dir = Path(current_dataset.ground_truth_metadata)
+                gt_meta_files = sorted(gt_meta_dir.glob("*.csv"))
+                if gt_meta_files:
+                    metadata_file = str(gt_meta_files[0])
+
+        logger.info("Running %s validation pass", tier_label)
+        result = run_validation(
+            input_data=input_file,
+            pvmap_path=str(pvmap_path),
+            metadata_file=metadata_file or "",
+            output_dir=str(current_dataset.output_dir),
+            timeout=300,
+        )
+        logger.info(
+            "%s validation: success=%s, data_rows=%d",
+            tier_label, result["success"], result.get("data_rows", 0),
+        )
+        return result
+
+    def _evaluate_quality(
+        self, ctx: InvocationContext, pvmap_csv: str
+    ) -> tuple:
+        """Calculate heuristic quality score.
+
+        Returns:
+            Tuple of (score: float, is_acceptable: bool)
+        """
+        try:
+            from src.tools.heuristic_quality import calculate_heuristic_score
+            sampled_data = ctx.session.state.get("sampled_data", "")
+            metadata = ctx.session.state.get("metadata", "")
+            result = calculate_heuristic_score(
+                pvmap_csv=pvmap_csv,
+                sampled_data=sampled_data,
+                metadata=metadata,
+            )
+            score = result.get("total", 0)
+            threshold = 70.0
+            return score, score >= threshold
+        except Exception as e:
+            logger.warning("Quality evaluation failed: %s", e)
+            return 0.0, False
+
+    def _is_better_attempt(
+        self, current_result: dict, best_rows: int, best_valid: bool
+    ) -> bool:
+        """Check if current result is better than best-so-far.
+
+        Priority: valid > invalid, then data_rows.
+        """
+        current_valid = current_result.get("success", False)
+        current_rows = current_result.get("data_rows", 0)
+
+        if current_valid and not best_valid:
+            return True
+        if not current_valid and best_valid:
+            return False
+        return current_rows > best_rows
+
+    def _trim_session_events(self, ctx: InvocationContext) -> None:
+        """Trim old session events to prevent token overflow."""
+        try:
+            events = ctx.session.events
+            original_count = len(events)
+            max_kept = 20
+            if original_count > max_kept:
+                del events[:-max_kept]
+                logger.info(
+                    "Trimmed session events: %d -> %d",
+                    original_count, len(events),
+                )
+        except Exception as e:
+            logger.warning("Failed to trim session events: %s", e)
 
 
 def create_pvmap_retry_loop(
@@ -1784,60 +2889,65 @@ def create_pvmap_retry_loop(
     mcp_url: Optional[str] = None,
     min_attempts: Optional[int] = None,
     thinking_level: Optional[str] = None,
-) -> LoopAgent:
+    feedback_prompt_version: str = "v2",
+) -> SequentialAgent:
     """
-    Create PVMAP generation retry loop with quality-based retries.
+    Create PVMAP generation pipeline with tiered correction.
 
-    The loop runs (without MCP):
-    1. StatePreparationAgent - Prepares state for generator
-    2. PVMAPGeneratorAgent - Generates PVMAP (structured JSON)
-    3. MetadataGenerationAgent - Auto-generates stat_var_processor config
-    4. ValidationAgent - Validates; sets validation_passed flag
-    5. QualityEvaluationAgent - Evaluates quality; ESCALATES if acceptable/stagnant
-    6. ConditionalFeedbackAgent - Unified feedback for errors or quality issues
-    7. MaxRetriesCheckAgent - Checks if max retries exceeded
+    The pipeline runs as a SequentialAgent:
+    1. StatePreparationAgent - Prepares state for generator (attempt 0)
+    2. [StatVarDiscoveryAgent] - MCP-based StatVar discovery (if MCP enabled)
+    3. GeneratorWrapperAgent - Generates PVMAP (structured JSON)
+    4. MetadataGenerationAgent - Auto-generates stat_var_processor config
+    5. [MCPSpotCheckAgent] - Pre-validation via MCP (if MCP enabled)
+    6. ValidationAgent - Validates; sets validation_passed flag
+    7. [MCPErrorResolverAgent] - MCP error resolution (if MCP enabled)
+    8. QualityEvaluationAgent - Evaluates quality (does NOT escalate)
+    9. TieredCorrectionAgent - Runs Tier 1/2/3 correction if quality not acceptable
 
-    With MCP enabled, adds:
-    - StatVarDiscoveryAgent after StatePrep (loop-aware discovery)
-    - MCPErrorResolverAgent after Validator (error resolution)
-
-    The loop exits when:
-    - QualityEvaluationAgent escalates (quality acceptable or stagnant), OR
-    - MaxRetriesCheckAgent escalates (max retries), OR
-    - max_iterations reached (fallback)
+    Replaces the old LoopAgent-based retry loop with a deterministic
+    sequential pipeline that tries programmatic fixes first, then LLM
+    patch, then full regeneration.
 
     Args:
         model: Gemini model for generation (default: gemini-2.5-flash)
-        max_retries: Max retry attempts (default: 3, for 4 total attempts)
+        max_retries: DEPRECATED -- tiered correction uses fixed 3 validation runs.
+            Kept for backward compatibility.
         use_structured_output: Use output_schema for structured JSON (default: True)
-        name: Loop agent name (default: PVMAPRetryLoop)
+        name: Agent name (default: PVMAPRetryLoop)
         enable_mcp: Enable MCP integration (default: False)
         mcp_url: MCP server URL (required if enable_mcp=True)
         min_attempts: Minimum attempts before allowing quality exit (optional)
+        thinking_level: Thinking level for Gemini models (optional)
+        feedback_prompt_version: Feedback prompt version ('v1' or 'v2')
 
     Returns:
-        Configured LoopAgent
+        Configured SequentialAgent
 
-    State Inputs (must be set before loop):
+    State Inputs (must be set before pipeline):
         - current_dataset: DatasetInfo - Dataset being processed
 
-    State Outputs (after loop completes):
+    State Outputs (after pipeline completes):
         - generation_success: bool - Whether generation succeeded
         - pvmap_path: str - Path to generated PVMAP
         - pvmap_csv: str - PVMAP CSV content
         - validation_data_rows: int - Rows in processed output
         - retry_count: int - Number of attempts made
-        - exit_reason: str - "quality_met" | "stagnant" | "max_retries"
+        - exit_reason: str - "quality_met" | "stagnant" | "tiered_correction_complete" | "max_retries"
         - quality_metrics: dict - Final quality metrics
         - quality_metrics_history: List[dict] - All attempts' metrics
         - error: str - Error message if failed
-        - mcp_enrichment_context: dict - MCP discovery results (if MCP enabled)
-        - mcp_resolved_context: str - MCP error resolution (if MCP enabled)
     """
+    if max_retries != 3:
+        logger.warning(
+            "max_retries=%d is deprecated -- tiered correction pipeline uses fixed 3 validation runs",
+            max_retries,
+        )
+
     # Get model from environment override if available
     model = os.getenv("PVMAP_GENERATOR_MODEL", model)
 
-    # Create sub-agents
+    # Create agents for initial attempt (Attempt 0)
     state_prep = StatePreparationAgent(name="StatePrep")
 
     generator = GeneratorWrapperAgent(
@@ -1851,9 +2961,30 @@ def create_pvmap_retry_loop(
 
     metadata_generator = MetadataGenerationAgent(name="MetadataGenerator")
     validator = ValidationAgent(name="Validator")
-    quality_evaluator = QualityEvaluationAgent(name="QualityEvaluator", min_attempts=min_attempts)
-    unified_feedback = ConditionalFeedbackAgent(name="UnifiedFeedback", model=model, thinking_level=thinking_level)
-    max_retries_check = MaxRetriesCheckAgent(name="MaxRetriesCheck", max_retries=max_retries)
+    quality_evaluator = QualityEvaluationAgent(
+        name="QualityEvaluator",
+        min_attempts=min_attempts,
+        escalate_on_quality=False,  # Don't escalate in SequentialAgent
+    )
+
+    # Create Tier 2 patch agent
+    from src.agents.pvmap_patch_agent import create_pvmap_patch_agent
+    patch_agent = create_pvmap_patch_agent(model=model, thinking_level=thinking_level)
+
+    # Create tiered correction (only runs if quality not acceptable after attempt 0)
+    tiered = TieredCorrectionAgent(
+        name="TieredCorrection",
+        patch_agent=patch_agent,
+        generator_wrapper=generator,
+        metadata_agent=metadata_generator,
+        validation_agent=validator,
+        model=model,
+        thinking_level=thinking_level,
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
+        use_structured_output=use_structured_output,
+        feedback_prompt_version=feedback_prompt_version,
+    )
 
     # Build sub_agents list
     sub_agents = [state_prep]
@@ -1866,7 +2997,7 @@ def create_pvmap_retry_loop(
             model=model
         )
         sub_agents.append(statvar_discovery)
-        logger.info("StatVarDiscoveryAgent added to retry loop (MCP enabled)")
+        logger.info("StatVarDiscoveryAgent added to pipeline (MCP enabled)")
 
     sub_agents.append(generator)
     sub_agents.append(metadata_generator)
@@ -1876,7 +3007,7 @@ def create_pvmap_retry_loop(
         from src.agents.mcp_spot_check_agent import MCPSpotCheckAgent
         spot_check = MCPSpotCheckAgent(name="MCPSpotCheck")
         sub_agents.append(spot_check)
-        logger.info("MCPSpotCheckAgent added to retry loop (MCP enabled)")
+        logger.info("MCPSpotCheckAgent added to pipeline (MCP enabled)")
 
     sub_agents.append(validator)
 
@@ -1884,24 +3015,14 @@ def create_pvmap_retry_loop(
     if enable_mcp and mcp_url:
         error_resolver = MCPErrorResolverAgent(name="MCPErrorResolver")
         sub_agents.append(error_resolver)
-        logger.info("MCPErrorResolverAgent added to retry loop (MCP enabled)")
+        logger.info("MCPErrorResolverAgent added to pipeline (MCP enabled)")
 
     sub_agents.extend([
         quality_evaluator,
-        max_retries_check,
-        unified_feedback,
+        tiered,
     ])
 
-    # Create loop agent
-    # max_iterations = max_retries + 1 (for initial attempt)
-    # Exit via escalation in QualityEvaluator or MaxRetriesCheck
-    loop = LoopAgent(
-        name=name,
-        max_iterations=max_retries + 1,
-        sub_agents=sub_agents
-    )
-
-    return loop
+    return SequentialAgent(name=name, sub_agents=sub_agents)
 
 
 # ============================================================================
@@ -1909,7 +3030,9 @@ def create_pvmap_retry_loop(
 # ============================================================================
 
 __all__ = [
+    'classify_validation_error',
     'create_pvmap_retry_loop',
+    'TieredCorrectionAgent',
     'GeneratorWrapperAgent',
     'StatePreparationAgent',
     'ConditionalFeedbackAgent',

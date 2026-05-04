@@ -147,12 +147,12 @@ class TestHeuristicMode:
             "metadata": "",
         }
 
-        # Test boundary: exactly 70
+        # Test boundary: exactly 70 heuristic, column_coverage >= 80 for non-GT gate
         mock_heuristic.return_value = {
             "total": 70.0,
             "row_coverage": 17.5,
             "prop_coverage": 17.5,
-            "column_coverage": 17.5,
+            "column_coverage": 80.0,
             "format_score": 17.5,
             "issues": "",
         }
@@ -206,7 +206,7 @@ class TestHeuristicMode:
             "total": 80.0,
             "row_coverage": 20.0,
             "prop_coverage": 20.0,
-            "column_coverage": 20.0,
+            "column_coverage": 80.0,
             "format_score": 20.0,
             "issues": "",
         }
@@ -770,12 +770,12 @@ class TestPVAccuracyRetryTrigger:
 
         mock_heuristic.return_value = {
             "total": 80.0, "row_coverage": 20.0, "prop_coverage": 20.0,
-            "column_coverage": 20.0, "format_score": 20.0, "issues": "",
+            "column_coverage": 80.0, "format_score": 20.0, "issues": "",
         }
 
         events = run_agent(quality_agent, mock_ctx)
 
-        # Heuristic is 80 >= 70, so should be acceptable
+        # Without GT, column_coverage >= 80 gates acceptance
         assert mock_ctx.session.state["quality_acceptable"] is True
         metrics = mock_ctx.session.state["quality_metrics"]
         # No reject reason should be set

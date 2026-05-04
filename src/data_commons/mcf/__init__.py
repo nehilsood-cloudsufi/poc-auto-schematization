@@ -3,7 +3,6 @@
 This module provides utilities for reading, writing, and manipulating MCF files.
 
 Main components:
-- mcf_dict_util: Dictionary-based MCF manipulation
 - mcf_file_util: File-based MCF operations
 - mcf_template_filler: MCF template filling utilities
 - mcf_diff: MCF node comparison utilities

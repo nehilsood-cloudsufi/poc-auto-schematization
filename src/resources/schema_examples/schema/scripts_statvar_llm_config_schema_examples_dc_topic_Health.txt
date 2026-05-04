@@ -1,0 +1,282 @@
+
+Count of Mortality Event: O00-O99 (Pregnancy, Childbirth And The Puerperium), Female --> causeOfDeath:ICD10/O00-O99, gender:Female, populationType:MortalityEvent
+Age-Standardized DALYs, Alcohol Use Disorders, Per 100,000,Age-Standardized Dalys, Alcohol Use Disorders, Per 100,000 --> measuredProperty:who/SA_0000001418
+Person With Medical Condition = Diabetes --> 
+Age-Standardized Death Rates, Prematurity And Low Birth Rate, Per 100,000 --> measuredProperty:who/SA_0000001451
+Percent of Population That Have Asthma --> age:Years18Onwards, healthOutcome:Asthma, measuredProperty:percent
+Count of Mortality Event: R00-R99 (Symptoms, Signs And Abnormal Clinical And Laboratory Findings, Not Elsewhere Classified) --> causeOfDeath:ICD10/R00-R99, populationType:MortalityEvent
+Percentage of Population That Sleeps Less Than 7 Hours Per Night --> age:Years18Onwards, healthBehavior:SleepLessThan7Hours, measuredProperty:percent
+Count of Mortality Event: Heart Disease Excluding Hypertension --> causeOfDeath:HeartDiseaseExcludingHypertension, populationType:MortalityEvent
+Count of Mortality Event: L00-L98 (Diseases of The Skin And Subcutaneous Tissue) --> causeOfDeath:ICD10/L00-L98, populationType:MortalityEvent
+Number Of Infant Deaths --> measuredProperty:who/CM_02
+Prevalence Of Obesity Among Adults, Bmi &Greaterequal; 30 (Age-Standardized Estimate) (%) --> measuredProperty:who/NCD_BMI_30A
+Number Of New Reported Cases Of Human African Trypanosomiasis (T.B. Gambiense) --> measuredProperty:who/NTD_4, populationType:Thing
+Person With Medical Condition = Chronic Obstructive Pulmonary Disease --> 
+Count of Mortality Event: 1 Years or Less, N00-N98 (Diseases of The Genitourinary System) --> age:YearsUpto1, causeOfDeath:ICD10/N00-N98, populationType:MortalityEvent
+Count of Mortality Event: I00-I99 (Diseases of The Circulatory System), Female --> causeOfDeath:ICD10/I00-I99, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: 1 Years or Less, P00-P96 (Certain Conditions Originating in The Perinatal Period) --> age:YearsUpto1, causeOfDeath:ICD10/P00-P96, populationType:MortalityEvent
+Age-Standardized Death Rates, Self-Inflicted Injury, Per 100,000 --> measuredProperty:who/SA_0000001453
+Mortality Event With Institutionalization = Incarcerated --> 
+Population: 16 Years or More, Civilian, No Health Insurance, 75,000 USD or More, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar75000Onwards, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Count of Mortality Event: U00-U99 (Codes for Special Purposes) --> causeOfDeath:ICD10/U00-U99, populationType:MortalityEvent
+Female Life Expectancy --> gender:Female, measuredProperty:lifeExpectancy
+Count of Mortality Event: 35 - 44 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years35To44, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Age-Standardized Death Rates, Colon And Rectum Cancers, Per 100,000 --> measuredProperty:who/SA_0000001439, populationType:Thing
+Count of Mortality Event: 1 Years or Less, V01-Y89 (External Causes of Morbidity And Mortality) --> age:YearsUpto1, causeOfDeath:ICD10/V01-Y89, populationType:MortalityEvent
+Percentage of Population With Coronary Heart Disease --> age:Years18Onwards, healthOutcome:CoronaryHeartDisease, measuredProperty:percent
+Population: With Health Insurance, American Indian or Alaska Native Alone --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:AmericanIndianOrAlaskaNativeAlone
+Mortality Event With Age = 1 Years or Less --> 
+Full Immunization Coverage Among One-Year-Olds (%) (fullv), Male --> gender:Male, measuredProperty:who/fullv, populationType:Thing
+Number Of Deaths Attributed To Non-Communicable Diseases, By Type Of Disease And Sex, Diabetes Mellitus --> causeOfDeathAndDisability:DiabetesMellitus, measuredProperty:who/SDG_SH_DTH_RNCOM
+Polio Immunization Coverage Among One-Year-Olds (%) (poliov), Female --> gender:Female, measuredProperty:who/poliov, populationType:Thing
+Person With Medical Condition = Stroke --> 
+Leprosy - Number Of New G2D Cases,Number Of New G2D Leprosy Cases --> measuredProperty:who/NTD_LEPR5, populationType:Thing
+Count of Mortality Event: G00-G98 (Diseases of The Nervous System), Female --> causeOfDeath:ICD10/G00-G98, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: V01-Y89 (External Causes of Morbidity And Mortality), Female --> causeOfDeath:ICD10/V01-Y89, gender:Female, populationType:MortalityEvent
+Percentage of Population With Arthritis --> age:Years18Onwards, healthOutcome:Arthritis, measuredProperty:percent
+Population With Public Health Insurance --> armedForcesStatus:Civilian, healthInsurance:WithPublicHealthInsurance, institutionalization:USC_NonInstitutionalized
+Hispanic/Latino Population With Disabilities --> disabilityStatus:WithDisability, race:HispanicOrLatino
+Population: Female, Arthritis --> gender:Female, medicalCondition:Arthritis
+Person With Medical Condition = Coronary Heart Disease --> 
+Person With Medical Condition = Mental Health Not Good --> 
+Prevalence of 21 - 65 Years, Female, Received Cervical Cancer Screening --> age:Years21To65, gender:Female, healthPrevention:CervicalCancerScreening, measuredProperty:percent
+Population: Male, Arthritis --> gender:Male, medicalCondition:Arthritis
+Population With Only Private Health Insurance --> armedForcesStatus:Civilian, healthInsurance:WithPrivateHealthInsuranceOnly, institutionalization:USC_NonInstitutionalized
+Polio Immunization Coverage Among One-Year-Olds (%) (poliov), Rural --> measuredProperty:who/poliov, placeOfResidenceClassification:Rural, populationType:Thing
+Number Of Cases Of Cutaneous Leishmaniasis Reported --> measuredProperty:who/NTD_LEISHCNUM, populationType:Thing
+Count of Mortality Event: D50-D89 (Diseases of The Blood And Blood-forming Organs And Certain Disorders Involving The Immune Mechanism), Female --> causeOfDeath:ICD10/D50-D89, gender:Female, populationType:MortalityEvent
+Bcg Immunization Coverage Among One-Year-Olds (%) (bcgv), Male --> gender:Male, measuredProperty:who/bcgv, populationType:Thing
+Count of Mortality Event: D50-D89 (Diseases of The Blood And Blood-forming Organs And Certain Disorders Involving The Immune Mechanism) --> causeOfDeath:ICD10/D50-D89, populationType:MortalityEvent
+Count of Mortality Event: 25 - 34 Years, C00-D48 (Neoplasms) --> age:Years25To34, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Population: With Health Insurance, Asian Alone --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:AsianAlone
+Count of Mortality Event: 5 - 14 Years, C00-D48 (Neoplasms) --> age:Years5To14, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Percent of Population That Have a Cancer Other Than Skin Cancer --> age:Years18Onwards, healthOutcome:CancerExcludingSkinCancer, measuredProperty:percent
+Black/African American Population With Disabilities --> disabilityStatus:WithDisability, race:BlackOrAfricanAmericanAlone
+Count of Mortality Event: 1 Years or Less, J00-J98 (Diseases of The Respiratory System) --> age:YearsUpto1, causeOfDeath:ICD10/J00-J98, populationType:MortalityEvent
+Person With Health Insurance = No Health Insurance --> 
+Age-Standardized DALYs, Breast Cancer, Per 100,000,Age-Standardized Dalys, Breast Cancer, Per 100,000 --> measuredProperty:who/SA_0000001419
+Mortality And Global Health Estimates --> 
+Number Of Under-Five Deaths --> measuredProperty:who/CM_01
+Disabled Population of Two or More Races --> disabilityStatus:WithDisability, race:TwoOrMoreRaces
+Medical Condition Incident With Climatic Season = Summer Season, Medical Status --> 
+Count of Mortality Event: 15 - 24 Years, C00-D48 (Neoplasms) --> age:Years15To24, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Percent of Population With High Cholesterol --> age:Years18Onwards, healthOutcome:HighCholesterol, measuredProperty:percent
+Age-Standardized DALYs, Fires, Per 100,000,Age-Standardized Dalys, Fires, Per 100,000 --> measuredProperty:who/SA_0000001424
+Prevalence Of Underweight Among Adults, Bmi < 18 (Age-Standardized Estimate) (%) --> measuredProperty:who/NCD_BMI_18A
+Age-Standardized Death Rates, Cerebrovascular Disease, Per 100,000 --> measuredProperty:who/SA_0000001690
+Measles Immunization Coverage Among One-Year-Olds (%) (mslv), Female --> gender:Female, measuredProperty:who/mslv, populationType:Thing
+Count of Mortality Event: E00-E88 (Endocrine, Nutritional And Metabolic Diseases), Female --> causeOfDeath:ICD10/E00-E88, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: 1 Years or Less, E00-E88 (Endocrine, Nutritional And Metabolic Diseases) --> age:YearsUpto1, causeOfDeath:ICD10/E00-E88, populationType:MortalityEvent
+Age-Standardized DALYs, Colon And Rectum Cancers, Per 100,000,Age-Standardized Dalys, Colon And Rectum Cancers, Per 100,000 --> measuredProperty:who/SA_0000001420
+Age-Standardized Death Rates, Falls, Per 100,000 --> measuredProperty:who/SA_0000001442, populationType:Thing
+American Indian/Alaska Native Population With Disabilities --> disabilityStatus:WithDisability, race:AmericanIndianOrAlaskaNativeAlone
+Count of Mortality Event: C00-D48 (Neoplasms), Female --> causeOfDeath:ICD10/C00-D48, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: 75 - 84 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years75To84, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Overweight Prevalence Among Children Under 5 Years Of Age (% Weight-For-Height >+2 Sd), Model-Based Estimates,Overweight Prevalence Among Children Under 5 Years Of Age (%) --> measuredProperty:who/NUTOVERWEIGHTPREV, populationType:Thing
+Age-Standardized Death Rates, Road Traffic Accidents, Per 100,000 --> measuredProperty:who/SA_0000001452
+Count of Mortality Event: M00-M99 (Diseases of The Musculoskeletal System And Connective Tissue), Female --> causeOfDeath:ICD10/M00-M99, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: Diabetes --> causeOfDeath:Diabetes, populationType:MortalityEvent
+Person With Medical Condition = Chronic Kidney Disease --> 
+Percentage of Population With Poor Physical Health --> age:Years18Onwards, healthOutcome:PhysicalHealthNotGood, measuredProperty:percent
+Number Of Cases Of Yaws Reported --> measuredProperty:who/NTD_YAWSNUM, populationType:Thing
+Population: 16 Years or More, Civilian, No Health Insurance, 50,000 - 74,999 USD, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar50000To74999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Number Of Deaths Attributed To Non-Communicable Diseases, By Type Of Disease And Sex, Major Cardiovascular Diseases --> causeOfDeathAndDisability:MajorCardiovascularDiseases, measuredProperty:who/SDG_SH_DTH_RNCOM
+Count of Mortality Event: Suicide --> causeOfDeath:Suicide, populationType:MortalityEvent
+Count of Mortality Event: 1 Years or Less, A00-B99 (Certain Infectious And Parasitic Diseases) --> age:YearsUpto1, causeOfDeath:ICD10/A00-B99, populationType:MortalityEvent
+Count of Mortality Event: 25 - 34 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years25To34, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Age-Standardized Death Rates (15+ Years), Violence, Per 100,000 --> measuredProperty:who/SA_0000001460
+Count of Mortality Event: Assault(Homicide) --> causeOfDeath:Assault(Homicide), populationType:MortalityEvent
+Number Of Deaths Attributed To Non-Communicable Diseases, By Type Of Disease And Sex, Malignant Neoplasms --> causeOfDeathAndDisability:MalignantNeoplasms, measuredProperty:who/SDG_SH_DTH_RNCOM
+Person With Age, Medical Condition = Asthma --> 
+White Disbabled Population --> disabilityStatus:WithDisability, race:WhiteAlone
+Dtp3 Immunization Coverage Among One-Year-Olds (%), Female --> gender:Female, measuredProperty:who/dptv, populationType:Thing
+Population: 16 Years or More, Civilian, No Health Insurance, 4,999 USD or Less, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollarUpto4999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Population: Male, Diseases of Heart --> gender:Male, medicalCondition:DiseasesOfHeart
+Count of Mortality Event (Measured Based on Jurisdiction): Death Due To Another Person, Incarcerated --> causeOfDeath:DeathDueToAnotherPerson, institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Count of Mortality Event: Years 85, C00-D48 (Neoplasms) --> age:Years85, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Demographics --> displayRank:2
+Count of Mortality Event: 45 - 54 Years, C00-D48 (Neoplasms) --> age:Years45To54, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Age-Standardized Death Rates, Alcohol Use Disorders, Per 100,000 --> measuredProperty:who/SA_0000001437, populationType:Thing
+Count of Mortality Event (Measured Based on Jurisdiction): Assault(Homicide), Incarcerated --> causeOfDeath:Assault(Homicide), institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Count of Mortality Event (Measured Based on Jurisdiction): NPSOther Cause of Death, Incarcerated --> causeOfDeath:NPSOtherCauseOfDeath, institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Age-Standardized DALYs, Diabetes Mellitus, Per 100,000,Age-Standardized Dalys, Diabetes Mellitus, Per 100,000 --> measuredProperty:who/SA_0000001421
+Percentage of Population That Has Experienced a Stroke --> age:Years18Onwards, healthOutcome:Stroke, measuredProperty:percent
+Age-Standardized Death Rates, Liver Cancer, Per 100,000 --> measuredProperty:who/SA_0000001445
+Population: 16 Years or More, Civilian, No Health Insurance, 35,000 - 49,999 USD, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar35000To49999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Prevalence: 50 - 74 Years, Female, Mammography --> age:Years50To74, gender:Female, healthPrevention:Mammography, measuredProperty:percent
+Percentage of Population Who Are Physically Inactive --> age:Years18Onwards, healthBehavior:PhysicalInactivity, measuredProperty:percent
+Age-Standardized Death Rates, Liver Cirrhosis, Per 100,000 --> measuredProperty:who/SA_0000001446
+Age-Standardized Death Rates, Poisoning, Per 100,000 --> measuredProperty:who/SA_0000001450
+Polio Immunization Coverage Among One-Year-Olds (%) (poliov), Male --> gender:Male, measuredProperty:who/poliov, populationType:Thing
+Age-Standardized Death Rates, Diabetes Mellitus, Per 100,000 --> measuredProperty:who/SA_0000001440
+Prevalence Of Severely Wasted Children Under 5 Years Of Age   (% Weight-For-Height <-3 Sd),Severe Wasted Prevalence Among Children Under 5 Years Of Age   (% Weight-For-Height <-3 Sd), Survey-Based Estimates --> measuredProperty:who/NUTRITION_WH_3, populationType:Thing
+Count of Mortality Event: L00-L98 (Diseases of The Skin And Subcutaneous Tissue), Female --> causeOfDeath:ICD10/L00-L98, gender:Female, populationType:MortalityEvent
+Age-Standardized DALYs, Self-Inflicted Injury, Per 100,000,Age-Standardized Dalys, Self-Inflicted Injury, Per 100,000 --> measuredProperty:who/SA_0000001434
+Prevalence Of Anaemia In Children Aged 6-59 Months (%) --> measuredProperty:who/NUTRITION_ANAEMIA_CHILDREN_PREV
+Deaths From Diseases of the Respiratory System --> causeOfDeath:ICD10/J00-J98, populationType:MortalityEvent
+Count of Mortality Event: 55 - 64 Years, C00-D48 (Neoplasms) --> age:Years55To64, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Count of Mortality Event: 65 - 74 Years, C00-D48 (Neoplasms) --> age:Years65To74, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Dtp3 Immunization Coverage Among One-Year-Olds (%), Urban --> measuredProperty:who/dptv, placeOfResidenceClassification:Urban, populationType:Thing
+Prevalence Of Daily Tobacco Use Among Adults (%) --> measuredProperty:who/Adult_daily_tob_use
+Age-Standardized DALYs, Mouth And Oropharynx Cancer, Per 100,000,Age-Standardized Dalys, Mouth And Oropharynx Cancer, Per 100,000 --> measuredProperty:who/SA_0000001429
+Count of Mortality Event (Measured Based on Jurisdiction): Judicial Execution, Incarcerated --> causeOfDeath:JudicialExecution, institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Measles Immunization Coverage Among One-Year-Olds (%) (mslv), Rural --> measuredProperty:who/mslv, placeOfResidenceClassification:Rural, populationType:Thing
+Medical Condition Incident With Climatic Season = Summer Season, Medical Condition = Heat Stress, Medical Status = Patient Hospitalized --> 
+Population: No Health Insurance, American Indian or Alaska Native Alone --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:AmericanIndianOrAlaskaNativeAlone
+Count of Mortality Event: J00-J98 (Diseases of The Respiratory System), Female --> causeOfDeath:ICD10/J00-J98, gender:Female, populationType:MortalityEvent
+Polio Immunization Coverage Among One-Year-Olds (%) (poliov), Urban --> measuredProperty:who/poliov, placeOfResidenceClassification:Urban, populationType:Thing
+Mortality Event With Race = Asian or Pacific Islander --> 
+Mortality Event With Race = Black or African American --> 
+Percentage of Population With Poor Mental Health --> age:Years18Onwards, healthOutcome:MentalHealthNotGood, measuredProperty:percent
+Person With Medical Condition = High Cholesterol --> 
+Population: With Health Insurance, Hispanic or Latino --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:HispanicOrLatino
+Count of Mortality Event: 1 Years or Less, C00-D48 (Neoplasms) --> age:YearsUpto1, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Non Hispanic or Latino White Population With Disabilities --> disabilityStatus:WithDisability, race:WhiteAloneNotHispanicOrLatino
+Count of Mortality Event: 1 Years or Less, G00-G98 (Diseases of The Nervous System) --> age:YearsUpto1, causeOfDeath:ICD10/G00-G98, populationType:MortalityEvent
+Age-Standardized Death Rates, Fires, Per 100,000 --> measuredProperty:who/SA_0000001443, populationType:Thing
+Count of Mortality Event: E00-E88 (Endocrine, Nutritional And Metabolic Diseases) --> causeOfDeath:ICD10/E00-E88, populationType:MortalityEvent
+Person With Age = 18 Years or Less --> 
+Person With Health Insurance = With Health Insurance --> 
+Population: Female, With Health Insurance --> armedForcesStatus:Civilian, gender:Female, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized
+Population: 16 Years or More, Civilian, No Health Insurance, 15,000 - 24,999 USD, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar15000To24999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Population: With Health Insurance, Native Hawaiian or Other Pacific Islander Alone --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:NativeHawaiianOrOtherPacificIslanderAlone
+Prevalence Of Insufficient Physical Activity Among Adults Aged 18+ Years (Crude Estimate) (%) --> measuredProperty:who/NCD_PAC
+Prevalence: 50 - 75 Years, Colorectal Cancer Screening --> age:Years50To75, healthPrevention:ColorectalCancerScreening, measuredProperty:percent
+Prevalence: Dental Visit --> age:Years18Onwards, healthPrevention:DentalVisit, measuredProperty:percent
+Count of Mortality Event: 65 - 74 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years65To74, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Count of Mortality Event (Measured Based on Jurisdiction): Illness or Natural Cause, Incarcerated --> causeOfDeath:IllnessOrNaturalCause, institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Age-Standardized Death Rates, Breast Cancer, Per 100,000 --> measuredProperty:who/SA_0000001438
+Age-Standardized DALYs, Prematurity And Low Birth Rate, Per 100,000,Age-Standardized Dalys, Prematurity And Low Birth Rate, Per 100,000 --> measuredProperty:who/SA_0000001432
+Age-Standardized DALYs, Poisoning, Per 100,000,Age-Standardized Dalys, Poisoning, Per 100,000 --> measuredProperty:who/SA_0000001431
+Age-Standardized Death Rates, Violence, Per 100,000 --> measuredProperty:who/SA_0000001455, populationType:Thing
+Count of Mortality Event: M00-M99 (Diseases of The Musculoskeletal System And Connective Tissue) --> causeOfDeath:ICD10/M00-M99, populationType:MortalityEvent
+Population With Private Health Insurance --> armedForcesStatus:Civilian, healthInsurance:WithPrivateHealthInsurance, institutionalization:USC_NonInstitutionalized
+Population: 16 Years or More, Civilian, No Health Insurance, 25,000 - 34,999 USD, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar25000To34999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Population: No Health Insurance, Black or African American Alone --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:BlackOrAfricanAmericanAlone
+Percentage of Population That Smokes --> age:Years18Onwards, healthBehavior:Smoking, measuredProperty:percent
+Count of Mortality Event: N00-N98 (Diseases of The Genitourinary System) --> causeOfDeath:ICD10/N00-N98, populationType:MortalityEvent
+Age-Standardized Death Rates (15+ Years), Poisoning, Per 100,000 --> measuredProperty:who/SA_0000001458
+3.2.2: Neonatal mortality rate --> 
+Age-Standardized Death Rates (15+ Years), Alcoholic Liver Disease, Per 100,000 --> measuredProperty:who/SA_0000001456
+Count of Mortality Event: 45 - 54 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years45To54, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Mortality Event With Race = White --> 
+Population: No Health Insurance, Asian Alone --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:AsianAlone
+Count of Mortality Event: 1 Years or Less, R00-R99 (Symptoms, Signs And Abnormal Clinical And Laboratory Findings, Not Elsewhere Classified) --> age:YearsUpto1, causeOfDeath:ICD10/R00-R99, populationType:MortalityEvent
+Full Immunization Coverage Among One-Year-Olds (%) (fullv), Rural --> measuredProperty:who/fullv, placeOfResidenceClassification:Rural, populationType:Thing
+Percentage of Population With High Blood Pressure --> age:Years18Onwards, healthOutcome:HighBloodPressure, measuredProperty:percent
+Mortality Event With Cause of Death = F01-F99 (Mental And Behavioural Disorders) --> 
+Count of Mortality Event: 55 - 64 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years55To64, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Disabled Population of Some Other Race --> disabilityStatus:WithDisability, race:SomeOtherRaceAlone
+Population: Male, No Health Insurance --> armedForcesStatus:Civilian, gender:Male, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized
+Age-Standardized DALYs, Road Traffic Accidents, Per 100,000,Age-Standardized Dalys, Road Traffic Accidents, Per 100,000 --> measuredProperty:who/SA_0000001433
+Age-Standardized DALYs, Drownings, Per 100,000,Age-Standardized Dalys, Drownings, Per 100,000 --> measuredProperty:who/SA_0000001422
+Mortality Event With Gender = Male --> 
+Count of Mortality Event: A00-B99 (Certain Infectious And Parasitic Diseases), Female --> causeOfDeath:ICD10/A00-B99, gender:Female, populationType:MortalityEvent
+Single-Race Population With Disabilities --> disabilityStatus:WithDisability, race:OneRace
+Population: Male, With Health Insurance --> armedForcesStatus:Civilian, gender:Male, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized
+Stunting Prevalence Among Children Under 5 Years Of Age (% Height-For-Age <-2 Sd), Model-Based Estimates,Stunting Prevalence Among Children Under 5 Years Of Age (%) --> measuredProperty:who/NUTSTUNTINGPREV, populationType:Thing
+Mortality Event With Cause of Death = C00-D48 (Neoplasms) --> 
+Age-Standardized Death Rates, Oesophagus Cancer, Per 100,000 --> measuredProperty:who/SA_0000001449
+Age-Standardized Death Rates, Drownings, Per 100,000 --> measuredProperty:who/SA_0000001441, populationType:Thing
+Female Population With Disabilities --> disabilityStatus:WithDisability, gender:Female
+Count of Mortality Event: P00-P96 (Certain Conditions Originating in The Perinatal Period), Female --> causeOfDeath:ICD10/P00-P96, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: 35 - 44 Years, C00-D48 (Neoplasms) --> age:Years35To44, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Dtp3 Immunization Coverage Among One-Year-Olds (%), Male --> gender:Male, measuredProperty:who/dptv, populationType:Thing
+Person With Preventive Health = Cholesterol Screening --> 
+Deaths From Neoplasms (Tumors or Abnormal Growths) --> causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Percent of Population That Have Chronic Obstructive Pulmonary Disease --> age:Years18Onwards, healthOutcome:ChronicObstructivePulmonaryDisease, measuredProperty:percent
+Count of Mortality Event: Q00-Q99 (Congenital Malformations, Deformations And Chromosomal Abnormalities), Female --> causeOfDeath:ICD10/Q00-Q99, gender:Female, populationType:MortalityEvent
+Prevalence: Cholesterol Screening --> age:Years18Onwards, healthPrevention:CholesterolScreening, measuredProperty:percent
+Number Of Deaths Attributed To Non-Communicable Diseases, By Type Of Disease And Sex, Chronic Respiratory Diseases --> causeOfDeathAndDisability:ChronicRespiratoryDiseases, measuredProperty:who/SDG_SH_DTH_RNCOM
+Person With Medical Condition = Cancer Excluding Skin Cancer --> 
+Population: Female, No Health Insurance --> armedForcesStatus:Civilian, gender:Female, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized
+Age-Standardized Death Rates, Other Unintentional Injuries, Per 100,000 --> measuredProperty:who/SA_0000001454
+Count of Mortality Event: A00-B99 (Certain Infectious And Parasitic Diseases) --> causeOfDeath:ICD10/A00-B99, populationType:MortalityEvent
+Number Of Cases Of Visceral Leishmaniasis Reported --> measuredProperty:who/NTD_LEISHVNUM, populationType:Thing
+Age-Standardized DALYs, Falls, Per 100,000,Age-Standardized Dalys, Falls, Per 100,000 --> measuredProperty:who/SA_0000001423
+Infant mortality rate [under 1 year old, Male] --> age:SDG_AgeEnum_Y0, footnote:Includes data from the following sources: United Nations Inter-agency Group for Child Mortality Estimation (UN IGME), 2023, measuredProperty:value, populationType:SDG_SH_DYN_IMRT, sdg_sex:SDG_SexEnum_M
+Count of Mortality Event: Q00-Q99 (Congenital Malformations, Deformations And Chromosomal Abnormalities) --> causeOfDeath:ICD10/Q00-Q99, populationType:MortalityEvent
+Mortality Event --> 
+Prevalence Of Wasted Children Under 5 Years Of Age   (% Weight-For-Height <-2 Sd),Wasting Prevalence Among Children Under 5 Years Of Age (% Weight-For-Height <-2 Sd), Survey-Based Estimates --> measuredProperty:who/NUTRITION_WH_2, populationType:Thing
+Count of Mortality Event: P00-P96 (Certain Conditions Originating in The Perinatal Period) --> causeOfDeath:ICD10/P00-P96, populationType:MortalityEvent
+Population: With Health Insurance, White Alone --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:WhiteAlone
+Age-Standardized DALYs, Cerebrovascular Disease, Per 100,000,Age-Standardized Dalys, Cerebrovascular Disease, Per 100,000 --> measuredProperty:who/SA_0000001689
+Bcg Immunization Coverage Among One-Year-Olds (%) (bcgv), Female --> gender:Female, measuredProperty:who/bcgv, populationType:Thing
+3.1.1: Maternal mortality ratio --> 
+Suicide Mortality Rate --> causeOfDeath:ICD10/X60-X84, measurementDenominator:Count_Person, populationType:MortalityEvent
+Population: Female, Diseases of Heart --> gender:Female, medicalCondition:DiseasesOfHeart
+Count of Mortality Event: 75 - 84 Years, C00-D48 (Neoplasms) --> age:Years75To84, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Person With Medical Condition = High Blood Pressure --> 
+Count of Mortality Event (Measured Based on Jurisdiction): Intentional Self-Harm(Suicide), Incarcerated --> causeOfDeath:IntentionalSelf-Harm(Suicide), institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Count of Mortality Event: R00-R99 (Symptoms, Signs And Abnormal Clinical And Laboratory Findings, Not Elsewhere Classified), Female --> causeOfDeath:ICD10/R00-R99, gender:Female, populationType:MortalityEvent
+Number Of New Reported Cases Of Human African Trypanosomiasis (T.B. Rhodesiense) --> measuredProperty:who/NTD_5, populationType:Thing
+Bcg Immunization Coverage Among One-Year-Olds (%) (bcgv), Rural --> measuredProperty:who/bcgv, placeOfResidenceClassification:Rural, populationType:Thing
+Medical Condition Incident With Climatic Season = Summer Season, Medical Condition = Heat Stress, Medical Status = Visited Emergency Department --> 
+Full Immunization Coverage Among One-Year-Olds (%) (fullv), Female --> gender:Female, measuredProperty:who/fullv, populationType:Thing
+Age-Standardized DALYs, Other Unintentional Injuries, Per 100,000,Age-Standardized Dalys, Other Unintentional Injuries, Per 100,000 --> measuredProperty:who/SA_0000001435
+Count of Mortality Event: 1 Years or Less, Q00-Q99 (Congenital Malformations, Deformations And Chromosomal Abnormalities) --> age:YearsUpto1, causeOfDeath:ICD10/Q00-Q99, populationType:MortalityEvent
+Count of Mortality Event: K00-K92 (Diseases of The Digestive System) --> causeOfDeath:ICD10/K00-K92, populationType:MortalityEvent
+Count of Mortality Event: F01-F99 (Mental And Behavioural Disorders), Female --> causeOfDeath:ICD10/F01-F99, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: F01-F99 (Mental And Behavioural Disorders) --> causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Age-Standardized DALYs, Liver Cirrhosis, Per 100,000,Age-Standardized Dalys, Liver Cirrhosis, Per 100,000 --> measuredProperty:who/SA_0000001427
+Count of Mortality Event: U00-U99 (Codes for Special Purposes), Female --> causeOfDeath:ICD10/U00-U99, gender:Female, populationType:MortalityEvent
+Count of Mortality Event: Intentional Self-Harm(Suicide), Female --> causeOfDeath:IntentionalSelf-Harm(Suicide), gender:Female, populationType:MortalityEvent
+Population: No Health Insurance, Native Hawaiian or Other Pacific Islander Alone --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:NativeHawaiianOrOtherPacificIslanderAlone
+Count of Mortality Event (Measured Based on Jurisdiction): Accidents(Unintentional Injuries), Incarcerated --> causeOfDeath:Accidents(UnintentionalInjuries), institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Person With Medical Condition = Arthritis --> 
+Number Of Neonatal Deaths --> measuredProperty:who/CM_03
+Child Health --> 
+Full Immunization Coverage Among One-Year-Olds (%) (fullv), Urban --> measuredProperty:who/fullv, placeOfResidenceClassification:Urban, populationType:Thing
+Estimated Population-Based Prevalence Of Depression --> measuredProperty:who/GDO_q35, populationType:Thing
+Person With Medical Condition = Depression --> 
+Percentage of Population That Is Obese --> age:Years18Onwards, healthBehavior:Obesity, measuredProperty:percent
+Count of Mortality Event: Intentional Self-Harm(Suicide) --> causeOfDeath:IntentionalSelf-Harm(Suicide), populationType:MortalityEvent
+Dtp3 Immunization Coverage Among One-Year-Olds (%), Rural --> measuredProperty:who/dptv, placeOfResidenceClassification:Rural, populationType:Thing
+Person With Age = 18 Years or More, Medical Condition = High Blood Pressure, Preventive Health = Taking Blood Pressure Medication --> 
+Deaths From External Causes --> causeOfDeath:ICD10/V01-Y89, populationType:MortalityEvent
+Person With Medical Condition = Asthma --> 
+Count of Mortality Event: 15 - 24 Years, F01-F99 (Mental And Behavioural Disorders) --> age:Years15To24, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Number Of New Reported Cases Of Buruli Ulcer --> measuredProperty:who/NTD_1, populationType:Thing
+Medical Condition Incident With Medical Condition, Medical Status = Patient Deceased --> 
+Population: No Health Insurance, Hispanic or Latino --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:HispanicOrLatino
+Age-Standardized DALYs, Ischaemic Heart Disease, Per 100,000,Age-Standardized Dalys, Ischaemic Heart Disease, Per 100,000 --> measuredProperty:who/SA_0000001425
+Percentage of Population With Diabetes --> age:Years18Onwards, healthOutcome:Diabetes, measuredProperty:percent
+Percent of Population That Have Chronic Kidney Disease --> age:Years18Onwards, healthOutcome:ChronicKidneyDisease, measuredProperty:percent
+Prevalence Of Underweight Children Under 5 Years Of Age   (% Weight-For-Age <-2 Sd) (%),Underweight Prevalence Among Children Under 5 Years Of Age   (% Weight-For-Age <-2 Sd), Survey-Based Estimates --> measuredProperty:who/NUTRITION_WA_2, populationType:Thing
+Age-Standardized DALYs, Violence, Per 100,000,Age-Standardized Dalys, Violence, Per 100,000 --> measuredProperty:who/SA_0000001436
+Measles Immunization Coverage Among One-Year-Olds (%) (mslv), Urban --> measuredProperty:who/mslv, placeOfResidenceClassification:Urban, populationType:Thing
+Person With Preventive Health = Annual Checkup --> 
+Health --> displayRank:7
+Measles Immunization Coverage Among One-Year-Olds (%) (mslv), Male --> gender:Male, measuredProperty:who/mslv, populationType:Thing
+Age-Standardized DALYs, Oesophagus Cancer, Per 100,000,Age-Standardized Dalys, Oesophagus Cancer, Per 100,000 --> measuredProperty:who/SA_0000001430
+Count of Mortality Event: Years 85, F01-F99 (Mental And Behavioural Disorders) --> age:Years85, causeOfDeath:ICD10/F01-F99, populationType:MortalityEvent
+Count of Mortality Event (Measured Based on Jurisdiction): AIDS, Incarcerated --> causeOfDeath:AIDS, institutionalization:Incarcerated, measurementQualifier:MeasuredBasedOnJurisdiction, populationType:MortalityEvent
+Medical Condition Incident With Climatic Season = Summer Season, Medical Condition = Heat Stress, Medical Status --> 
+Count of Mortality Event: 1 - 4 Years, C00-D48 (Neoplasms) --> age:Years1To4, causeOfDeath:ICD10/C00-D48, populationType:MortalityEvent
+Count of Mortality Event: N00-N98 (Diseases of The Genitourinary System), Female --> causeOfDeath:ICD10/N00-N98, gender:Female, populationType:MortalityEvent
+Deaths From Diseases of the Nervous System --> causeOfDeath:ICD10/G00-G98, populationType:MortalityEvent
+Estimate Of Daily Tobacco Smoking Prevalence (%) --> measuredProperty:who/M_Est_smk_daily, populationType:Thing
+Count of Mortality Event: 1 Years or Less, K00-K92 (Diseases of The Digestive System) --> age:YearsUpto1, causeOfDeath:ICD10/K00-K92, populationType:MortalityEvent
+Medical Condition Incident With Medical Status = Patient Deceased --> 
+Male Population With Disabilities --> disabilityStatus:WithDisability, gender:Male
+Population With Only Public Health Insurance --> armedForcesStatus:Civilian, healthInsurance:WithPublicHealthInsuranceOnly, institutionalization:USC_NonInstitutionalized
+Male Life Expectancy --> gender:Male, measuredProperty:lifeExpectancy
+Infant mortality rate [under 1 year old, Female] --> age:SDG_AgeEnum_Y0, footnote:Includes data from the following sources: United Nations Inter-agency Group for Child Mortality Estimation (UN IGME), 2023, measuredProperty:value, populationType:SDG_SH_DYN_IMRT, sdg_sex:SDG_SexEnum_F
+Count of Mortality Event: Diabetes, Female --> causeOfDeath:Diabetes, gender:Female, populationType:MortalityEvent
+Mortality Event With Gender = Female --> 
+Mortality Event With Race = American Indian And Alaska Native Alone --> 
+Deaths From Diseases of the Circulatory System --> causeOfDeath:ICD10/I00-I99, populationType:MortalityEvent
+Bcg Immunization Coverage Among One-Year-Olds (%) (bcgv), Urban --> measuredProperty:who/bcgv, placeOfResidenceClassification:Urban, populationType:Thing
+Age-Standardized Death Rates, Mouth And Oropharynx Cancer, Per 100,000 --> measuredProperty:who/SA_0000001448
+Count of Mortality Event: K00-K92 (Diseases of The Digestive System), Female --> causeOfDeath:ICD10/K00-K92, gender:Female, populationType:MortalityEvent
+Medical Condition Incident With Medical Condition = Heat Stress, Medical Status --> 
+Percentage of Population Who Binge Drink --> age:Years18Onwards, healthBehavior:BingeDrinking, measuredProperty:percent
+Age-Standardized DALYs, Liver Cancer, Per 100,000,Age-Standardized Dalys, Liver Cancer, Per 100,000 --> measuredProperty:who/SA_0000001426
+Population: With Health Insurance, Black or African American Alone --> armedForcesStatus:Civilian, healthInsurance:WithHealthInsurance, institutionalization:USC_NonInstitutionalized, race:BlackOrAfricanAmericanAlone
+Low Birth Weight Prevalence (%),Low Birth Weight, Prevalence (%) --> measuredProperty:who/LBW_PREVALENCE, populationType:Thing
+Age-Standardized Death Rates, Ischaemic Heart Disease, Per 100,000 --> measuredProperty:who/SA_0000001444
+Population: 16 Years or More, Civilian, No Health Insurance, 5,000 - 14,999 USD, With Earnings, Non Institutionalized --> age:Years16Onwards, armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, income:USDollar5000To14999, incomeStatus:WithEarnings, institutionalization:USC_NonInstitutionalized
+Count of Mortality Event: 1 Years or Less, I00-I99 (Diseases of The Circulatory System) --> age:YearsUpto1, causeOfDeath:ICD10/I00-I99, populationType:MortalityEvent
+Count of Mortality Event: O00-O99 (Pregnancy, Childbirth And The Puerperium) --> causeOfDeath:ICD10/O00-O99, populationType:MortalityEvent
+Population: No Health Insurance, White Alone --> armedForcesStatus:Civilian, healthInsurance:NoHealthInsurance, institutionalization:USC_NonInstitutionalized, race:WhiteAlone
+Count of Mortality Event: Assault(Homicide), Female --> causeOfDeath:Assault(Homicide), gender:Female, populationType:MortalityEvent

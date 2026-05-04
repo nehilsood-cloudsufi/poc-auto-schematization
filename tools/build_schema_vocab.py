@@ -332,6 +332,23 @@ def enrich_with_schemaorg(vocab: dict) -> dict:
     return vocab
 
 
+def enrich_with_statvar_examples(vocab, category_statvars, max_examples=15):
+    """Add real StatVar decomposition examples to vocab."""
+    seen_pop_types = {}
+    selected = []
+    for sv in category_statvars:
+        pop = sv.get("populationType", "")
+        if seen_pop_types.get(pop, 0) >= 5:
+            continue
+        seen_pop_types[pop] = seen_pop_types.get(pop, 0) + 1
+        example = {k: v for k, v in sv.items() if k != "statType"}
+        selected.append(example)
+        if len(selected) >= max_examples:
+            break
+    vocab["statvar_examples"] = selected
+    return vocab
+
+
 def write_vocab_file(category: str, vocab: dict, dry_run: bool = False) -> Path:
     """Write vocab JSON to schema_vocab.json in the category directory."""
     output_path = SCHEMA_BASE_DIR / category / "schema_vocab.json"
@@ -366,12 +383,24 @@ def main():
     print(f"Schema base dir: {SCHEMA_BASE_DIR}")
     print()
 
+    mcf_path = Path("src/resources/schema_org/sample_statvars.mcf")
+    statvar_groups = {}
+    if mcf_path.exists():
+        from tools.parse_statvar_mcf import parse_mcf_file, group_by_category
+        all_statvars = parse_mcf_file(mcf_path)
+        statvar_groups = group_by_category(all_statvars)
+        print(f"Parsed {len(all_statvars)} StatVars into {len(statvar_groups)} categories")
+    print()
+
     results = {}
     for category in categories:
         print(f"Processing {category}...")
         vocab = build_vocab_for_category(category)
         if vocab:
             vocab = enrich_with_schemaorg(vocab)
+            if category in statvar_groups:
+                vocab = enrich_with_statvar_examples(vocab, statvar_groups[category])
+                print(f"  Added {len(vocab.get('statvar_examples', []))} StatVar examples")
             output_path = write_vocab_file(category, vocab, dry_run=args.dry_run)
             results[category] = {
                 "skeletons": len(vocab["stat_var_skeletons"]),

@@ -7,6 +7,7 @@ Tests the calculate_heuristic_score() function and related utilities.
 import pytest
 from src.tools.heuristic_quality import (
     calculate_heuristic_score,
+    check_column_completeness,
     is_quality_acceptable,
     format_quality_report,
     _estimate_expected_rows,
@@ -566,3 +567,103 @@ class TestScoreBounds:
             result["format_score"]
         )
         assert abs(result["total"] - expected_total) < 0.5  # Allow rounding
+
+
+# ============================================================================
+# check_column_completeness tests
+# ============================================================================
+
+class TestCheckColumnCompleteness:
+    """Tests for the check_column_completeness function."""
+
+    PVMAP_ALL_MAPPED = """key,prop,val,p1,v1
+State FIPS,observationAbout,geoId/{Data},,
+Year,observationDate,{Number},,
+Gender:Male,gender,Male,,
+Gender:Female,gender,Female,,
+Population,value,{Number},populationType,Person
+"""
+
+    PVMAP_MISSING_PLACE = """key,prop,val,p1,v1
+Year,observationDate,{Number},,
+Gender:Male,gender,Male,,
+Gender:Female,gender,Female,,
+Population,value,{Number},populationType,Person
+"""
+
+    PVMAP_MISSING_DIMENSION = """key,prop,val,p1,v1
+State FIPS,observationAbout,geoId/{Data},,
+Year,observationDate,{Number},,
+Population,value,{Number},populationType,Person
+"""
+
+    MANIFEST = {
+        "must_map": [
+            {"column_name": "State FIPS", "role": "place", "suggested_property": "observationAbout"},
+            {"column_name": "Year", "role": "time", "suggested_property": "observationDate"},
+            {"column_name": "Gender", "role": "dimension", "suggested_property": "dimension"},
+            {"column_name": "Population", "role": "value", "suggested_property": "value"},
+        ],
+        "can_ignore": [
+            {"column_name": "Source", "role": "metadata"},
+        ],
+        "all_columns": ["State FIPS", "Year", "Gender", "Population", "Source"],
+    }
+
+    def test_all_mapped(self):
+        result = check_column_completeness(self.PVMAP_ALL_MAPPED, self.MANIFEST)
+        assert result["complete"] is True
+        assert result["severity"] == "ok"
+        assert result["coverage_ratio"] == 1.0
+        assert result["missing_must_map"] == []
+
+    def test_missing_place_critical(self):
+        result = check_column_completeness(self.PVMAP_MISSING_PLACE, self.MANIFEST)
+        assert result["complete"] is False
+        assert result["severity"] == "critical"
+        assert any(m["column"] == "State FIPS" for m in result["missing_must_map"])
+
+    def test_missing_dimension_warning(self):
+        result = check_column_completeness(self.PVMAP_MISSING_DIMENSION, self.MANIFEST)
+        assert result["complete"] is False
+        assert result["severity"] == "warning"
+        assert any(m["column"] == "Gender" for m in result["missing_must_map"])
+
+    def test_empty_manifest(self):
+        result = check_column_completeness("key,prop,val\n", {})
+        assert result["complete"] is True
+        assert result["severity"] == "ok"
+
+    def test_empty_pvmap(self):
+        result = check_column_completeness("", self.MANIFEST)
+        assert result["complete"] is False
+        assert result["severity"] == "critical"
+
+    def test_column_value_syntax_matches(self):
+        """COLUMN:VALUE rows should count the column as mapped."""
+        pvmap = """key,prop,val
+Gender:Male,gender,Male
+Gender:Female,gender,Female
+"""
+        manifest = {
+            "must_map": [
+                {"column_name": "Gender", "role": "dimension", "suggested_property": "dimension"},
+            ],
+            "can_ignore": [],
+        }
+        result = check_column_completeness(pvmap, manifest)
+        assert result["complete"] is True
+
+    def test_case_insensitive_matching(self):
+        """Column matching should be case-insensitive."""
+        pvmap = """key,prop,val
+state fips,observationAbout,geoId/{Data}
+"""
+        manifest = {
+            "must_map": [
+                {"column_name": "State FIPS", "role": "place", "suggested_property": "observationAbout"},
+            ],
+            "can_ignore": [],
+        }
+        result = check_column_completeness(pvmap, manifest)
+        assert result["complete"] is True

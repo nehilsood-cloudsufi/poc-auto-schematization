@@ -88,8 +88,9 @@ async def test_schema_selection_agent_instruction_has_flags(mock_invocation_cont
 
     agent = create_schema_selection_agent()
 
-    # Verify instruction has template placeholders
-    assert "{current_dataset.name}" in agent.instruction or "{current_dataset}" in agent.instruction
+    # Verify instruction has template placeholders (flat keys, not dotted access)
+    assert "{current_dataset_name}" in agent.instruction
+    assert "{current_dataset_path}" in agent.instruction
     assert "{skip_schema_selection}" in agent.instruction
     assert "{force_schema_selection}" in agent.instruction
 

@@ -108,6 +108,16 @@ def calculate_heuristic_score(
     # Calculate total
     total = row_coverage + prop_coverage + column_coverage + format_score
 
+    # PVMAP efficiency diagnostic (informational, does not change score)
+    dimension_enumeration_count = sum(1 for k in mapped_keys if ':' in k)
+    details["pvmap_row_count"] = actual_rows
+    details["dimension_enumeration_count"] = dimension_enumeration_count
+    if dimension_enumeration_count > 50:
+        issues.append(
+            f"Verbose PVMAP: {dimension_enumeration_count} enumerated dimension values. "
+            f"Consider passthrough {{Data}} for high-cardinality dimensions."
+        )
+
     return {
         "total": round(total, 1),
         "row_coverage": round(row_coverage, 1),
@@ -266,6 +276,9 @@ def _check_value_formats(pvmap_csv: str) -> Tuple[float, List[str]]:
     dcid_matches = re.findall(dcid_pattern, pvmap_csv)
 
     # Check for likely DC identifiers missing dcid: prefix
+    # Exclude well-known bare values that are valid without dcid: prefix
+    # (e.g., measuredProperty,count or populationType,Person)
+    _VALID_BARE_VALUES = {"count", "median", "measuredValue", "percentile"}
     bare_dcid_patterns = [
         r'\b(Person|Household|HousingUnit|Establishment)\b',
         r'\b(count|median|measuredValue|percentile)\b',
@@ -273,13 +286,17 @@ def _check_value_formats(pvmap_csv: str) -> Tuple[float, List[str]]:
         r'\bcountry/[A-Z]{3}\b',
     ]
 
+    pvmap_keys = _get_keys_from_pvmap(pvmap_csv)
     for pattern in bare_dcid_patterns:
         matches = re.findall(pattern, pvmap_csv)
         for match in matches:
+            # Skip well-known values that are valid in property-value positions
+            if match in _VALID_BARE_VALUES:
+                continue
             # Check if this match is already prefixed with dcid:
             if f'dcid:{match}' not in pvmap_csv and f'dcid: {match}' not in pvmap_csv:
                 # Only flag if it's in a value position (not a key)
-                if match not in _get_keys_from_pvmap(pvmap_csv):
+                if match not in pvmap_keys:
                     issues.append(f"Missing dcid: prefix for '{match}'")
                     score -= 2
 
@@ -343,12 +360,121 @@ def format_quality_report(result: Dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 
+def _extract_regex_patterns(pvmap_csv: str) -> List[str]:
+    """Extract regex patterns from PVMAP keys using #Regex."""
+    patterns = []
+    if not pvmap_csv:
+        return patterns
+    try:
+        reader = csv.reader(io.StringIO(pvmap_csv))
+        for row in reader:
+            if len(row) >= 2 and row[1].strip() == '#Regex' and len(row) >= 3:
+                patterns.append(row[2].strip())
+    except Exception:
+        pass
+    return patterns
+
+
+def _matches_any_regex(col_name: str, patterns: List[str]) -> bool:
+    """Check if a column name matches any of the extracted regex patterns."""
+    for pattern in patterns:
+        try:
+            if re.search(pattern, col_name, re.IGNORECASE):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def check_column_completeness(
+    pvmap_csv: str,
+    column_manifest: dict,
+) -> Dict[str, Any]:
+    """Check which must-map columns are present/missing in PVMAP.
+
+    Args:
+        pvmap_csv: Generated PVMAP CSV content
+        column_manifest: Output of build_column_manifest() with must_map/can_ignore lists
+
+    Returns:
+        {
+            "complete": bool,
+            "missing_must_map": [{"column": str, "role": str, "suggested_property": str}],
+            "mapped_must_map": [str],
+            "coverage_ratio": float,
+            "severity": "critical" | "warning" | "ok"
+        }
+    """
+    must_map = column_manifest.get("must_map", [])
+    if not must_map:
+        return {
+            "complete": True,
+            "missing_must_map": [],
+            "mapped_must_map": [],
+            "coverage_ratio": 1.0,
+            "severity": "ok",
+        }
+
+    # Get all PVMAP keys (case-insensitive)
+    pvmap_keys = _get_keys_from_pvmap(pvmap_csv)
+    pvmap_keys_lower = {k.lower().strip() for k in pvmap_keys}
+
+    # Also extract column parts from COLUMN:VALUE keys
+    for key in list(pvmap_keys):
+        if ':' in key:
+            col_part = key.split(':')[0].lower().strip()
+            pvmap_keys_lower.add(col_part)
+
+    # Detect #Regex patterns that may cover multiple columns
+    regex_patterns = _extract_regex_patterns(pvmap_csv)
+
+    mapped = []
+    missing = []
+    critical_roles = {"place", "time", "value"}
+
+    for entry in must_map:
+        col_name = entry["column_name"]
+        col_lower = col_name.lower().strip()
+        if col_lower in pvmap_keys_lower:
+            mapped.append(col_name)
+        elif _matches_any_regex(col_name, regex_patterns):
+            # Column covered by a #Regex pattern
+            mapped.append(col_name)
+        else:
+            missing.append({
+                "column": col_name,
+                "role": entry.get("role", "unknown"),
+                "suggested_property": entry.get("suggested_property", ""),
+            })
+
+    # Determine severity
+    severity = "ok"
+    if missing:
+        missing_roles = {m["role"] for m in missing}
+        if missing_roles & critical_roles:
+            severity = "critical"
+        else:
+            severity = "warning"
+
+    total = len(must_map)
+    coverage = len(mapped) / total if total > 0 else 1.0
+
+    return {
+        "complete": len(missing) == 0,
+        "missing_must_map": missing,
+        "mapped_must_map": mapped,
+        "coverage_ratio": round(coverage, 3),
+        "severity": severity,
+    }
+
+
 # ============================================================================
 # Module exports
 # ============================================================================
 
 __all__ = [
     'calculate_heuristic_score',
+    'check_column_completeness',
     'is_quality_acceptable',
     'format_quality_report',
 ]
