@@ -1015,14 +1015,17 @@ class StatePreparationAgent(BaseAgent):
             except Exception as e:
                 logger.warning("Failed to parse enriched plan, falling back to standard prompt: %s", e)
 
-        if use_executor and enriched_plan is not None:
-            self._populate_executor_prompt(ctx, enriched_plan)
-            return
-
         # SDMX mode uses a dedicated prompt template that trusts the DSD as
         # ground truth (no archetype inference, no sample-driven dimension
         # discovery).
         sdmx_mode_on = ctx.session.state.get("sdmx_mode", False)
+
+        # Do not use the generic executor prompt if we are in SDMX mode;
+        # we must use the dedicated SDMX prompt to inject the DSD structure.
+        if use_executor and enriched_plan is not None and not sdmx_mode_on:
+            self._populate_executor_prompt(ctx, enriched_plan)
+            return
+
         if sdmx_mode_on:
             template_name = "improved_pvmap_prompt_sdmx_v1.txt"
         else:
