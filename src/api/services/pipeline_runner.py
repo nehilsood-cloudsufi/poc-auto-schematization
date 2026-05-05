@@ -41,6 +41,8 @@ class PipelineConfig:
     use_schema_examples: bool = True
     thinking_level: Optional[str] = None
     plan_only: bool = False
+    sdmx_mode: bool = False
+    sdmx_metadata_xml_path: Optional[str] = None
     extra_state: dict = field(default_factory=dict)
 
 
@@ -107,6 +109,8 @@ def _run_in_thread(
             plan_only=config.plan_only,
             from_plan=config.extra_state.get("from_plan"),
             extra_initial_state={k: v for k, v in config.extra_state.items() if k != "from_plan"} if config.extra_state else None,
+            sdmx_mode=config.sdmx_mode,
+            sdmx_metadata_xml_path=config.sdmx_metadata_xml_path,
         )
 
         # Save phase1_state.json for plan_only runs

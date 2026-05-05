@@ -10,6 +10,9 @@ dependencies = [
     "datacommons-mcp>=1.2.0",  # MCP server for Data Commons (1.2+ fixes FastMCP custom_route)
     "fastmcp>=2.0",  # datacommons-mcp needs custom_route (added in fastmcp 2.x)
 
+    # SDMX
+    "sdmx1>=2.21.0",  # SDMX-ML parser for SDMX dataset metadata ingestion
+
     # Data Processing
     "pandas>=2.3.3",
     "numpy>=2.4.1",

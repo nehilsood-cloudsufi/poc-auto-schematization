@@ -283,7 +283,41 @@ class MappingPlanAgent(BaseAgent):
         column_analysis = ctx.session.state.get("column_analysis", "")
         use_v2 = bool(column_analysis and column_analysis != "{}")
 
-        if use_v2:
+        # SDMX mode: use a dedicated prompt primed with the DSD
+        sdmx_mode_on = ctx.session.state.get("sdmx_mode", False)
+        sdmx_structure = ctx.session.state.get("sdmx_structure", "")
+
+        if sdmx_mode_on and sdmx_structure:
+            logger.info("SDMX mode detected; using mapping_plan_prompt_sdmx_v1")
+            template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt_sdmx_v1.txt"
+            template = template_path.read_text()
+
+            if sampled_data:
+                sampled_lines = sampled_data.split("\n")
+                sampled_data_truncated = "\n".join(sampled_lines[:6])
+            else:
+                sampled_data_truncated = ""
+
+            populated = template.replace("{sdmx_structure}", sdmx_structure)
+            populated = populated.replace("{candidate_pool_json}", candidate_pool_json)
+            populated = populated.replace("{schema_vocab_content}", schema_vocab)
+            populated = populated.replace("{sampled_data}", sampled_data_truncated)
+            populated = populated.replace("{engineer_feedback}", engineer_feedback)
+
+            plan_task = asyncio.create_task(
+                self._generate_plan(populated, dataset_name, use_v2=True)
+            )
+            elapsed = 0
+            while not plan_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(plan_task), timeout=60)
+                except asyncio.TimeoutError:
+                    elapsed += 60
+                    yield Event(author=self.name, content=types.Content(
+                        parts=[types.Part(text=f"Still generating SDMX plan... ({elapsed}s elapsed)")]
+                    ))
+            plan = plan_task.result()
+        elif use_v2:
             # --- v2 path: enriched plan with Phase A column analysis ---
             logger.info("Phase A column_analysis detected; using v2 enriched plan prompt")
             template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / "mapping_plan_prompt_v2.txt"

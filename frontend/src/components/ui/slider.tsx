@@ -2,29 +2,48 @@ import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 
 import { cn } from "@/lib/utils"
 
+type SliderProps = Omit<SliderPrimitive.Root.Props, "value" | "defaultValue" | "onValueChange"> & {
+  value?: number | number[]
+  defaultValue?: number | number[]
+  onValueChange?: (value: number[]) => void
+}
+
 function Slider({
   className,
   defaultValue,
   value,
   min = 0,
   max = 100,
+  onValueChange,
   ...props
-}: SliderPrimitive.Root.Props) {
-  const _values = Array.isArray(value)
-    ? value
-    : Array.isArray(defaultValue)
-      ? defaultValue
-      : [min, max]
+}: SliderProps) {
+  // Unwrap single-element arrays — Base UI expects `number` for single-thumb sliders
+  const normalizedValue = Array.isArray(value)
+    ? value.length === 1 ? value[0] : value
+    : value
+  const normalizedDefault = Array.isArray(defaultValue)
+    ? defaultValue.length === 1 ? defaultValue[0] : defaultValue
+    : defaultValue
+
+  const thumbCount = Array.isArray(value) ? value.length
+    : Array.isArray(defaultValue) ? defaultValue.length
+    : 1
+
+  // Base UI fires number for single-thumb; callers expect number[]
+  const handleValueChange = onValueChange
+    ? (val: number | number[]) => onValueChange(Array.isArray(val) ? val : [val])
+    : undefined
 
   return (
     <SliderPrimitive.Root
       className={cn("data-horizontal:w-full data-vertical:h-full", className)}
       data-slot="slider"
-      defaultValue={defaultValue}
-      value={value}
+      defaultValue={normalizedDefault}
+      value={normalizedValue}
       min={min}
       max={max}
       thumbAlignment="edge"
+      onValueChange={handleValueChange}
       {...props}
     >
       <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">
@@ -37,7 +56,7 @@ function Slider({
             className="bg-primary select-none data-horizontal:h-full data-vertical:w-full"
           />
         </SliderPrimitive.Track>
-        {Array.from({ length: _values.length }, (_, index) => (
+        {Array.from({ length: thumbCount }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}

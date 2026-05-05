@@ -195,6 +195,7 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
                 </Label>
                 <FileUploader
                   label="SDMX structure XML (DSD + codelists)"
+                  accept=".xml"
                   required
                   onFileSelect={setSdmxXmlFile}
                   selectedFile={sdmxXmlFile}

@@ -45,6 +45,7 @@ class StartRunRequest(BaseModel):
     use_metadata: bool = False
     human_feedback: Optional[str] = None
     thinking_level: Optional[str] = "high"
+    sdmx_mode: bool = False
 
 
 class UpdateRunRequest(BaseModel):
@@ -226,6 +227,15 @@ async def start_run(req: StartRunRequest, request: Request):
     if candidate.exists() and not (input_dir / req.dataset_name / "test_data").exists():
         input_file = str(candidate)
 
+    # SDMX mode: pick up the uploaded XML metadata file (if any) from the
+    # input directory. Presence of the XML file alone is enough to enable
+    # sdmx_mode downstream, but we honor the explicit flag first.
+    sdmx_xml_path = None
+    xml_candidate = input_dir / "input_metadata.xml"
+    if xml_candidate.exists():
+        sdmx_xml_path = str(xml_candidate)
+    sdmx_on = bool(req.sdmx_mode or sdmx_xml_path)
+
     config = PipelineConfig(
         run_id=req.run_id,
         dataset_name=req.dataset_name,
@@ -243,6 +253,8 @@ async def start_run(req: StartRunRequest, request: Request):
         max_retries=req.max_retries,
         thinking_level=req.thinking_level,
         plan_only=True,
+        sdmx_mode=sdmx_on,
+        sdmx_metadata_xml_path=sdmx_xml_path,
     )
 
     run.config = config.__dict__
