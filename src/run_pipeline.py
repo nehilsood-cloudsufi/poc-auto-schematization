@@ -678,13 +678,32 @@ def run_dataset_pipeline(
     sdmx_metadata: dict = {}
     sdmx_structure: str = ""
     sdmx_skeleton: str = ""
+    sdmx_metadata_json_str: str = ""
     if sdmx_mode and sdmx_metadata_xml_path:
         try:
+            import json as _json
             from src.tools.sdmx_metadata_extractor import extract_sdmx_metadata
             from src.agents.sdmx_context import (
                 render_sdmx_structure, build_sdmx_skeleton,
             )
-            sdmx_metadata = extract_sdmx_metadata(Path(sdmx_metadata_xml_path))
+
+            # Reuse the pre-extracted JSON written at upload time if available;
+            # otherwise extract now and persist it for future reference.
+            run_dir_for_sdmx = Path(input_dir).parent
+            sdmx_input_dir = run_dir_for_sdmx / "sdmx_input"
+            sdmx_json_path = sdmx_input_dir / "sdmx_metadata.json"
+
+            if sdmx_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_json_path.read_text())
+                logger.info("SDMX metadata loaded from pre-extracted JSON: %s", sdmx_json_path)
+            else:
+                sdmx_metadata = extract_sdmx_metadata(Path(sdmx_metadata_xml_path))
+                sdmx_input_dir.mkdir(parents=True, exist_ok=True)
+                sdmx_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                logger.info("SDMX metadata extracted and saved to %s", sdmx_json_path)
+
+            sdmx_metadata_json_str = _json.dumps(sdmx_metadata, indent=2)
+
             # Pull CSV headers so the structure block ties to actual columns.
             csv_columns: list[str] = []
             try:
@@ -751,6 +770,7 @@ def run_dataset_pipeline(
         "sdmx_mode": sdmx_mode,
         "sdmx_metadata_xml_path": sdmx_metadata_xml_path,
         "sdmx_metadata": sdmx_metadata,
+        "sdmx_metadata_json_str": sdmx_metadata_json_str,
         "sdmx_structure": sdmx_structure,
         "sdmx_skeleton": sdmx_skeleton,
     }

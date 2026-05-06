@@ -4,6 +4,55 @@
  * These mirror the Python Pydantic models / API response shapes.
  */
 
+/** Extracted SDMX DSD metadata (mirrors MultiDataflowOutput from sdmx_metadata_extractor.py) */
+export interface SdmxCode {
+  id: string;
+  name?: string;
+}
+
+export interface SdmxCodelist {
+  id: string;
+  name?: string;
+  codes?: SdmxCode[];
+}
+
+export interface SdmxRepresentation {
+  type: "enumerated" | "non-enumerated";
+  codelist?: SdmxCodelist;
+}
+
+export interface SdmxConcept {
+  id: string;
+  name?: string;
+  concept_scheme_id?: string;
+}
+
+export interface SdmxComponent {
+  id: string;
+  name?: string;
+  concept?: SdmxConcept;
+  representation?: SdmxRepresentation;
+}
+
+export interface SdmxDSD {
+  id: string;
+  name?: string;
+  dimensions?: SdmxComponent[];
+  attributes?: SdmxComponent[];
+  measures?: SdmxComponent[];
+}
+
+export interface SdmxDataflow {
+  id: string;
+  name?: string;
+  description?: string;
+  data_structure_definition?: SdmxDSD;
+}
+
+export interface SdmxMetadata {
+  dataflows?: SdmxDataflow[];
+}
+
 /** Response from POST /api/upload */
 export interface UploadResponse {
   run_id: string;
@@ -13,6 +62,7 @@ export interface UploadResponse {
   metadata_path: string | null;
   sdmx_metadata_xml_path?: string | null;
   sdmx_mode?: boolean;
+  sdmx_metadata_json?: SdmxMetadata | null;
   rows: number;
   columns: number;
   column_names: string[];

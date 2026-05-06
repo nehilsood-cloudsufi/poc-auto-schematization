@@ -17,6 +17,7 @@ import type {
   FeedbackLedger,
   PreviewResponse,
   MappingPlan,
+  SdmxMetadata,
 } from "@/types";
 
 const BASE = "/api";
@@ -298,6 +299,14 @@ export async function archiveRun(
   return request<{ archived: boolean }>(`/runs/${runId}/archive`, {
     method: "POST",
   });
+}
+
+export async function getSdmxMetadata(runId: string): Promise<SdmxMetadata | null> {
+  try {
+    return await request<SdmxMetadata>(`/runs/${runId}/sdmx-metadata`);
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteRun(runId: string): Promise<void> {

@@ -13,7 +13,8 @@ import { DataPreview } from "@/components/DataPreview";
 import { uploadFiles } from "@/lib/api";
 import { toast } from "sonner";
 import { ChevronRight, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import type { UploadResponse } from "@/types";
+import { SdmxMetadataViewer } from "@/components/SdmxMetadataViewer";
+import type { UploadResponse, SdmxMetadata } from "@/types";
 
 interface UploadPageProps {
   onUploadComplete: (response: UploadResponse) => void;
@@ -32,6 +33,10 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [sdmxMetadataJson, setSdmxMetadataJson] = useState<SdmxMetadata | null>(null);
+  // After a successful SDMX upload the page stays visible so the user can
+  // inspect the extracted JSON; the second click on "Continue" navigates.
+  const [uploadedResponse, setUploadedResponse] = useState<UploadResponse | null>(null);
 
   const validateDatasetName = (name: string): string | null => {
     const trimmed = name.trim();
@@ -93,15 +98,23 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
 
   const sdmxReady = datasetType !== "sdmx" || sdmxXmlFile !== null;
 
+  // If an SDMX upload already completed, the second click just navigates.
   const handleNext = async () => {
-    if (!inputFile || uploading) return;
+    if (uploading) return;
+
+    if (uploadedResponse) {
+      // Already uploaded — proceed to configure.
+      navigate("/configure");
+      return;
+    }
+
+    if (!inputFile) return;
     if (datasetType === "sdmx" && !sdmxXmlFile) {
       setError("SDMX datasets require an XML metadata file.");
       return;
     }
     const finalName = datasetName.trim() || inputFile.name.replace(".csv", "").replace(/\s+/g, "_");
 
-    // Single upload with the final name — creates exactly one run
     try {
       setUploading(true);
       setError(null);
@@ -112,7 +125,15 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
         sdmxMode: datasetType === "sdmx",
       });
       onUploadComplete(response);
-      navigate("/configure");
+
+      if (response.sdmx_metadata_json) {
+        // SDMX run: stay on page so user can review the extracted metadata.
+        setSdmxMetadataJson(response.sdmx_metadata_json);
+        setUploadedResponse(response);
+        toast.success("Upload complete — review the SDMX metadata below, then continue.");
+      } else {
+        navigate("/configure");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
       toast.error("Upload failed — please try again");
@@ -281,14 +302,24 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
         </Card>
       )}
 
+      {sdmxMetadataJson && (
+        <div className="mt-4">
+          <SdmxMetadataViewer metadata={sdmxMetadataJson} defaultExpanded />
+        </div>
+      )}
+
       <div className="flex justify-end mt-6">
         <Button
           onClick={handleNext}
-          disabled={!preview || uploading || !isNameValid || !sdmxReady}
+          disabled={(!preview && !uploadedResponse) || uploading || !isNameValid || !sdmxReady}
           size="lg"
           className="gap-2"
         >
-          {uploading ? "Uploading..." : "Continue to Configure"}
+          {uploading
+            ? "Uploading..."
+            : uploadedResponse
+              ? "Continue to Configure"
+              : "Upload & Continue"}
           {!uploading && <ChevronRight className="w-4 h-4" />}
         </Button>
       </div>

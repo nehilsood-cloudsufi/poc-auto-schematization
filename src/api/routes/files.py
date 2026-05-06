@@ -133,6 +133,26 @@ async def update_file(run_id: str, filename: str, body: dict, request: Request):
     return {"saved": True, "filename": filename}
 
 
+@router.get("/runs/{run_id}/sdmx-metadata")
+async def get_sdmx_metadata(run_id: str, request: Request):
+    """Return the pre-extracted SDMX metadata JSON for a run, or 404 if not an SDMX run."""
+    run = get_or_load_run(run_id, request.app.state.output_dir)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    require_run_access(Path(run.run_dir), request)
+
+    sdmx_json_path = Path(run.run_dir) / "sdmx_input" / "sdmx_metadata.json"
+    if not sdmx_json_path.exists():
+        raise HTTPException(status_code=404, detail="No SDMX metadata for this run")
+
+    try:
+        import json as _json
+        data = _json.loads(sdmx_json_path.read_text())
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read SDMX metadata: {e}")
+
+
 @router.get("/runs/{run_id}/download")
 async def download_zip(run_id: str, request: Request):
     output_dir = _resolve_output_dir(run_id, request.app.state.output_dir, request)

@@ -66,13 +66,29 @@ async def upload_files(
         )
 
     # SDMX metadata XML (optional). Stored alongside the CSV; picked up by
-    # run_dataset_pipeline when the run starts.
+    # run_dataset_pipeline when the run starts. We also eagerly extract the
+    # JSON so the frontend can display it immediately on the upload page.
     sdmx_xml_path = None
+    sdmx_metadata_json: dict | None = None
     if sdmx_metadata_xml is not None:
         xml_bytes = await sdmx_metadata_xml.read()
         sdmx_xml_path = save_uploaded_bytes(
             xml_bytes, run_dir / "input", "input_metadata.xml"
         )
+        # Extract SDMX metadata to JSON immediately so it's available before the pipeline runs.
+        try:
+            from src.tools.sdmx_metadata_extractor import extract_sdmx_metadata
+            sdmx_metadata_json = extract_sdmx_metadata(sdmx_xml_path)
+            sdmx_input_dir = run_dir / "sdmx_input"
+            sdmx_input_dir.mkdir(exist_ok=True)
+            import json as _json
+            (sdmx_input_dir / "sdmx_metadata.json").write_text(
+                _json.dumps(sdmx_metadata_json, indent=2)
+            )
+            logger.info("SDMX metadata pre-extracted to %s/sdmx_input/sdmx_metadata.json", run_dir)
+        except Exception as exc:
+            logger.warning("Could not pre-extract SDMX metadata at upload time: %s", exc)
+            sdmx_metadata_json = None
 
     # Register run in state
     create_run(
@@ -104,6 +120,7 @@ async def upload_files(
         "metadata_path": str(metadata_path) if metadata_path else None,
         "sdmx_metadata_xml_path": str(sdmx_xml_path) if sdmx_xml_path else None,
         "sdmx_mode": bool(sdmx_mode or sdmx_xml_path),
+        "sdmx_metadata_json": sdmx_metadata_json,
         "rows": len(df),
         "columns": len(df.columns),
         "column_names": list(df.columns),

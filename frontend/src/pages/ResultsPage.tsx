@@ -21,10 +21,11 @@ import { DevFeedbackForm } from "@/components/DevFeedbackForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { getRun, resumeRun, getFile, updateFile, revalidate, updateRun, deleteRun } from "@/lib/api";
+import { getRun, resumeRun, getFile, updateFile, revalidate, updateRun, deleteRun, getSdmxMetadata } from "@/lib/api";
+import { SdmxMetadataViewer } from "@/components/SdmxMetadataViewer";
 import { toast } from "sonner";
 import { Play, Pause, Loader2, Pencil, Trash2, AlertTriangle } from "lucide-react";
-import type { PipelineResult, CsvFileResponse } from "@/types";
+import type { PipelineResult, CsvFileResponse, SdmxMetadata } from "@/types";
 
 interface ResultsPageProps {
   datasetName: string;
@@ -41,6 +42,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
   const [runStatus, setRunStatus] = useState<string>("");
   const [resuming, setResuming] = useState(false);
   const [sdmxMode, setSdmxMode] = useState(false);
+  const [sdmxMetadata, setSdmxMetadata] = useState<SdmxMetadata | null>(null);
 
   // Run metadata editing
   const [displayName, setDisplayName] = useState("");
@@ -90,9 +92,13 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         setDisplayName(run.display_name || run.dataset_name || "");
         setNotes(run.notes || "");
         const cfg = run.config as { sdmx_mode?: boolean } | undefined;
-        setSdmxMode(Boolean(cfg?.sdmx_mode));
+        const isSDMX = Boolean(cfg?.sdmx_mode);
+        setSdmxMode(isSDMX);
         if (run.result && Object.keys(run.result).length > 0) {
           setResult(run.result as PipelineResult);
+        }
+        if (isSDMX) {
+          getSdmxMetadata(runId).then(setSdmxMetadata).catch(() => {});
         }
       })
       .catch(() => {})
@@ -378,6 +384,13 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
             </div>
           )}
         </div>
+
+        {/* SDMX METADATA (only for SDMX runs) */}
+        {sdmxMetadata && (
+          <div className="mb-4">
+            <SdmxMetadataViewer metadata={sdmxMetadata} />
+          </div>
+        )}
 
         {/* OUTPUT FILES PANEL */}
         <Card className="shadow-sm mb-6">
