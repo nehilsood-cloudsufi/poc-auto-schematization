@@ -141,14 +141,19 @@ async def get_sdmx_metadata(run_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     require_run_access(Path(run.run_dir), request)
 
-    sdmx_json_path = Path(run.run_dir) / "sdmx_input" / "sdmx_metadata.json"
+    sdmx_input_dir = Path(run.run_dir) / "sdmx_input"
+    # Prefer the enriched version if the enrichment pipeline has already run.
+    enriched_path = sdmx_input_dir / "sdmx_metadata_enriched.json"
+    base_path = sdmx_input_dir / "sdmx_metadata.json"
+    sdmx_json_path = enriched_path if enriched_path.exists() else base_path
     if not sdmx_json_path.exists():
         raise HTTPException(status_code=404, detail="No SDMX metadata for this run")
 
     try:
         import json as _json
         data = _json.loads(sdmx_json_path.read_text())
-        return data
+        # Surface whether the caller is seeing enriched data so the UI can badge it.
+        return {"data": data, "enriched": enriched_path.exists()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read SDMX metadata: {e}")
 

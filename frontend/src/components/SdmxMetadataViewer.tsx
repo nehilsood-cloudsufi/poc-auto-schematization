@@ -1,35 +1,56 @@
 /**
- * Collapsible viewer for extracted SDMX metadata JSON.
+ * Collapsible viewer for extracted (and optionally enriched) SDMX metadata JSON.
  * Shows a summary card with dataflow name, DSD id, and component counts.
- * Expands to show the full structured JSON grouped by dimensions/attributes/measures/codelists.
+ * Expands to show dimensions/attributes/measures with enriched descriptions.
  */
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Database, Layers, Tag } from "lucide-react";
+import { ChevronDown, ChevronUp, Database, Layers, Tag, Sparkles } from "lucide-react";
 import type { SdmxMetadata, SdmxDataflow, SdmxComponent } from "@/types";
 
 interface SdmxMetadataViewerProps {
   metadata: SdmxMetadata;
+  enriched?: boolean;
   defaultExpanded?: boolean;
 }
 
 function ComponentRow({ comp, kind }: { comp: SdmxComponent; kind: string }) {
   const rep = comp.representation;
-  const codelistSize = rep?.codelist?.codes?.length ?? 0;
+  const codes = rep?.codelist?.codes ?? [];
+  const enrichedCodes = codes.filter((c) => c.enriched_description);
   return (
-    <div className="flex items-start gap-2 py-1 border-b border-border/40 last:border-0">
-      <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{comp.id}</code>
-      {comp.name && <span className="text-xs text-muted-foreground">{comp.name}</span>}
-      <div className="ml-auto flex items-center gap-1 shrink-0">
-        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{kind}</Badge>
-        {rep?.type === "enumerated" && codelistSize > 0 && (
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-            {codelistSize} codes
-          </Badge>
-        )}
+    <div className="py-1.5 border-b border-border/40 last:border-0">
+      <div className="flex items-start gap-2">
+        <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">{comp.id}</code>
+        {comp.name && <span className="text-xs text-muted-foreground">{comp.name}</span>}
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{kind}</Badge>
+          {rep?.type === "enumerated" && codes.length > 0 && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+              {codes.length} codes
+              {enrichedCodes.length > 0 && (
+                <span className="ml-1 text-emerald-600">·{enrichedCodes.length}✦</span>
+              )}
+            </Badge>
+          )}
+        </div>
       </div>
+      {/* Show a few enriched code samples */}
+      {enrichedCodes.length > 0 && (
+        <div className="mt-1 ml-2 space-y-0.5">
+          {enrichedCodes.slice(0, 3).map((c) => (
+            <div key={c.id} className="flex gap-1.5 text-[10px]">
+              <code className="font-mono text-muted-foreground shrink-0">{c.id}</code>
+              <span className="text-emerald-700 dark:text-emerald-400 italic">{c.enriched_description}</span>
+            </div>
+          ))}
+          {enrichedCodes.length > 3 && (
+            <span className="text-[10px] text-muted-foreground">+{enrichedCodes.length - 3} more enriched…</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,7 +116,11 @@ function DataflowSection({ df }: { df: SdmxDataflow }) {
   );
 }
 
-export function SdmxMetadataViewer({ metadata, defaultExpanded = false }: SdmxMetadataViewerProps) {
+export function SdmxMetadataViewer({
+  metadata,
+  enriched = false,
+  defaultExpanded = false,
+}: SdmxMetadataViewerProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -118,10 +143,15 @@ export function SdmxMetadataViewer({ metadata, defaultExpanded = false }: SdmxMe
         >
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Database className="w-4 h-4 text-blue-500" />
-            SDMX Metadata Extracted
+            SDMX Metadata
             <Badge className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-blue-200">
               JSON
             </Badge>
+            {enriched && (
+              <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-emerald-200 flex items-center gap-0.5">
+                <Sparkles className="w-2.5 h-2.5" /> Enriched
+              </Badge>
+            )}
           </CardTitle>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

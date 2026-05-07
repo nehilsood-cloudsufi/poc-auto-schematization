@@ -43,6 +43,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
   const [resuming, setResuming] = useState(false);
   const [sdmxMode, setSdmxMode] = useState(false);
   const [sdmxMetadata, setSdmxMetadata] = useState<SdmxMetadata | null>(null);
+  const [sdmxEnriched, setSdmxEnriched] = useState(false);
 
   // Run metadata editing
   const [displayName, setDisplayName] = useState("");
@@ -98,7 +99,9 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
           setResult(run.result as PipelineResult);
         }
         if (isSDMX) {
-          getSdmxMetadata(runId).then(setSdmxMetadata).catch(() => {});
+          getSdmxMetadata(runId).then((res) => {
+            if (res) { setSdmxMetadata(res.data); setSdmxEnriched(res.enriched); }
+          }).catch(() => {});
         }
       })
       .catch(() => {})
@@ -388,7 +391,7 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         {/* SDMX METADATA (only for SDMX runs) */}
         {sdmxMetadata && (
           <div className="mb-4">
-            <SdmxMetadataViewer metadata={sdmxMetadata} />
+            <SdmxMetadataViewer metadata={sdmxMetadata} enriched={sdmxEnriched} />
           </div>
         )}
 

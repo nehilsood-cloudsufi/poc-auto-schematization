@@ -8,6 +8,7 @@
 export interface SdmxCode {
   id: string;
   name?: string;
+  enriched_description?: string;
 }
 
 export interface SdmxCodelist {
@@ -25,6 +26,7 @@ export interface SdmxConcept {
   id: string;
   name?: string;
   concept_scheme_id?: string;
+  enriched_description?: string;
 }
 
 export interface SdmxComponent {

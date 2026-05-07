@@ -702,6 +702,37 @@ def run_dataset_pipeline(
                 sdmx_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
                 logger.info("SDMX metadata extracted and saved to %s", sdmx_json_path)
 
+            # Stage 1-3: Enrich metadata with plain-English descriptions for
+            # ambiguous codes/concepts before rendering the prompt block.
+            sdmx_enriched_json_path = sdmx_input_dir / "sdmx_metadata_enriched.json"
+            if sdmx_enriched_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_enriched_json_path.read_text())
+                logger.info("SDMX enriched metadata loaded from %s", sdmx_enriched_json_path)
+            else:
+                _gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+                if _gemini_api_key:
+                    try:
+                        from src.tools.sdmx_metadata_enricher import enrich_sdmx_metadata
+                        _enrich_model = "gemini-2.0-flash"
+                        logger.info(
+                            "SDMX enrichment: running 3-stage pipeline (find → fetch → merge) "
+                            "with model=%s", _enrich_model
+                        )
+                        sdmx_metadata = enrich_sdmx_metadata(
+                            sdmx_metadata, _gemini_api_key, _enrich_model
+                        )
+                        sdmx_enriched_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                        logger.info(
+                            "SDMX enriched metadata saved to %s", sdmx_enriched_json_path
+                        )
+                    except Exception as _enrich_err:
+                        logger.warning(
+                            "SDMX enrichment failed (non-fatal, continuing with base metadata): %s",
+                            _enrich_err,
+                        )
+                else:
+                    logger.warning("SDMX enrichment skipped: GEMINI_API_KEY not set.")
+
             sdmx_metadata_json_str = _json.dumps(sdmx_metadata, indent=2)
 
             # Pull CSV headers so the structure block ties to actual columns.

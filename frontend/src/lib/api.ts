@@ -301,9 +301,13 @@ export async function archiveRun(
   });
 }
 
-export async function getSdmxMetadata(runId: string): Promise<SdmxMetadata | null> {
+export async function getSdmxMetadata(
+  runId: string,
+): Promise<{ data: SdmxMetadata; enriched: boolean } | null> {
   try {
-    return await request<SdmxMetadata>(`/runs/${runId}/sdmx-metadata`);
+    return await request<{ data: SdmxMetadata; enriched: boolean }>(
+      `/runs/${runId}/sdmx-metadata`,
+    );
   } catch {
     return null;
   }
