@@ -118,21 +118,36 @@ class CollectionMerger:
 # Gemini API helper
 # ---------------------------------------------------------------------------
 
+_ENRICHMENT_TIMEOUT_SECONDS = 120  # abort if Gemini hangs
+
+
 def _call_gemini(prompt: str, api_key: str, model: str) -> str:
-    """Single-shot Gemini call; returns the text of the first candidate."""
+    """Single-shot Gemini call with a hard timeout; returns the response text."""
+    import concurrent.futures
     from google import genai
     from google.genai import types as genai_types
 
     client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.1,
-        ),
-    )
-    return response.text
+
+    def _call() -> str:
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+            ),
+        )
+        return response.text
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_call)
+        try:
+            return future.result(timeout=_ENRICHMENT_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            raise RuntimeError(
+                f"Gemini enrichment call timed out after {_ENRICHMENT_TIMEOUT_SECONDS}s"
+            )
 
 
 def _parse_json_response(raw: str, stage: str) -> Optional[dict]:
@@ -207,16 +222,54 @@ Output valid JSON only — no commentary, no markdown fences.
 """
 
 
+def _extract_codelists_for_enrichment(metadata: dict) -> dict:
+    """Return a slim dict containing only codelists + concept schemes — the
+    parts that carry codes needing enrichment.  Strips large/irrelevant fields
+    so the prompt stays well within context limits."""
+    slim: dict = {"dataflows": []}
+    for df in metadata.get("dataflows") or []:
+        dsd = df.get("data_structure_definition") or {}
+        slim_dsd: dict = {}
+        for section in ("dimensions", "attributes", "measures"):
+            comps = []
+            for comp in dsd.get(section) or []:
+                rep = comp.get("representation") or {}
+                cl = rep.get("codelist")
+                if not cl:
+                    continue
+                comps.append({
+                    "id": comp.get("id"),
+                    "name": comp.get("name", ""),
+                    "representation": {
+                        "type": rep.get("type"),
+                        "codelist": {
+                            "id": cl.get("id"),
+                            "name": cl.get("name", ""),
+                            "codes": cl.get("codes") or [],
+                        },
+                    },
+                })
+            if comps:
+                slim_dsd[section] = comps
+        if slim_dsd:
+            slim["dataflows"].append({
+                "id": df.get("id"),
+                "name": df.get("name", ""),
+                "data_structure_definition": slim_dsd,
+            })
+    return slim
+
+
 def find_items_to_enrich(metadata: dict, api_key: str, model: str) -> Optional[dict]:
     """Stage 1: ask Gemini which codes/concepts need enrichment."""
-    metadata_json = json.dumps(metadata, indent=2)
-    # Cap to avoid exceeding context — truncate very large metadata
-    if len(metadata_json) > 120_000:
-        logger.warning(
-            "SDMX metadata JSON is large (%d chars); truncating before enrichment-find call.",
-            len(metadata_json),
-        )
-        metadata_json = metadata_json[:120_000] + "\n... (truncated)"
+    # Send only codelists, not the full 600KB+ metadata, to stay within context.
+    slim = _extract_codelists_for_enrichment(metadata)
+    metadata_json = json.dumps(slim, indent=2)
+    logger.info(
+        "Enrichment Stage 1: sending %d chars (slim codelists only, full was %d chars)",
+        len(metadata_json),
+        len(json.dumps(metadata)),
+    )
 
     prompt = _FIND_PROMPT.replace("{metadata_json}", metadata_json)
     logger.info("SDMX enrichment Stage 1 (find): calling Gemini model=%s", model)

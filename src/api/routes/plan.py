@@ -579,6 +579,16 @@ async def resume_run(run_id: str, request: Request):
         "Generator", "Validator", "QualityEvaluator", "UnifiedFeedback", "MaxRetriesCheck",
     }
 
+    # Load phase1_state so the plan is passed into Phase 2 via from_plan.
+    phase1_state_path = run_dir / "phase1_state.json"
+    from_plan_path = None
+    if phase1_state_path.exists():
+        import json as _json
+        _p1 = _json.loads(phase1_state_path.read_text())
+        _plan_md = run_dir / "output" / run.dataset_name / "mapping_plan.md"
+        if _plan_md.exists():
+            from_plan_path = str(_plan_md)
+
     config = PipelineConfig(
         run_id=run.run_id,
         dataset_name=run.dataset_name,
@@ -586,9 +596,13 @@ async def resume_run(run_id: str, request: Request):
         output_dir=str(run_dir / "output"),
         skip_sampling=last_agent in _SAMPLING_DONE,
         skip_schema_selection=last_agent in _SCHEMA_DONE,
+        # Phase 2 must never be plan_only — always override to False on resume.
+        plan_only=False,
+        extra_state={"from_plan": from_plan_path} if from_plan_path else {},
         **{k: v for k, v in run.config.items() if k in PipelineConfig.__dataclass_fields__ and k not in (
             "run_id", "dataset_name", "input_dir", "output_dir",
             "skip_sampling", "skip_schema_selection",
+            "plan_only", "extra_state",
         )},
     )
 
