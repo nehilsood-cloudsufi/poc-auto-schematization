@@ -222,10 +222,31 @@ Output valid JSON only — no commentary, no markdown fences.
 """
 
 
+_MAX_CODES_PER_CODELIST = 40  # cap per codelist to keep prompt under ~30KB
+
+
+def _sample_codes_for_enrichment(codes: list) -> list:
+    """Return up to _MAX_CODES_PER_CODELIST codes, prioritising short/ambiguous ones."""
+    if len(codes) <= _MAX_CODES_PER_CODELIST:
+        return codes
+    # Prefer codes with short/absent names — those most need enrichment.
+    def _ambiguity_score(c: dict) -> int:
+        name = (c.get("name") or "").strip()
+        if not name:
+            return 0
+        if len(name) <= 3:
+            return 1
+        if name.isdigit():
+            return 2
+        return 3
+    sorted_codes = sorted(codes, key=_ambiguity_score)
+    return sorted_codes[:_MAX_CODES_PER_CODELIST]
+
+
 def _extract_codelists_for_enrichment(metadata: dict) -> dict:
-    """Return a slim dict containing only codelists + concept schemes — the
-    parts that carry codes needing enrichment.  Strips large/irrelevant fields
-    so the prompt stays well within context limits."""
+    """Return a slim dict containing only codelists — the parts that carry codes
+    needing enrichment. Caps codes per codelist to stay well under Gemini's
+    context limit even for large geo/classification codelists."""
     slim: dict = {"dataflows": []}
     for df in metadata.get("dataflows") or []:
         dsd = df.get("data_structure_definition") or {}
@@ -237,6 +258,8 @@ def _extract_codelists_for_enrichment(metadata: dict) -> dict:
                 cl = rep.get("codelist")
                 if not cl:
                     continue
+                all_codes = cl.get("codes") or []
+                sampled = _sample_codes_for_enrichment(all_codes)
                 comps.append({
                     "id": comp.get("id"),
                     "name": comp.get("name", ""),
@@ -245,7 +268,7 @@ def _extract_codelists_for_enrichment(metadata: dict) -> dict:
                         "codelist": {
                             "id": cl.get("id"),
                             "name": cl.get("name", ""),
-                            "codes": cl.get("codes") or [],
+                            "codes": sampled,
                         },
                     },
                 })
