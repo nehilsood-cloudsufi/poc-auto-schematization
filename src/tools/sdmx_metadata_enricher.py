@@ -118,36 +118,31 @@ class CollectionMerger:
 # Gemini API helper
 # ---------------------------------------------------------------------------
 
-_ENRICHMENT_TIMEOUT_SECONDS = 120  # abort if Gemini hangs
+_ENRICHMENT_TIMEOUT_SECONDS = 120  # network-level timeout for Gemini calls
 
 
 def _call_gemini(prompt: str, api_key: str, model: str) -> str:
-    """Single-shot Gemini call with a hard timeout; returns the response text."""
-    import concurrent.futures
+    """Single-shot Gemini call; returns the response text.
+
+    Timeout is enforced at the HTTP layer (httpx), so the connection is
+    actually cancelled rather than just abandoned in a background thread.
+    """
     from google import genai
     from google.genai import types as genai_types
 
-    client = genai.Client(api_key=api_key)
-
-    def _call() -> str:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1,
-            ),
-        )
-        return response.text
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_call)
-        try:
-            return future.result(timeout=_ENRICHMENT_TIMEOUT_SECONDS)
-        except concurrent.futures.TimeoutError:
-            raise RuntimeError(
-                f"Gemini enrichment call timed out after {_ENRICHMENT_TIMEOUT_SECONDS}s"
-            )
+    client = genai.Client(
+        api_key=api_key,
+        http_options=genai_types.HttpOptions(timeout=_ENRICHMENT_TIMEOUT_SECONDS),
+    )
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.1,
+        ),
+    )
+    return response.text
 
 
 def _parse_json_response(raw: str, stage: str) -> Optional[dict]:
