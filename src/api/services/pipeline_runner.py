@@ -163,6 +163,19 @@ def _run_in_thread(
             metadata={"result": result},
         ))
 
+        # Update run status directly — the WebSocket consumer does this too,
+        # but it may never connect (auth rejection, tab closed, etc.).  The
+        # thread is the authoritative source of truth for its own outcome.
+        if run_state is not None and run_state.status not in ("stopped",):
+            final_status = "plan_ready" if config.plan_only else "complete"
+            run_state.status = final_status
+            run_state.result = result
+            try:
+                from src.api.services.run_state import write_run_info
+                write_run_info(Path(config.output_dir).parent, {"status": final_status})
+            except Exception:
+                pass
+
     except SystemExit as e:
         # Graceful abort (cancel or plan-approval timeout) — not an error.
         # The ProgressTrackingPlugin may have already pushed a terminal event
@@ -175,6 +188,13 @@ def _run_in_thread(
             is_error=False,
             metadata={"exit_reason": "user_cancelled"},
         ))
+        if run_state is not None and run_state.status not in ("stopped",):
+            run_state.status = "stopped"
+            try:
+                from src.api.services.run_state import write_run_info
+                write_run_info(Path(config.output_dir).parent, {"status": "stopped"})
+            except Exception:
+                pass
 
     except Exception as e:
         logger.error(
@@ -188,3 +208,11 @@ def _run_in_thread(
             is_error=True,
             metadata={"error": str(e), "traceback": traceback.format_exc()},
         ))
+        if run_state is not None:
+            run_state.status = "error"
+            run_state.error = str(e)
+            try:
+                from src.api.services.run_state import write_run_info
+                write_run_info(Path(config.output_dir).parent, {"status": "error"})
+            except Exception:
+                pass

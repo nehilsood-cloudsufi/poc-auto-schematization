@@ -18,6 +18,17 @@ from src.api.services.run_state import get_run, get_or_load_run
 from src.api.middleware.auth import require_run_access
 
 logger = logging.getLogger(__name__)
+
+
+def _pipeline_actually_running(run) -> bool:
+    """Return True only if a pipeline thread is genuinely alive.
+
+    run.status can be stuck at 'running' when the WebSocket that would have
+    consumed the terminal event was rejected or dropped — in that case no one
+    updated the status.  Checking the thread avoids blocking subsequent
+    operations (generate, regenerate) on that stale flag.
+    """
+    return run.thread is not None and run.thread.is_alive()
 router = APIRouter()
 
 _note_locks: dict[str, threading.Lock] = {}
@@ -230,7 +241,7 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     require_run_access(Path(run.run_dir), request)
 
-    if run.status == "running":
+    if run.status == "running" and _pipeline_actually_running(run):
         raise HTTPException(status_code=409, detail="Pipeline is already running")
 
     run_dir = Path(run.run_dir)
@@ -444,7 +455,7 @@ async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     require_run_access(Path(run.run_dir), request)
 
-    if run.status == "running":
+    if run.status == "running" and _pipeline_actually_running(run):
         raise HTTPException(status_code=409, detail="Pipeline is already running")
 
     run_dir = Path(run.run_dir)
