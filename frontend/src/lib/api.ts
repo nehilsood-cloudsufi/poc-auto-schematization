@@ -17,6 +17,7 @@ import type {
   FeedbackLedger,
   PreviewResponse,
   MappingPlan,
+  SdmxMetadata,
 } from "@/types";
 
 const BASE = "/api";
@@ -45,15 +46,35 @@ async function request<T>(
 
 // ── Upload ─────────────────────────────────────────────
 
+export interface UploadOptions {
+  metadataCsv?: File;
+  sdmxMetadataXml?: File;
+  datasetName?: string;
+  sdmxMode?: boolean;
+}
+
 export async function uploadFiles(
   inputCsv: File,
-  metadataCsv?: File,
-  datasetName?: string
+  optionsOrMetadataCsv?: UploadOptions | File,
+  datasetName?: string,
 ): Promise<UploadResponse> {
+  // Back-compat: accept the old (inputCsv, metadataCsv, datasetName) shape.
+  let opts: UploadOptions;
+  if (optionsOrMetadataCsv instanceof File) {
+    opts = { metadataCsv: optionsOrMetadataCsv, datasetName };
+  } else {
+    opts = optionsOrMetadataCsv ?? {};
+    if (datasetName !== undefined && opts.datasetName === undefined) {
+      opts.datasetName = datasetName;
+    }
+  }
+
   const formData = new FormData();
   formData.append("input_csv", inputCsv);
-  if (metadataCsv) formData.append("metadata_csv", metadataCsv);
-  if (datasetName) formData.append("dataset_name", datasetName);
+  if (opts.metadataCsv) formData.append("metadata_csv", opts.metadataCsv);
+  if (opts.sdmxMetadataXml) formData.append("sdmx_metadata_xml", opts.sdmxMetadataXml);
+  if (opts.datasetName) formData.append("dataset_name", opts.datasetName);
+  if (opts.sdmxMode) formData.append("sdmx_mode", "true");
 
   const response = await fetch(`${BASE}/upload`, {
     method: "POST",
@@ -278,6 +299,18 @@ export async function archiveRun(
   return request<{ archived: boolean }>(`/runs/${runId}/archive`, {
     method: "POST",
   });
+}
+
+export async function getSdmxMetadata(
+  runId: string,
+): Promise<{ data: SdmxMetadata; enriched: boolean } | null> {
+  try {
+    return await request<{ data: SdmxMetadata; enriched: boolean }>(
+      `/runs/${runId}/sdmx-metadata`,
+    );
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteRun(runId: string): Promise<void> {

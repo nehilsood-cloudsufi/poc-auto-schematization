@@ -406,6 +406,8 @@ def run_dataset_pipeline(
     from_plan: Optional[str] = None,
     auto_approve: bool = False,
     extra_initial_state: Optional[dict] = None,
+    sdmx_mode: bool = False,
+    sdmx_metadata_xml_path: Optional[str] = None,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -493,7 +495,11 @@ def run_dataset_pipeline(
     logger.info("SamplingAgent added to pipeline")
 
     # Add SchemaSelectionAgent if not skipped (Phase 2.5)
-    if not skip_schema_selection:
+    # Skip in SDMX mode — SDMX datasets carry their own concept schemes
+    # via the DSD, so the 7-category DC schema classifier is moot.
+    if sdmx_mode:
+        logger.info("SchemaSelectionAgent skipped (SDMX mode)")
+    elif not skip_schema_selection:
         schema_agent = create_schema_selection_agent(model=model)
         sub_agents.append(schema_agent)
         logger.info("SchemaSelectionAgent added to pipeline")
@@ -608,6 +614,19 @@ def run_dataset_pipeline(
     if metadata_file_path:
         use_metadata = True
 
+    # SDMX mode: auto-detect XML metadata file alongside input CSV if not
+    # explicitly supplied. Presence of an XML metadata file ALSO enables sdmx_mode.
+    if not sdmx_metadata_xml_path:
+        for candidate_dir in (input_dir, input_dir / dataset_name):
+            if candidate_dir.is_dir():
+                for xml_candidate in candidate_dir.glob("*.xml"):
+                    sdmx_metadata_xml_path = str(xml_candidate)
+                    break
+            if sdmx_metadata_xml_path:
+                break
+    if sdmx_metadata_xml_path:
+        sdmx_mode = True
+
     # Discover dataset files using DiscoveryAgent helper
     discovery_agent = DiscoveryAgent(name="Discovery")
 
@@ -654,6 +673,91 @@ def run_dataset_pipeline(
             with open(metadata_path, 'r') as f:
                 metadata_content = f.read()
 
+    # SDMX mode: extract DSD + codelists from the XML metadata file and
+    # render the prompt block + deterministic PVMAP skeleton.
+    sdmx_metadata: dict = {}
+    sdmx_structure: str = ""
+    sdmx_skeleton: str = ""
+    sdmx_metadata_json_str: str = ""
+    if sdmx_mode and sdmx_metadata_xml_path:
+        try:
+            import json as _json
+            from src.tools.sdmx_metadata_extractor import extract_sdmx_metadata
+            from src.agents.sdmx_context import (
+                render_sdmx_structure, build_sdmx_skeleton,
+            )
+
+            # Reuse the pre-extracted JSON written at upload time if available;
+            # otherwise extract now and persist it for future reference.
+            run_dir_for_sdmx = Path(input_dir).parent
+            sdmx_input_dir = run_dir_for_sdmx / "sdmx_input"
+            sdmx_json_path = sdmx_input_dir / "sdmx_metadata.json"
+
+            if sdmx_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_json_path.read_text())
+                logger.info("SDMX metadata loaded from pre-extracted JSON: %s", sdmx_json_path)
+            else:
+                sdmx_metadata = extract_sdmx_metadata(Path(sdmx_metadata_xml_path))
+                sdmx_input_dir.mkdir(parents=True, exist_ok=True)
+                sdmx_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                logger.info("SDMX metadata extracted and saved to %s", sdmx_json_path)
+
+            # Stage 1-3: Enrich metadata with plain-English descriptions for
+            # ambiguous codes/concepts before rendering the prompt block.
+            sdmx_enriched_json_path = sdmx_input_dir / "sdmx_metadata_enriched.json"
+            if sdmx_enriched_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_enriched_json_path.read_text())
+                logger.info("SDMX enriched metadata loaded from %s", sdmx_enriched_json_path)
+            else:
+                _gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+                if _gemini_api_key:
+                    try:
+                        from src.tools.sdmx_metadata_enricher import enrich_sdmx_metadata
+                        _enrich_model = "gemini-2.0-flash"
+                        logger.info(
+                            "SDMX enrichment: running 3-stage pipeline (find → fetch → merge) "
+                            "with model=%s", _enrich_model
+                        )
+                        sdmx_metadata = enrich_sdmx_metadata(
+                            sdmx_metadata, _gemini_api_key, _enrich_model
+                        )
+                        sdmx_enriched_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                        logger.info(
+                            "SDMX enriched metadata saved to %s", sdmx_enriched_json_path
+                        )
+                    except Exception as _enrich_err:
+                        logger.warning(
+                            "SDMX enrichment failed (non-fatal, continuing with base metadata): %s",
+                            _enrich_err,
+                        )
+                else:
+                    logger.warning("SDMX enrichment skipped: GEMINI_API_KEY not set.")
+
+            sdmx_metadata_json_str = _json.dumps(sdmx_metadata, indent=2)
+
+            # Pull CSV headers so the structure block ties to actual columns.
+            csv_columns: list[str] = []
+            try:
+                import pandas as _pd
+                input_csv_path = Path(input_file) if input_file else current_dataset.path
+                if input_csv_path and Path(input_csv_path).exists():
+                    csv_columns = list(_pd.read_csv(input_csv_path, nrows=0).columns)
+            except Exception as e:
+                logger.warning("Could not read CSV headers for SDMX column mapping: %s", e)
+            sdmx_structure = render_sdmx_structure(sdmx_metadata, csv_columns)
+            sdmx_skeleton = build_sdmx_skeleton(sdmx_metadata, csv_columns)
+            logger.info(
+                "SDMX metadata extracted: %d dataflow(s), structure=%d chars, skeleton=%d rows",
+                len(sdmx_metadata.get("dataflows") or []),
+                len(sdmx_structure),
+                sdmx_skeleton.count("\n"),
+            )
+        except Exception as e:
+            logger.error("Failed to extract SDMX metadata from %s: %s", sdmx_metadata_xml_path, e)
+            # Degrade gracefully — continue with sdmx_mode off so the run
+            # doesn't die from a bad metadata file.
+            sdmx_mode = False
+
     # Initial state with DatasetInfo object
     # Use dataset-specific output_dir so EvaluationAgent saves results in correct location
     initial_state = {
@@ -693,6 +797,13 @@ def run_dataset_pipeline(
         "use_schema_examples": use_schema_examples,
         "prompt_version": prompt_version,
         "feedback_prompt_version": feedback_prompt_version,
+        # SDMX mode
+        "sdmx_mode": sdmx_mode,
+        "sdmx_metadata_xml_path": sdmx_metadata_xml_path,
+        "sdmx_metadata": sdmx_metadata,
+        "sdmx_metadata_json_str": sdmx_metadata_json_str,
+        "sdmx_structure": sdmx_structure,
+        "sdmx_skeleton": sdmx_skeleton,
     }
 
     # Handle --from-plan: load plan from file into initial state

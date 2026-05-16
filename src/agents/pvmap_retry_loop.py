@@ -526,10 +526,24 @@ class StatePreparationAgent(BaseAgent):
             # Discover and cache ground truth PVMAP path (once)
             self._discover_and_cache_ground_truth(ctx)
 
+            # SDMX mode: use the DSD-derived skeleton built at pipeline entry
+            # and skip the data-context-driven skeleton generator + MCP
+            # enrichment path (the DSD codelists already enumerate dimension
+            # values authoritatively).
+            sdmx_mode_on = ctx.session.state.get("sdmx_mode", False)
+            if sdmx_mode_on:
+                sdmx_skeleton = ctx.session.state.get("sdmx_skeleton", "")
+                ctx.session.state["pvmap_skeleton"] = sdmx_skeleton
+                ctx.session.state["dimension_value_reference"] = ""
+                logger.info(
+                    "SDMX mode: using DSD-derived PVMAP skeleton (%d chars)",
+                    len(sdmx_skeleton),
+                )
+
             # Generate PVMAP skeleton + verify properties + write artifact
             skip_discovery = ctx.session.state.get("skip_column_discovery", False)
             data_context = ctx.session.state.get("data_context", {})
-            if not skip_discovery and data_context and data_context.get("column_roles"):
+            if not sdmx_mode_on and not skip_discovery and data_context and data_context.get("column_roles"):
                 try:
                     from src.pipeline.pvmap_skeleton.skeleton_generator import (
                         build_column_manifest, generate_pvmap_skeleton,
@@ -1001,12 +1015,22 @@ class StatePreparationAgent(BaseAgent):
             except Exception as e:
                 logger.warning("Failed to parse enriched plan, falling back to standard prompt: %s", e)
 
-        if use_executor and enriched_plan is not None:
+        # SDMX mode uses a dedicated prompt template that trusts the DSD as
+        # ground truth (no archetype inference, no sample-driven dimension
+        # discovery).
+        sdmx_mode_on = ctx.session.state.get("sdmx_mode", False)
+
+        # Do not use the generic executor prompt if we are in SDMX mode;
+        # we must use the dedicated SDMX prompt to inject the DSD structure.
+        if use_executor and enriched_plan is not None and not sdmx_mode_on:
             self._populate_executor_prompt(ctx, enriched_plan)
             return
 
-        prompt_version = ctx.session.state.get("prompt_version", "v2")
-        template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
+        if sdmx_mode_on:
+            template_name = "improved_pvmap_prompt_sdmx_v1.txt"
+        else:
+            prompt_version = ctx.session.state.get("prompt_version", "v2")
+            template_name = f"improved_pvmap_prompt_{prompt_version}.txt"
         template_path = PROJECT_ROOT / "src" / "resources" / "prompts" / template_name
 
         if not template_path.exists():
@@ -1113,6 +1137,10 @@ class StatePreparationAgent(BaseAgent):
             # Inject dimension value reference (from MCP enrichment)
             dim_ref = ctx.session.state.get("dimension_value_reference", "")
             populated = populated.replace("{{DIMENSION_VALUE_REFERENCE}}", dim_ref)
+
+            # Inject SDMX structure block (empty for non-SDMX runs)
+            sdmx_structure = ctx.session.state.get("sdmx_structure", "")
+            populated = populated.replace("{{SDMX_STRUCTURE}}", sdmx_structure)
 
             # v3 split-feedback placeholders
             human_fb_prompt = ctx.session.state.get("human_feedback_prompt", "")

@@ -9,6 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -54,6 +55,7 @@ export function ConfigurePage({
         enable_mcp: config.enable_mcp,
         use_schema_examples: config.use_schema_examples,
         human_feedback: config.human_feedback,
+        sdmx_mode: config.sdmx_mode,
       });
       onRunStarted();
       navigate(`/runs/${runId}/plan`);
@@ -69,8 +71,13 @@ export function ConfigurePage({
       <WizardStepper currentStep={1} />
 
       <h1 className="text-2xl font-bold mb-1">Configure Pipeline</h1>
-      <p className="text-muted-foreground mb-6">
-        Dataset: <span className="font-mono font-medium">{datasetName}</span>
+      <p className="text-muted-foreground mb-6 flex items-center gap-2 flex-wrap">
+        <span>Dataset: <span className="font-mono font-medium">{datasetName}</span></span>
+        {config.sdmx_mode && (
+          <Badge variant="outline" className="text-[11px]" title="SDMX dataset — DSD will drive structure inference">
+            SDMX
+          </Badge>
+        )}
       </p>
 
       <div className="space-y-4">
@@ -134,16 +141,25 @@ export function ConfigurePage({
                   onCheckedChange={(v) => onConfigChange({ ...config, enable_mcp: v })}
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm">Schema Examples</Label>
-                  <p className="text-xs text-muted-foreground">Include schema vocabulary in the generation prompt</p>
+              {!config.sdmx_mode && (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">Schema Examples</Label>
+                    <p className="text-xs text-muted-foreground">Include schema vocabulary in the generation prompt</p>
+                  </div>
+                  <Switch
+                    checked={config.use_schema_examples}
+                    onCheckedChange={(v) => onConfigChange({ ...config, use_schema_examples: v })}
+                  />
                 </div>
-                <Switch
-                  checked={config.use_schema_examples}
-                  onCheckedChange={(v) => onConfigChange({ ...config, use_schema_examples: v })}
-                />
-              </div>
+              )}
+              {config.sdmx_mode && (
+                <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    SDMX mode: schema selection is skipped. The DSD (dimensions, attributes, measures, codelists) is fed into the prompt as the authoritative structural source.
+                  </p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

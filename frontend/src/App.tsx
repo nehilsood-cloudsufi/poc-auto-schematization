@@ -42,7 +42,11 @@ function AppLayout() {
   const handleUploadComplete = useCallback((response: UploadResponse) => {
     setCurrentRunId(response.run_id);
     setDatasetName(response.dataset_name);
-    setConfig((prev) => ({ ...prev, dataset_name: response.dataset_name }));
+    setConfig((prev) => ({
+      ...prev,
+      dataset_name: response.dataset_name,
+      sdmx_mode: response.sdmx_mode ?? false,
+    }));
     setStatus("uploaded");
   }, []);
 

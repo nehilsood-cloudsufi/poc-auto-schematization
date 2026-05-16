@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { WizardStepper } from "@/components/WizardStepper";
 import { OutputViewer, ResultBanner } from "@/components/OutputViewer";
@@ -20,10 +21,11 @@ import { DevFeedbackForm } from "@/components/DevFeedbackForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { getRun, resumeRun, getFile, updateFile, revalidate, updateRun, deleteRun } from "@/lib/api";
+import { getRun, resumeRun, getFile, updateFile, revalidate, updateRun, deleteRun, getSdmxMetadata } from "@/lib/api";
+import { SdmxMetadataViewer } from "@/components/SdmxMetadataViewer";
 import { toast } from "sonner";
 import { Play, Pause, Loader2, Pencil, Trash2, AlertTriangle } from "lucide-react";
-import type { PipelineResult, CsvFileResponse } from "@/types";
+import type { PipelineResult, CsvFileResponse, SdmxMetadata } from "@/types";
 
 interface ResultsPageProps {
   datasetName: string;
@@ -39,6 +41,9 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
   const [loading, setLoading] = useState(false);
   const [runStatus, setRunStatus] = useState<string>("");
   const [resuming, setResuming] = useState(false);
+  const [sdmxMode, setSdmxMode] = useState(false);
+  const [sdmxMetadata, setSdmxMetadata] = useState<SdmxMetadata | null>(null);
+  const [sdmxEnriched, setSdmxEnriched] = useState(false);
 
   // Run metadata editing
   const [displayName, setDisplayName] = useState("");
@@ -87,8 +92,16 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
         setDatasetName(run.dataset_name ?? "");
         setDisplayName(run.display_name || run.dataset_name || "");
         setNotes(run.notes || "");
+        const cfg = run.config as { sdmx_mode?: boolean } | undefined;
+        const isSDMX = Boolean(cfg?.sdmx_mode);
+        setSdmxMode(isSDMX);
         if (run.result && Object.keys(run.result).length > 0) {
           setResult(run.result as PipelineResult);
+        }
+        if (isSDMX) {
+          getSdmxMetadata(runId).then((res) => {
+            if (res) { setSdmxMetadata(res.data); setSdmxEnriched(res.enriched); }
+          }).catch(() => {});
         }
       })
       .catch(() => {})
@@ -248,6 +261,11 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
                       onClick={() => setEditingName(true)}
                     >
                       {displayName || datasetName || "Untitled Run"}
+                      {sdmxMode && (
+                        <Badge variant="outline" className="text-[11px] font-normal" title="SDMX dataset">
+                          SDMX
+                        </Badge>
+                      )}
                       <Pencil className="h-4 w-4 opacity-0 group-hover:opacity-50 transition-opacity" />
                     </h1>
                   )}
@@ -369,6 +387,13 @@ export function ResultsPage({ datasetName: propDatasetName, result: propResult, 
             </div>
           )}
         </div>
+
+        {/* SDMX METADATA (only for SDMX runs) */}
+        {sdmxMetadata && (
+          <div className="mb-4">
+            <SdmxMetadataViewer metadata={sdmxMetadata} enriched={sdmxEnriched} />
+          </div>
+        )}
 
         {/* OUTPUT FILES PANEL */}
         <Card className="shadow-sm mb-6">

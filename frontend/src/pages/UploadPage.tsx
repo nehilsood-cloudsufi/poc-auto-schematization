@@ -13,21 +13,30 @@ import { DataPreview } from "@/components/DataPreview";
 import { uploadFiles } from "@/lib/api";
 import { toast } from "sonner";
 import { ChevronRight, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import type { UploadResponse } from "@/types";
+import { SdmxMetadataViewer } from "@/components/SdmxMetadataViewer";
+import type { UploadResponse, SdmxMetadata } from "@/types";
 
 interface UploadPageProps {
   onUploadComplete: (response: UploadResponse) => void;
 }
 
+type DatasetType = "normal" | "sdmx";
+
 export function UploadPage({ onUploadComplete }: UploadPageProps) {
   const navigate = useNavigate();
   const [inputFile, setInputFile] = useState<File | null>(null);
   const [metadataFile, setMetadataFile] = useState<File | null>(null);
+  const [sdmxXmlFile, setSdmxXmlFile] = useState<File | null>(null);
+  const [datasetType, setDatasetType] = useState<DatasetType>("normal");
   const [datasetName, setDatasetName] = useState("");
   const [preview, setPreview] = useState<UploadResponse | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [sdmxMetadataJson, setSdmxMetadataJson] = useState<SdmxMetadata | null>(null);
+  // After a successful SDMX upload the page stays visible so the user can
+  // inspect the extracted JSON; the second click on "Continue" navigates.
+  const [uploadedResponse, setUploadedResponse] = useState<UploadResponse | null>(null);
 
   const validateDatasetName = (name: string): string | null => {
     const trimmed = name.trim();
@@ -87,17 +96,44 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
     reader.readAsText(file);
   };
 
+  const sdmxReady = datasetType !== "sdmx" || sdmxXmlFile !== null;
+
+  // If an SDMX upload already completed, the second click just navigates.
   const handleNext = async () => {
-    if (!inputFile || uploading) return;
+    if (uploading) return;
+
+    if (uploadedResponse) {
+      // Already uploaded — proceed to configure.
+      navigate("/configure");
+      return;
+    }
+
+    if (!inputFile) return;
+    if (datasetType === "sdmx" && !sdmxXmlFile) {
+      setError("SDMX datasets require an XML metadata file.");
+      return;
+    }
     const finalName = datasetName.trim() || inputFile.name.replace(".csv", "").replace(/\s+/g, "_");
 
-    // Single upload with the final name — creates exactly one run
     try {
       setUploading(true);
       setError(null);
-      const response = await uploadFiles(inputFile, metadataFile ?? undefined, finalName);
+      const response = await uploadFiles(inputFile, {
+        metadataCsv: metadataFile ?? undefined,
+        sdmxMetadataXml: sdmxXmlFile ?? undefined,
+        datasetName: finalName,
+        sdmxMode: datasetType === "sdmx",
+      });
       onUploadComplete(response);
-      navigate("/configure");
+
+      if (response.sdmx_metadata_json) {
+        // SDMX run: stay on page so user can review the extracted metadata.
+        setSdmxMetadataJson(response.sdmx_metadata_json);
+        setUploadedResponse(response);
+        toast.success("Upload complete — review the SDMX metadata below, then continue.");
+      } else {
+        navigate("/configure");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
       toast.error("Upload failed — please try again");
@@ -121,6 +157,47 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
         <CardContent className="pt-6">
           <div className="space-y-6">
             <div>
+              <Label className="mb-2 block font-medium">Dataset Type</Label>
+              <div
+                role="radiogroup"
+                aria-label="Dataset type"
+                className="inline-flex rounded-md border bg-muted/40 p-1"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={datasetType === "normal"}
+                  onClick={() => setDatasetType("normal")}
+                  className={`px-4 py-1.5 text-sm rounded-sm transition-colors ${
+                    datasetType === "normal"
+                      ? "bg-background shadow-sm font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Normal CSV
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={datasetType === "sdmx"}
+                  onClick={() => setDatasetType("sdmx")}
+                  className={`px-4 py-1.5 text-sm rounded-sm transition-colors ${
+                    datasetType === "sdmx"
+                      ? "bg-background shadow-sm font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  SDMX
+                </button>
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {datasetType === "sdmx"
+                  ? "An SDMX DSD (XML) will be extracted and fed into the LLM as authoritative context."
+                  : "Structure and units are inferred from the CSV + an optional metadata CSV."}
+              </p>
+            </div>
+
+            <div>
               <Label className="mb-2 block font-medium">
                 Input CSV <span className="text-destructive">*</span>
               </Label>
@@ -131,6 +208,25 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
                 selectedFile={inputFile}
               />
             </div>
+
+            {datasetType === "sdmx" && (
+              <div>
+                <Label className="mb-2 block font-medium">
+                  SDMX Metadata XML <span className="text-destructive">*</span>
+                </Label>
+                <FileUploader
+                  label="SDMX structure XML (DSD + codelists)"
+                  accept=".xml"
+                  required
+                  onFileSelect={setSdmxXmlFile}
+                  selectedFile={sdmxXmlFile}
+                />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Download from your SDMX endpoint with{" "}
+                  <code className="font-mono text-[11px]">references=all</code>.
+                </p>
+              </div>
+            )}
 
             <div>
               <Label htmlFor="dataset-name" className="mb-2 block font-medium">
@@ -157,26 +253,28 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
               </div>
             </div>
 
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowMetadata(!showMetadata)}
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              >
-                {showMetadata ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                Advanced: Add metadata CSV
-                <span className="text-xs">(optional)</span>
-              </button>
-              {showMetadata && (
-                <div className="mt-3">
-                  <FileUploader
-                    label="metadata CSV"
-                    onFileSelect={setMetadataFile}
-                    selectedFile={metadataFile}
-                  />
-                </div>
-              )}
-            </div>
+            {datasetType !== "sdmx" && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowMetadata(!showMetadata)}
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                >
+                  {showMetadata ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  Advanced: Add metadata CSV
+                  <span className="text-xs">(optional)</span>
+                </button>
+                {showMetadata && (
+                  <div className="mt-3">
+                    <FileUploader
+                      label="metadata CSV"
+                      onFileSelect={setMetadataFile}
+                      selectedFile={metadataFile}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="p-3 rounded-md text-sm border bg-destructive/5 text-destructive border-destructive/20 flex items-start gap-2">
@@ -204,14 +302,24 @@ export function UploadPage({ onUploadComplete }: UploadPageProps) {
         </Card>
       )}
 
+      {sdmxMetadataJson && (
+        <div className="mt-4">
+          <SdmxMetadataViewer metadata={sdmxMetadataJson} defaultExpanded />
+        </div>
+      )}
+
       <div className="flex justify-end mt-6">
         <Button
           onClick={handleNext}
-          disabled={!preview || uploading || !isNameValid}
+          disabled={(!preview && !uploadedResponse) || uploading || !isNameValid || !sdmxReady}
           size="lg"
           className="gap-2"
         >
-          {uploading ? "Uploading..." : "Continue to Configure"}
+          {uploading
+            ? "Uploading..."
+            : uploadedResponse
+              ? "Continue to Configure"
+              : "Upload & Continue"}
           {!uploading && <ChevronRight className="w-4 h-4" />}
         </Button>
       </div>

@@ -643,26 +643,27 @@ wheels = [
 
 [[package]]
 name = "datacommons-client"
-version = "2.1.5"
+version = "2.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/be/378f623f2e7dd3d06108a940b2916bb6afdc3a132598e23cee5239012725/datacommons_client-2.1.5.tar.gz", hash = "sha256:1cc691778a6d0d251b6565dc20669c9529746e4cae71743e5c4a1030c331b94a", size = 60037, upload-time = "2026-01-12T20:04:47.683Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/c6/67776e19a96e9fe282b080e767f40354e3e699ddeff8758ca0c9b1011544/datacommons_client-2.1.6.tar.gz", hash = "sha256:b97171e8e2abd7ee1689be971473769f4ef3e57081a1550469e97e41598fb253", size = 59988, upload-time = "2026-01-29T21:28:51.619Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/99/fc2814651c64ce2a6e5c2da1dce10d7092852ac5ab23a58092981721f2ae/datacommons_client-2.1.5-py3-none-any.whl", hash = "sha256:d8ebf3cd568ed2a7cdcbdb42fd48fc09c124c2fd3cdbb51ac7f9115721374cc2", size = 77052, upload-time = "2026-01-12T20:04:46.659Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/df/ed1a2bf50fcebfce95eeabb316a966b4b6f6f3ba6443f02c17af36737a85/datacommons_client-2.1.6-py3-none-any.whl", hash = "sha256:4e33ffe967730fcf2421489cbad04008e80b335d91c0c022586a904c4183e57b", size = 77401, upload-time = "2026-01-29T21:28:50.141Z" },
 ]
 
 [[package]]
 name = "datacommons-mcp"
-version = "1.1.4"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "datacommons-client" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "google-cloud-storage" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dateutil" },
@@ -670,9 +671,9 @@ dependencies = [
     { name = "requests" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/23/f0/1a46a44c7ef21d3d0097080b2c1b727a4efc5dc528d1a5360b6a547e6fad/datacommons_mcp-1.1.4.tar.gz", hash = "sha256:bd657f7afe6fb45965425c6f9993b39d77cc09d382621940918d56cbf2198429", size = 198530, upload-time = "2026-01-12T18:57:47.66Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/ad/4dcf2053dfcd87f7a4a243cdacf0f25ce38db945becac89c25ea42c3b6ad/datacommons_mcp-1.2.1.tar.gz", hash = "sha256:e9f7c931861579b07ca257326e84019bbe58951163bc1582e19368f3fb670ef4", size = 192604, upload-time = "2026-04-07T21:07:00.043Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/ce/c215b32fa7371657690b06d46601bc0844fe6147a1990f4086ba38f9889f/datacommons_mcp-1.1.4-py3-none-any.whl", hash = "sha256:1a5842443ad61b5e12d70a59bd64b2ea976fab41fb68a9d1552bfeceb4d1340e", size = 187778, upload-time = "2026-01-12T18:57:48.828Z" },
+    { url = "https://files.pythonhosted.org/packages/64/d9/9f1b32d1a731457b848757becc2b486a59b09bff4d3c1f30e8553aca4193/datacommons_mcp-1.2.1-py3-none-any.whl", hash = "sha256:cb02b9d3c18c951032ab6fb145e222a0a969b36c711cb3b2ca93c69ac132300f", size = 186447, upload-time = "2026-04-07T21:07:01.096Z" },
 ]
 
 [[package]]
@@ -2946,6 +2947,7 @@ dependencies = [
     { name = "decorator" },
     { name = "et-xmlfile" },
     { name = "fastapi" },
+    { name = "fastmcp" },
     { name = "frozendict" },
     { name = "frozenlist" },
     { name = "fsspec" },
@@ -3011,6 +3013,7 @@ dependencies = [
     { name = "requests-oauthlib" },
     { name = "retry" },
     { name = "rsa" },
+    { name = "sdmx1" },
     { name = "six" },
     { name = "tenacity" },
     { name = "tqdm" },
@@ -3055,10 +3058,11 @@ requires-dist = [
     { name = "charset-normalizer", specifier = ">=3.4.4" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "datacommons-client", specifier = ">=2.1.4" },
-    { name = "datacommons-mcp", specifier = ">=1.1.0" },
+    { name = "datacommons-mcp", specifier = ">=1.2.0" },
     { name = "decorator", specifier = ">=5.2.1" },
     { name = "et-xmlfile", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "fastmcp", specifier = ">=2.0" },
     { name = "frozendict", specifier = ">=2.4.7" },
     { name = "frozenlist", specifier = ">=1.8.0" },
     { name = "fsspec", specifier = ">=2026.1.0" },
@@ -3130,6 +3134,7 @@ requires-dist = [
     { name = "requests-oauthlib", specifier = ">=2.0.0" },
     { name = "retry", specifier = ">=0.9.2" },
     { name = "rsa", specifier = ">=4.9.1" },
+    { name = "sdmx1", specifier = ">=2.21.0" },
     { name = "seaborn", marker = "extra == 'dev'", specifier = ">=0.13.0" },
     { name = "six", specifier = ">=1.17.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
@@ -4061,6 +4066,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/52/52/e57eceff0e342a1f50e274264ed47497b59e6a4e3118808ee58ddda7b74a/scipy-1.17.1-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:a77cbd07b940d326d39a1d1b37817e2ee4d79cb30e7338f3d0cddffae70fcaa2", size = 37682317, upload-time = "2026-02-23T00:22:18.513Z" },
     { url = "https://files.pythonhosted.org/packages/11/2f/b29eafe4a3fbc3d6de9662b36e028d5f039e72d345e05c250e121a230dd4/scipy-1.17.1-cp314-cp314t-win_amd64.whl", hash = "sha256:eb092099205ef62cd1782b006658db09e2fed75bffcae7cc0d44052d8aa0f484", size = 37345327, upload-time = "2026-02-23T00:22:24.442Z" },
     { url = "https://files.pythonhosted.org/packages/07/39/338d9219c4e87f3e708f18857ecd24d22a0c3094752393319553096b98af/scipy-1.17.1-cp314-cp314t-win_arm64.whl", hash = "sha256:200e1050faffacc162be6a486a984a0497866ec54149a01270adc8a59b7c7d21", size = 25489165, upload-time = "2026-02-23T00:22:29.563Z" },
+]
+
+[[package]]
+name = "sdmx1"
+version = "2.25.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lxml" },
+    { name = "pandas" },
+    { name = "platformdirs" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/51/1a/ab72d5cc00e6108acdc3ec17e0a7287647117fa12aa5ec593c76d5136b74/sdmx1-2.25.0.tar.gz", hash = "sha256:573e7bc98ab0351d02eec805787b2c1e0af197d19f2f164e0b11ee8092ade63c", size = 274235, upload-time = "2025-12-24T23:44:26.934Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/46/3d1bd4773a9efa919ae3534434e2e061d11a8fb641c009a05c0bc9670d99/sdmx1-2.25.0-py3-none-any.whl", hash = "sha256:940f9fc67e92d8dbced1793b76d77b59256cc1b57a9203b76f77104c5ea4d1e2", size = 264026, upload-time = "2025-12-24T23:44:25.31Z" },
 ]
 
 [[package]]

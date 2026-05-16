@@ -18,6 +18,17 @@ from src.api.services.run_state import get_run, get_or_load_run
 from src.api.middleware.auth import require_run_access
 
 logger = logging.getLogger(__name__)
+
+
+def _pipeline_actually_running(run) -> bool:
+    """Return True only if a pipeline thread is genuinely alive.
+
+    run.status can be stuck at 'running' when the WebSocket that would have
+    consumed the terminal event was rejected or dropped — in that case no one
+    updated the status.  Checking the thread avoids blocking subsequent
+    operations (generate, regenerate) on that stale flag.
+    """
+    return run.thread is not None and run.thread.is_alive()
 router = APIRouter()
 
 _note_locks: dict[str, threading.Lock] = {}
@@ -230,7 +241,7 @@ async def regenerate_plan(run_id: str, body: RegeneratePlanRequest, request: Req
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     require_run_access(Path(run.run_dir), request)
 
-    if run.status == "running":
+    if run.status == "running" and _pipeline_actually_running(run):
         raise HTTPException(status_code=409, detail="Pipeline is already running")
 
     run_dir = Path(run.run_dir)
@@ -444,7 +455,7 @@ async def generate_pvmap(run_id: str, body: GenerateRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     require_run_access(Path(run.run_dir), request)
 
-    if run.status == "running":
+    if run.status == "running" and _pipeline_actually_running(run):
         raise HTTPException(status_code=409, detail="Pipeline is already running")
 
     run_dir = Path(run.run_dir)
@@ -579,6 +590,16 @@ async def resume_run(run_id: str, request: Request):
         "Generator", "Validator", "QualityEvaluator", "UnifiedFeedback", "MaxRetriesCheck",
     }
 
+    # Load phase1_state so the plan is passed into Phase 2 via from_plan.
+    phase1_state_path = run_dir / "phase1_state.json"
+    from_plan_path = None
+    if phase1_state_path.exists():
+        import json as _json
+        _p1 = _json.loads(phase1_state_path.read_text())
+        _plan_md = run_dir / "output" / run.dataset_name / "mapping_plan.md"
+        if _plan_md.exists():
+            from_plan_path = str(_plan_md)
+
     config = PipelineConfig(
         run_id=run.run_id,
         dataset_name=run.dataset_name,
@@ -586,9 +607,13 @@ async def resume_run(run_id: str, request: Request):
         output_dir=str(run_dir / "output"),
         skip_sampling=last_agent in _SAMPLING_DONE,
         skip_schema_selection=last_agent in _SCHEMA_DONE,
+        # Phase 2 must never be plan_only — always override to False on resume.
+        plan_only=False,
+        extra_state={"from_plan": from_plan_path} if from_plan_path else {},
         **{k: v for k, v in run.config.items() if k in PipelineConfig.__dataclass_fields__ and k not in (
             "run_id", "dataset_name", "input_dir", "output_dir",
             "skip_sampling", "skip_schema_selection",
+            "plan_only", "extra_state",
         )},
     )
 

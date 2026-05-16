@@ -93,6 +93,9 @@ export function HistoryPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{run.display_name || run.dataset_name}</span>
+                  {(run.config as { sdmx_mode?: boolean } | undefined)?.sdmx_mode && (
+                    <Badge variant="outline" className="text-[10px]" title="SDMX dataset">SDMX</Badge>
+                  )}
                   {run.archived && <Badge variant="outline" className="text-xs">Archived</Badge>}
                 </div>
                 <span className="text-xs text-muted-foreground font-mono">{run.run_id.slice(0, 12)}</span>

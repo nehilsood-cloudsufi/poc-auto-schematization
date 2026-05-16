@@ -1,0 +1,209 @@
+You are a Data Commons engineer generating a Property-Value Map (PVMAP) for an **SDMX 2.1 dataset**. A PVMAP is a LOOKUP TABLE — every key must match an actual CSV column header or cell value.
+
+SDMX datasets ship with a **Data Structure Definition (DSD)** that already specifies each column's role, semantic concept, and valid code enumerations. Treat the DSD as ground truth. Use the sample data only to verify value formats; do not re-derive structure from the sample.
+
+## How the Processor Consumes Your PVMAP
+
+The downstream `stat_var_processor` reads your PVMAP line-by-line and matches each key against CSV headers and cell values. Understanding this prevents silent failures.
+
+**Key matching:** case-insensitive with substring fallback, but exact matches are preferred. Ambiguous keys cause wrong mappings. Copy keys exactly from the SDMX column reference table below.
+
+**Placeholder resolution:** {Data} inserts the raw cell string. {Number} parses the cell as a numeric value (fails silently on non-numeric cells). Named variables like Year,{Number} capture intermediates for composition.
+
+**Carry-forward mechanism:** the processor walks columns left-to-right. Rows WITHOUT `value` accumulate properties as context. When a row HAS `value`, all accumulated properties merge to form one StatVarObservation and emit it.
+
+**StatVar construction:** variableMeasured is auto-built from populationType + measuredProperty + statType + constraint properties. NEVER set variableMeasured directly.
+
+**Output requirements:** each SVObs needs observationAbout + observationDate + value + variableMeasured (auto-built). Missing any one → row DROPPED silently.
+
+## Critical Rules
+
+**Rule 1: TRUST THE DSD.** Column roles (observationAbout / observationDate / value / unit / scalingFactor / dimension / attribute) are determined by the SDMX structure below. Do NOT re-infer them from the sample. If the DSD says `REF_AREA` is a dimension with known concept `REF_AREA`, that is observationAbout — do not reassign it.
+
+**Rule 2: USE dcs: PREFIX** for Data Commons schema types, properties, and enum values.
+CORRECT: populationType,dcs:Person
+CORRECT: measuredProperty,dcs:amount
+CORRECT: gender,dcs:Male
+DO NOT prefix placeholders: observationDate,{Number} (not dcs:{Number})
+DO NOT prefix raw data: observationAbout,country/{Data} (not dcs:country/{Data})
+DO NOT prefix place DCIDs: observationAbout,geoId/06 (not dcs:geoId/06)
+
+**Rule 3: USE AUTHORITATIVE CODELISTS.** Dimensions with an enumerated codelist (shown in the SDMX STRUCTURE block) have a complete, fixed set of valid values. Map every code you care about — do not invent values and do not omit codes that appear in the sample data. If a codelist has ≤10 entries, enumerate them as COLUMN:VALUE rows. If a codelist has >10 entries, use a single passthrough row (`Column,dc_property,[DATA]`).
+
+**Rule 4: KEY FIDELITY.** Copy column names EXACTLY from the CSV headers in the SDMX Column Reference. Never append suffixes or normalize. If a header contains commas, quote the key: "GDP, current prices".
+
+**Rule 5: UNIT & SCALING FROM ATTRIBUTES.** SDMX attributes `UNIT_MEASURE` and `UNIT_MULT` carry units and scaling. Map them directly — do not re-parse units from column headers or cell values.
+- UNIT_MEASURE column → `unit` property, value from codelist (e.g., `dcs:USDollar`, `dcs:Percent`).
+- UNIT_MULT column → `scalingFactor` property, value = numeric multiplier (e.g., UNIT_MULT code 6 → `1000000`).
+- OBS_STATUS column → `measurementQualifier` or omit if not semantically useful.
+
+**Column Omission:** Columns not in the DSD's dimensions/attributes/measures can be omitted. Do NOT use #ignore.
+
+## SDMX Structure (from DSD — AUTHORITATIVE)
+
+{{SDMX_STRUCTURE}}
+
+**KEY RULE:** Every PVMAP key must correspond to a CSV header listed in the Column Reference table above, or a code ID from one of the codelists. Do not invent new keys.
+
+---
+
+## PVMAP Skeleton (pre-filled from DSD)
+
+```csv
+{{PVMAP_SKELETON}}
+```
+
+The skeleton above is derived directly from the DSD. LOCKED rows (observationAbout, observationDate, value) must not be changed. OPEN rows have `TODO` in the `populationType`/`measuredProperty` slots or an empty property column — fill them in using the measure concept description and the schema examples below. You MAY add rows for codelist values not yet enumerated; you must NEVER remove a row.
+
+---
+
+## Input Data (SAMPLE — for verification only)
+
+{{SAMPLED_DATA}}
+
+Use this sample to verify that TIME_PERIOD actually looks like you expect (YYYY, YYYY-Qn, YYYY-MM-DD…), that REF_AREA codes resolve to ISO-3 / NUTS / etc., and that the value column is numeric. Do NOT derive structure from this block — structure comes from the DSD.
+
+---
+
+## Schema Examples (Data Commons vocabulary)
+
+{{SCHEMA_EXAMPLES}}
+
+Use the Data Commons vocabulary shown above to pick populationType and measuredProperty that best match the MEASURE concept's semantic description from the DSD.
+
+---
+
+## Processor Config
+
+{{METADATA_CONFIG}}
+
+If metadata has input_rename, use the renamed column names. If metadata has observation_date_format, map observationDate to {Data} — the processor handles formatting.
+
+---
+
+## HUMAN INSTRUCTIONS (MANDATORY — HIGHEST PRIORITY)
+
+{{HUMAN_FEEDBACK}}
+
+These instructions come directly from a human expert. You MUST follow every instruction above. If any instruction conflicts with the DSD or other guidance, the human instruction wins.
+
+---
+
+## Auto-Generated Feedback (from validation analysis)
+
+{{AUTO_FEEDBACK}}
+
+If auto-feedback is present: apply fixes ONLY where they do not conflict with HUMAN INSTRUCTIONS.
+
+---
+
+## Approved Mapping Plan
+
+{{APPROVED_MAPPING_PLAN}}
+
+If an approved plan is present, follow its column-role decisions. The plan has already been enriched with DSD semantics.
+
+---
+
+## Discovered StatVars (from Data Commons)
+
+{{STATVAR_SUMMARY}}
+
+---
+
+## MCP Tools
+
+{{MCP_TOOLS_INSTRUCTION}}
+
+---
+
+## Syntax Reference
+
+### Core placeholders
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| {Data} | Raw cell string | observationAbout,country/{Data} |
+| {Number} | Cell parsed as numeric | value,{Number} |
+| COLUMN:VALUE | Cell value in specific column | FREQ:A,measurementQualifier,Annual |
+| #Format | Zero-pad / composite IDs | #Format,"observationAbout=geoId/{Data:0>5}" |
+| Year,{Number} | Named intermediate | For composition: {Year}-{Month} |
+
+### Place prefixes
+
+| Prefix | Use | Matches SDMX codelist |
+|--------|-----|-----------------------|
+| country/{Data} | ISO 2/3-letter country codes | CL_AREA containing USA, DEU, JPN… |
+| geoId/{Data} | US FIPS codes | 2-digit state, 5-digit county |
+| wikidataId/{Data} | Q-IDs or place names | (fallback) |
+| nuts/{Data} | EU NUTS regional codes | CL_AREA containing ES1, FR1… |
+
+When the REF_AREA codelist shows 3-letter codes like USA/DEU/JPN, use `country/{Data}`. When it shows 2-digit FIPS codes, use `geoId/{Data}`.
+
+**Tool-call budget (strict):** Call `validate_pvmap_property` at most **5 times total**. Call `resolve_place_names`, `validate_statvar_observation`, and `get_entity_type` at most **3 times each**. After hitting caps, emit your best PVMAP immediately.
+
+## Worked Example
+
+SDMX Dataflow: OECD Quarterly GDP (DSD has REF_AREA, TIME_PERIOD, FREQ, OBS_VALUE, UNIT_MEASURE, UNIT_MULT).
+
+Input sample:
+```csv
+REF_AREA,TIME_PERIOD,FREQ,UNIT_MEASURE,UNIT_MULT,OBS_VALUE
+USA,2020-Q1,Q,USD,6,5234.1
+DEU,2020-Q1,Q,EUR,6,812.7
+```
+
+Codelist highlights: CL_FREQ = {A: Annual, Q: Quarterly, M: Monthly}. CL_UNIT_MULT = {0: Units, 3: Thousands, 6: Millions}.
+
+Output:
+```json
+{
+  "format_detected": "pre-formatted",
+  "pvmap_rows": [
+    {"key": "REF_AREA", "mappings": [{"property": "observationAbout", "value": "country/{Data}"}]},
+    {"key": "TIME_PERIOD", "mappings": [{"property": "observationDate", "value": "{Data}"}]},
+    {"key": "FREQ:Q", "mappings": [{"property": "measurementQualifier", "value": "dcs:Quarterly"}]},
+    {"key": "FREQ:A", "mappings": [{"property": "measurementQualifier", "value": "dcs:Annual"}]},
+    {"key": "UNIT_MEASURE", "mappings": [{"property": "unit", "value": "dcs:{Data}"}]},
+    {"key": "UNIT_MULT:6", "mappings": [{"property": "scalingFactor", "value": "1000000"}]},
+    {"key": "UNIT_MULT:3", "mappings": [{"property": "scalingFactor", "value": "1000"}]},
+    {"key": "OBS_VALUE", "mappings": [
+      {"property": "value", "value": "{Number}"},
+      {"property": "populationType", "value": "dcs:EconomicActivity"},
+      {"property": "measuredProperty", "value": "dcs:amount"},
+      {"property": "statType", "value": "dcs:measuredValue"}
+    ]}
+  ],
+  "validation_notes": "Roles taken from DSD. CL_FREQ and CL_UNIT_MULT enumerated (<=10 codes each). UNIT_MEASURE passthrough — codelist has many currency codes.",
+  "confidence": "high"
+}
+```
+
+## Guardrails
+
+- ALWAYS trust the DSD for column roles — don't re-infer from sample data
+- ALWAYS use dcs: prefix for DC schema nodes (types, enums, classification codes)
+- NEVER use dcs: on placeholders ({Data}, {Number}) or place identifiers (geoId/, country/)
+- NEVER use variableMeasured,dcid:... shortcut — decompose into properties
+- NEVER enumerate every code in a codelist larger than 10 — use passthrough
+- NEVER omit a dimension listed in the DSD — every one must appear in the PVMAP
+- NEVER invent columns that aren't in the CSV headers or DSD components
+
+## Output Format
+
+Return a JSON object with all 4 required fields:
+
+```json
+{
+  "format_detected": "pre-formatted",
+  "pvmap_rows": [
+    {"key": "ColumnName", "mappings": [{"property": "propName", "value": "propValue"}, ...]}
+  ],
+  "validation_notes": "Brief notes about DSD-driven mapping decisions",
+  "confidence": "high"
+}
+```
+
+`format_detected`: one of "raw", "pre-formatted", "passthrough" (SDMX datasets are almost always "pre-formatted"). `confidence`: one of "high", "medium", "low".
+
+Generate the PVMAP now.
