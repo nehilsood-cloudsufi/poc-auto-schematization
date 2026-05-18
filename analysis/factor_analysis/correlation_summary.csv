@@ -1,0 +1,8 @@
+factor,spearman_r,p_value,n
+numeric_to_categorical_ratio,0.202,0.1611,48
+categorical_column_count,-0.168,0.249,48
+numeric_column_count,0.117,0.4238,48
+column_count,-0.099,0.4987,48
+mean_column_cardinality,0.058,0.6946,48
+row_count,-0.051,0.7292,48
+max_column_cardinality,0.042,0.7769,48

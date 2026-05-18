@@ -99,9 +99,8 @@ class TestMCPSpotCheckExecution:
     """Tests for actual spot-check execution."""
 
     @patch(PATCH_VALIDATE_CLIENT)
-    @patch(PATCH_RESOLVE)
+    @patch("src.agents.mcp_spot_check_agent._resolve_sample_place", return_value="geoId/06")
     def test_confirmed_no_warnings(self, mock_resolve, mock_get_client):
-        mock_resolve.return_value = {"California": "geoId/06"}
         mock_client = MagicMock()
         mock_client.observation.fetch.return_value = {
             "observations": [{"value": 39538223, "date": "2020"}]
@@ -130,9 +129,8 @@ class TestMCPSpotCheckExecution:
         assert "WARNING" not in final_state.get("structure_warnings", "")
 
     @patch(PATCH_VALIDATE_CLIENT)
-    @patch(PATCH_RESOLVE)
+    @patch("src.agents.mcp_spot_check_agent._resolve_sample_place", return_value="geoId/06")
     def test_unconfirmed_adds_warning(self, mock_resolve, mock_get_client):
-        mock_resolve.return_value = {"California": "geoId/06"}
         mock_client = MagicMock()
         mock_client.observation.fetch.side_effect = Exception("Not found")
         mock_get_client.return_value = mock_client
@@ -160,9 +158,8 @@ class TestMCPSpotCheckExecution:
         assert "warning" in summary.lower()
 
     @patch(PATCH_VALIDATE_CLIENT)
-    @patch(PATCH_RESOLVE)
+    @patch("src.agents.mcp_spot_check_agent._resolve_sample_place", return_value="geoId/06")
     def test_appends_to_existing_warnings(self, mock_resolve, mock_get_client):
-        mock_resolve.return_value = {}
         mock_client = MagicMock()
         mock_client.observation.fetch.side_effect = Exception("Not found")
         mock_get_client.return_value = mock_client
@@ -183,10 +180,9 @@ class TestMCPSpotCheckExecution:
         assert "BadVar" in warnings
 
     @patch("src.tools.dc_tools._get_dc_client")
-    @patch("src.tools.dc_tools.dc_api_resolve_placeid")
+    @patch("src.agents.mcp_spot_check_agent._resolve_sample_place", return_value="geoId/06")
     def test_handles_exception_gracefully(self, mock_resolve, mock_get_client):
         """Test that agent handles exceptions in validate call gracefully."""
-        mock_resolve.return_value = {"Test": "geoId/06"}
         # Make the client raise on observation.fetch
         mock_client = MagicMock()
         mock_client.observation.fetch.side_effect = RuntimeError("Connection reset")
@@ -209,9 +205,8 @@ class TestMCPSpotCheckExecution:
         assert "check" in last_text.lower() or "warning" in last_text.lower()
 
     @patch(PATCH_VALIDATE_CLIENT)
-    @patch(PATCH_RESOLVE)
+    @patch("src.agents.mcp_spot_check_agent._resolve_sample_place", return_value="geoId/06")
     def test_checks_only_high_confidence(self, mock_resolve, mock_get_client):
-        mock_resolve.return_value = {}
         mock_client = MagicMock()
         call_count = 0
 
@@ -277,11 +272,11 @@ class TestHelperFunctions:
             return "- Unknown -> NOT_FOUND"
 
         result = _resolve_sample_place(["Unknown"], mock_resolve)
-        assert result == "geoId/06"  # Default fallback
+        assert result == ""  # No fallback — skip spot-check for unknown places
 
     def test_resolve_sample_place_empty_list(self):
         def mock_resolve(names):
             return ""
 
         result = _resolve_sample_place([], mock_resolve)
-        assert result == "geoId/06"  # Default fallback
+        assert result == ""  # No fallback — skip spot-check for empty places

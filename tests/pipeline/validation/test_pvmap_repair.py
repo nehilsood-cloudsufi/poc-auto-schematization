@@ -216,15 +216,23 @@ def test_repair_empty_pvmap(simple_csv):
 
 
 def test_repair_no_changes_needed(simple_csv):
-    """Already correct PVMAP has no changes."""
-    pvmap = "key,property,value\nState,observationAbout,geoId/{Data}\nYear,observationDate,{Data}\n"
+    """Already correct PVMAP has no changes (observationDate uses {Number})."""
+    pvmap = "key,property,value\nState,observationAbout,geoId/{Data}\nYear,observationDate,{Number}\n"
     repaired, changes = repair_pvmap(pvmap, simple_csv)
     assert len(changes) == 0
 
 
+def test_repair_date_placeholder_fixed(simple_csv):
+    """observationDate with {Data} is repaired to {Number}."""
+    pvmap = "key,property,value\nYear,observationDate,{Data}\n"
+    repaired, changes = repair_pvmap(pvmap, simple_csv)
+    assert "{Number}" in repaired
+    assert any("observationDate" in c for c in changes)
+
+
 def test_repair_comments_preserved(simple_csv):
     """Comment lines are preserved unchanged."""
-    pvmap = "key,property,value\n# This is a comment\nYear,observationDate,{Data}\n"
+    pvmap = "key,property,value\n# This is a comment\nYear,observationDate,{Number}\n"
     repaired, changes = repair_pvmap(pvmap, simple_csv)
     assert "# This is a comment" in repaired
 

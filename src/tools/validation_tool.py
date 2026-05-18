@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import random
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -345,8 +346,7 @@ def run_validation(
             - success: bool indicating validation passed
             - output_file: str path to processed output file (if exists)
             - data_rows: Number of data rows in output
-            - error_logs: Sampled error logs (if failed) - DEPRECATED, use structured_feedback
-            - structured_feedback: Counter-based structured feedback (preferred)
+            - structured_feedback: Counter-based structured feedback
             - counters: Parsed counter dictionary
             - error: Error message (if failed)
             - stdout: Process stdout
@@ -358,30 +358,30 @@ def run_validation(
         return {
             "success": False,
             "error": f"Input data file not found: {input_data}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     if metadata_file and not Path(metadata_file).exists():
         return {
             "success": False,
             "error": f"Metadata file not found: {metadata_file}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     if not pvmap_path or not Path(pvmap_path).exists():
         return {
             "success": False,
             "error": f"PVMAP file not found: {pvmap_path}",
-            "error_logs": None,
             "output_file": None,
             "data_rows": 0,
             "counter_summary": "",
+            "filtered_logs": None,
         }
 
     # Build command and environment (with debug=True for detailed error context)
@@ -393,22 +393,49 @@ def run_validation(
         debug=True
     )
 
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
     output_file = Path(output_dir) / "processed.csv"
     counters_file = Path(output_dir) / "processed_counters.txt"
 
     try:
-        # Run subprocess
+        # Run subprocess via Popen for explicit zombie-safe timeout handling
         logger.info("Running validation subprocess: timeout=%ds, pvmap=%s", timeout, pvmap_path)
         logger.debug("Subprocess cmd: %s", " ".join(cmd))
         start_time = time.monotonic()
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=str(PROJECT_ROOT),
-            env=env
+            env=env,
         )
+        try:
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()  # reap zombie
+            logger.error("Validation subprocess timed out after %d seconds", timeout)
+            return {
+                "success": False,
+                "error": f"Validation timed out after {timeout} seconds",
+                "structured_feedback": None,
+                "counters": {},
+                "output_file": None,
+                "data_rows": 0,
+                "returncode": -1,
+                "counter_summary": "",
+                "filtered_logs": None,
+            }
+
+        # Build a result-like namespace for downstream code
+        class _SubprocResult:
+            pass
+        result = _SubprocResult()
+        result.stdout = stdout_bytes.decode("utf-8", errors="replace")
+        result.stderr = stderr_bytes.decode("utf-8", errors="replace")
+        result.returncode = proc.returncode
+
         elapsed = time.monotonic() - start_time
         logger.info(
             "Validation subprocess finished: returncode=%d, elapsed=%.1fs",
@@ -417,6 +444,7 @@ def run_validation(
 
         # Write raw logs to file (overwrite on each retry — always reflects latest attempt).
         # Cap at 1MB to avoid multi-GB log files from verbose datasets.
+        # Uses atomic write (tmpfile + rename) to avoid partial reads.
         MAX_RAW_LOG_CHARS = 1_000_000
         raw_log_path = Path(output_dir) / "statvar_processor_raw_logs.txt"
         raw_log_content = ""
@@ -435,10 +463,20 @@ def run_validation(
                 + f"\n\n... [{len(raw_log_content) - MAX_RAW_LOG_CHARS:,} chars truncated] ...\n\n"
                 + tail
             )
-        raw_log_path.write_text(raw_log_content, encoding="utf-8")
+        tmp_fd, tmp_name = tempfile.mkstemp(dir=str(raw_log_path.parent), suffix='.tmp')
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp:
+                tmp.write(raw_log_content)
+            os.replace(tmp_name, str(raw_log_path))
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
         # Parse counters file using smart log filter (for structured feedback)
-        filtered_logs = filter_counters(counters_file) if counters_file.exists() else None
+        filtered_logs = filter_counters(counters_file, attempt_number=attempt_number) if counters_file.exists() else None
         counters = {}  # Keep for backward compatibility
 
         # Check return code
@@ -483,7 +521,7 @@ def run_validation(
                 return {
                     "success": False,
                     "error": full_error,
-                    "error_logs": sampled_logs,
+                    # error_logs removed — use structured_feedback
                     "structured_feedback": structured_feedback,
                     "counters": counters,
                     "output_file": str(output_file) if output_file.exists() else None,
@@ -492,6 +530,7 @@ def run_validation(
                     "stderr": result.stderr,
                     "returncode": result.returncode,
                     "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
+                    "filtered_logs": filtered_logs,
                 }
 
             # Validation passed
@@ -506,8 +545,7 @@ def run_validation(
             return {
                 "success": True,
                 "error": None,
-                "error_logs": None,
-                "structured_feedback": None,
+                    "structured_feedback": None,
                 "counters": counters,
                 "output_file": str(output_file),
                 "data_rows": data_rows,
@@ -516,6 +554,7 @@ def run_validation(
                 "returncode": result.returncode,
                 "counter_summary": counter_summary,
                 "statvar_analysis": statvar_analysis,
+                "filtered_logs": filtered_logs,
             }
 
         else:
@@ -551,7 +590,7 @@ def run_validation(
             return {
                 "success": False,
                 "error": error_msg,
-                "error_logs": sampled_logs,
+                # error_logs removed — use structured_feedback
                 "structured_feedback": structured_feedback,
                 "counters": counters,
                 "output_file": str(output_file) if output_file.exists() else None,
@@ -560,30 +599,18 @@ def run_validation(
                 "stderr": result.stderr,
                 "returncode": result.returncode,
                 "counter_summary": filtered_logs.to_summary() if filtered_logs else "",
+                "filtered_logs": filtered_logs,
             }
 
-    except subprocess.TimeoutExpired:
-        logger.error("Validation subprocess timed out after %d seconds", timeout)
-        return {
-            "success": False,
-            "error": f"Validation timed out after {timeout} seconds",
-            "error_logs": None,
-            "structured_feedback": None,
-            "counters": {},
-            "output_file": None,
-            "data_rows": 0,
-            "returncode": -1,
-            "counter_summary": "",
-        }
     except Exception as e:
         return {
             "success": False,
             "error": f"Validation error: {str(e)}",
-            "error_logs": None,
             "structured_feedback": None,
             "counters": {},
             "output_file": None,
             "data_rows": 0,
             "returncode": -1,
             "counter_summary": "",
+            "filtered_logs": None,
         }

@@ -355,10 +355,11 @@ class ValidationAgent(BaseAgent):
         best_was_valid = ctx.session.state.get("best_validation_passed", False)
         current_is_valid = result["success"]
 
-        # Update best if: (a) more data rows, OR (b) current is valid and best wasn't
+        # Update best if: (a) current is valid and best wasn't, OR
+        # (b) same validity status but more data rows
         should_update = (
-            current_data_rows > best_data_rows
-            or (current_is_valid and not best_was_valid)
+            (current_is_valid and not best_was_valid)
+            or (current_is_valid == best_was_valid and current_data_rows > best_data_rows)
         )
         if should_update:
             ctx.session.state["best_data_rows"] = current_data_rows
@@ -375,6 +376,11 @@ class ValidationAgent(BaseAgent):
             key_match_report = generate_key_match_report(pvmap_csv, input_file_for_repair)
         else:
             key_match_report = ""
+
+        # Enrich unmapped columns with role annotations from column manifest
+        column_manifest = ctx.session.state.get("column_manifest")
+        if column_manifest and key_match_report:
+            key_match_report = _enrich_unmapped_with_roles(key_match_report, column_manifest)
 
         # Append pre-validation warnings (ENUM, schema.org) to key_match_report
         pre_warnings = ctx.session.state.get("pre_validation_warnings", "")
@@ -621,6 +627,55 @@ class ValidationAgent(BaseAgent):
         except Exception:
             # Don't fail on analysis errors
             pass
+
+
+def _enrich_unmapped_with_roles(key_match_report: str, column_manifest: dict) -> str:
+    """Annotate unmapped columns in the key match report with their roles.
+
+    Replaces lines like:
+        - `Gender` — not referenced in PVMAP
+    With:
+        - `Gender` [DIMENSION - MUST MAP] — 3 unique values: Male, Female, Total
+    """
+    must_map_by_name = {}
+    for entry in column_manifest.get("must_map", []):
+        must_map_by_name[entry["column_name"].lower()] = entry
+    can_ignore_by_name = {}
+    for entry in column_manifest.get("can_ignore", []):
+        can_ignore_by_name[entry["column_name"].lower()] = entry
+
+    lines = key_match_report.split("\n")
+    enriched = []
+    for line in lines:
+        # Look for unmapped column references like "- `ColumnName` — not referenced"
+        if line.strip().startswith("- `") and "not referenced" in line.lower():
+            # Extract column name from backticks
+            start = line.find("`") + 1
+            end = line.find("`", start)
+            if start > 0 and end > start:
+                col_name = line[start:end]
+                col_lower = col_name.lower()
+
+                if col_lower in must_map_by_name:
+                    entry = must_map_by_name[col_lower]
+                    role = entry.get("role", "unknown").upper()
+                    domain = entry.get("domain_values", [])
+                    samples = entry.get("sample_values", [])
+                    hint = ""
+                    if domain:
+                        shown = domain[:5]
+                        hint = f" — {len(domain)} unique values: {', '.join(str(v) for v in shown)}"
+                        if len(domain) > 5:
+                            hint += f" (and {len(domain) - 5} more)"
+                    elif samples:
+                        hint = f" — samples: {', '.join(str(v) for v in samples[:3])}"
+                    line = f"- `{col_name}` [{role} - MUST MAP]{hint}"
+                elif col_lower in can_ignore_by_name:
+                    line = f"- `{col_name}` [METADATA - can ignore]"
+
+        enriched.append(line)
+
+    return "\n".join(enriched)
 
 
 # ============================================================================

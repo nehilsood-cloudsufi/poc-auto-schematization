@@ -687,7 +687,7 @@ The pipeline uses a structured prompt template (`src/resources/prompts/improved_
 Uses Gemini API via Google ADK `LlmAgent` with structured output schema:
 
 ```python
-# Default model: gemini-3-pro-preview (configurable via --model flag)
+# Default model: gemini-3.1-pro-preview (configurable via --model flag)
 LlmAgent(
     model=model,
     output_schema=PVMAPOutput,
@@ -1142,7 +1142,7 @@ ArtifactLoggingPlugin (BasePlugin)
 ```
 
 **State output:** `pvmap_llm_result` dict with keys:
-- `model` — Model name (e.g., `gemini-3-pro-preview`)
+- `model` — Model name (e.g., `gemini-3.1-pro-preview`)
 - `temperature`, `max_output_tokens` — Request config
 - `prompt_token_count`, `candidates_token_count`, `total_token_count` — Usage stats
 - `thinking_content` — Chain-of-thought reasoning (if model supports it)

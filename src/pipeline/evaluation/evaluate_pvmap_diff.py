@@ -197,9 +197,17 @@ def run_auto_schematization(input_keys, sample_data_path, output_path, output_di
     # Convert Excel to CSV if needed (LLM expects CSV)
     sample_data_csv = convert_to_csv_if_needed(sample_data_path, output_dir)
 
+    try:
+        import llm_pvmap_generator
+    except ImportError:
+        raise ImportError(
+            "llm_pvmap_generator is no longer available. "
+            "LLM-based PVMAP regeneration during evaluation is deprecated. "
+            "Use the ADK pipeline instead."
+        )
+
     from src.infrastructure.config.config_map import ConfigMap
     from src.infrastructure.metrics.counters import Counters
-    import llm_pvmap_generator
 
     input_pvmap = {key: {} for key in input_keys}
 

@@ -1,0 +1,136 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
+@import "@fontsource/fira-sans/400.css";
+@import "@fontsource/fira-sans/500.css";
+@import "@fontsource/fira-sans/600.css";
+@import "@fontsource/fira-sans/700.css";
+@import "@fontsource-variable/fira-code";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: 'Fira Sans', sans-serif;
+    --font-sans: 'Fira Sans', sans-serif;
+    --font-mono: 'Fira Code Variable', monospace;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: #F8FAFC;
+    --foreground: #1E3A8A;
+    --card: #FFFFFF;
+    --card-foreground: #1E3A8A;
+    --popover: #FFFFFF;
+    --popover-foreground: #1E3A8A;
+    --primary: #1E40AF;
+    --primary-foreground: #FFFFFF;
+    --secondary: #EFF6FF;
+    --secondary-foreground: #1E40AF;
+    --muted: #E9EEF6;
+    --muted-foreground: #64748B;
+    --accent: #D97706;
+    --accent-foreground: #FFFFFF;
+    --destructive: #DC2626;
+    --border: #DBEAFE;
+    --input: #DBEAFE;
+    --ring: #1E40AF;
+    --chart-1: #1E40AF;
+    --chart-2: #3B82F6;
+    --chart-3: #D97706;
+    --chart-4: #059669;
+    --chart-5: #7C3AED;
+    --radius: 0.625rem;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #1E3A8A;
+    --sidebar-primary: #1E40AF;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #EFF6FF;
+    --sidebar-accent-foreground: #1E40AF;
+    --sidebar-border: #DBEAFE;
+    --sidebar-ring: #1E40AF;
+}
+
+.dark {
+    --background: #0F172A;
+    --foreground: #E2E8F0;
+    --card: #1E293B;
+    --card-foreground: #E2E8F0;
+    --popover: #1E293B;
+    --popover-foreground: #E2E8F0;
+    --primary: #3B82F6;
+    --primary-foreground: #FFFFFF;
+    --secondary: #1E293B;
+    --secondary-foreground: #E2E8F0;
+    --muted: #334155;
+    --muted-foreground: #94A3B8;
+    --accent: #D97706;
+    --accent-foreground: #FFFFFF;
+    --destructive: #EF4444;
+    --border: #334155;
+    --input: #334155;
+    --ring: #3B82F6;
+    --chart-1: #3B82F6;
+    --chart-2: #60A5FA;
+    --chart-3: #F59E0B;
+    --chart-4: #34D399;
+    --chart-5: #A78BFA;
+    --sidebar: #1E293B;
+    --sidebar-foreground: #E2E8F0;
+    --sidebar-primary: #3B82F6;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #334155;
+    --sidebar-accent-foreground: #E2E8F0;
+    --sidebar-border: #334155;
+    --sidebar-ring: #3B82F6;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}

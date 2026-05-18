@@ -19,6 +19,7 @@ Usage:
         result = runner.run(user_message="Find population variables for California")
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -85,7 +86,7 @@ def create_dc_query_agent(
 
     Args:
         mcp_url: URL of the MCP server endpoint
-        model: Gemini model to use (default: gemini-2.5-pro)
+        model: Gemini model to use (default: DC_AGENT_MODEL env var)
         name: Agent name (default: "DCQueryAgent")
         instruction: Custom instruction (default: DC_QUERY_AGENT_INSTRUCTION)
         data_context: Optional data context from SamplingAgent for enhanced queries
@@ -256,20 +257,25 @@ async def run_mcp_query(mcp_url: str, agent: LlmAgent, query: str) -> str:
     session_id = f"mcp_{uuid.uuid4().hex[:8]}"
     user_message = types.Content(parts=[types.Part(text=query)])
 
-    result_text = ""
+    def _run_sync():
+        text = ""
+        try:
+            for event in runner.run(
+                user_id="mcp_user",
+                session_id=session_id,
+                new_message=user_message
+            ):
+                if hasattr(event, 'content') and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text += part.text
+        except Exception as e:
+            logger.warning(f"MCP query failed: {e}")
+            text = f"(MCP query failed: {str(e)[:200]})"
+        return text
+
     try:
-        for event in runner.run(
-            user_id="mcp_user",
-            session_id=session_id,
-            new_message=user_message
-        ):
-            if hasattr(event, 'content') and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        result_text += part.text
-    except Exception as e:
-        logger.warning(f"MCP query failed: {e}")
-        result_text = f"(MCP query failed: {str(e)[:200]})"
+        result_text = await asyncio.to_thread(_run_sync)
     finally:
         # Close MCP toolsets to prevent session leak warnings
         for tool in getattr(agent, 'tools', []) or []:
@@ -505,118 +511,6 @@ Use this context to build more targeted queries.
 
 
 # =============================================================================
-# Legacy convenience factories (kept for backward compatibility)
-# =============================================================================
-
-def create_statvar_discovery_agent(
-    mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro"
-) -> LlmAgent:
-    """Create an agent specialized for discovering StatVars."""
-    return create_dc_query_agent(
-        mcp_url=mcp_url,
-        model=model,
-        name="StatVarDiscoveryAgent",
-        instruction=STATVAR_DISCOVERY_INSTRUCTION
-    )
-
-
-def create_observation_fetch_agent(
-    mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro"
-) -> LlmAgent:
-    """Create an agent specialized for fetching observations."""
-    return create_dc_query_agent(
-        mcp_url=mcp_url,
-        model=model,
-        name="ObservationFetchAgent",
-        instruction=OBSERVATION_FETCH_INSTRUCTION
-    )
-
-
-# =============================================================================
-# Legacy helper (kept for backward compatibility)
-# =============================================================================
-
-async def discover_statvars_for_topic(
-    topic: str,
-    mcp_url: str = "http://localhost:3000/mcp",
-    model: str = "gemini-2.5-pro",
-    data_context: Optional[dict] = None
-) -> str:
-    """
-    Discover StatVars related to a topic.
-
-    Convenience function that creates an agent, runs a query,
-    and returns the result.
-    """
-    from google.adk import Runner
-    from google.adk.sessions import InMemorySessionService
-    from google.genai import types
-
-    # Create agent with data_context if available
-    if data_context:
-        agent = create_dc_query_agent(
-            mcp_url=mcp_url,
-            model=model,
-            name="StatVarDiscoveryAgent",
-            instruction=STATVAR_DISCOVERY_INSTRUCTION,
-            data_context=data_context
-        )
-    else:
-        agent = create_statvar_discovery_agent(mcp_url=mcp_url, model=model)
-
-    runner = Runner(
-        app_name="statvar_discovery",
-        agent=agent,
-        session_service=InMemorySessionService(),
-        auto_create_session=True
-    )
-
-    session_id = f"discover_{uuid.uuid4().hex[:8]}"
-
-    # Build enhanced query if data_context is available
-    query_text = f"Find statistical variables related to: {topic}. List the DCIDs."
-    if data_context:
-        population_type = data_context.get("population_type", "")
-        dimension_columns = data_context.get("dimension_columns", [])
-        if population_type or dimension_columns:
-            query_text = (f"Find statistical variables related to: {topic}. "
-                         f"Population type: {population_type or 'Unknown'}. "
-                         f"Dimensions: {', '.join(dimension_columns) if dimension_columns else 'None'}. "
-                         f"List the DCIDs.")
-
-    user_message = types.Content(
-        parts=[types.Part(text=query_text)]
-    )
-
-    result_text = ""
-    try:
-        for event in runner.run(
-            user_id="discovery",
-            session_id=session_id,
-            new_message=user_message
-        ):
-            if hasattr(event, 'content') and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        result_text += part.text
-    except Exception as e:
-        logger.warning(f"StatVar discovery failed: {e}")
-        result_text = f"(StatVar discovery failed: {str(e)[:200]})"
-    finally:
-        # Close MCP toolsets to prevent session leak warnings
-        for tool in getattr(agent, 'tools', []) or []:
-            if hasattr(tool, 'close') and callable(tool.close):
-                try:
-                    await tool.close()
-                except Exception:
-                    pass
-
-    return result_text
-
-
-# =============================================================================
 # Module exports
 # =============================================================================
 
@@ -637,8 +531,4 @@ __all__ = [
     'build_structured_summary',
     # MCP tools instruction for generator
     'MCP_TOOLS_INSTRUCTION',
-    # Legacy
-    'create_statvar_discovery_agent',
-    'create_observation_fetch_agent',
-    'discover_statvars_for_topic',
 ]

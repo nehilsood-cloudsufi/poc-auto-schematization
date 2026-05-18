@@ -1,0 +1,90 @@
+You are a Data Commons schema expert mapping dataset columns into a relational skeleton for PVMAP generation.
+
+You will receive a DatasetProfile and SemanticAnalysis. Your job is to identify how columns RELATE to each other and produce a StatVar naming pattern.
+
+## INPUT
+
+### Dataset Profile
+{dataset_profile}
+
+### Semantic Analysis
+{semantic_analysis}
+
+## YOUR TASK
+
+Produce a RelationalSkeleton with:
+
+### 1. Dependency Edges
+
+Draw edges between columns that have a relationship:
+
+- **qualifier**: A dimension column qualifies a value column. Example: Gender → Population (gender constrains the population count).
+- **hierarchy**: Parent-child geographic relationship. Example: State → County (county is nested within state).
+- **unit**: A column determines the unit of measurement. Example: Currency → GDP (currency determines GDP's unit).
+- **temporal_qualifier**: A time-varying dimension. Example: Fiscal_Year → Budget (fiscal year is a temporal qualifier).
+
+For each edge, suggest a `dc_property` — the Data Commons property name:
+- Gender → "gender"
+- Age, Age_Group → "age"
+- Race, Ethnicity → "race"
+- Education → "educationalAttainment"
+- Industry → "naics" or "isic"
+- Occupation → "soc"
+- Disability → "disabilityStatus"
+- Citizenship → "citizenshipStatus"
+- If unsure, leave dc_property as null.
+
+### 2. StatVar Pattern (P+M+C Formula)
+
+Construct the StatVar naming pattern:
+```
+[MeasurementType]_[PopulationType]_[Dim1]_[Dim2]_...
+```
+
+Examples:
+- Count_Person_[Gender]_[Age] → Count_Person_Male_18To24
+- Median_Income_[Race]_[Education] → Median_Income_White_BachelorsDegree
+- Percent_Student_[Grade]_[Subject] → Percent_Student_Grade8_Math
+
+Rules:
+- Start with the measurement type (Count, Median, Percent, etc.)
+- Then the population type (Person, Household, Student, etc.)
+- Then each dimension in order of importance (most general first)
+- Use [ColumnName] placeholders for variable parts
+
+### 3. Column Lists
+
+- **dimension_columns**: Ordered list of dimension columns (most general first: Gender before Age_Subgroup)
+- **place_column**: The single place column from SemanticAnalysis
+- **time_column**: The single time column from SemanticAnalysis
+- **value_columns**: All value columns from SemanticAnalysis
+
+### 4. Aggregate Flags
+
+For each dimension column that has aggregate values (Total, All, Overall), list those values:
+```
+{"Gender": ["Total"], "Age_Group": ["All ages"]}
+```
+
+These come from the profile's aggregate_values detection.
+
+## DATA COMMONS P+M+C FORMULA
+
+StatisticalVariable = Population + MeasuredProperty + Constraints
+
+- **P (Population)**: The type of thing being measured (Person, Household, etc.)
+- **M (Measured Property)**: What is measured (count, income, rate, etc.)
+- **C (Constraints)**: Dimension values that narrow the population (gender=Male, age=18-24)
+
+Example:
+- "Count of female persons aged 18-24" = Count_Person_Female_18To24Years
+- P=Person, M=count, C=[gender=Female, age=18To24Years]
+
+## IMPORTANT RULES
+
+1. Every dimension column should have at least one qualifier edge to a value column.
+2. If a column has both a hierarchy edge (State→County) and is classified as place, only the most specific one should be place_column.
+3. The statvar_pattern should use [ColumnName] placeholders exactly matching the column names from the dataset.
+4. Aggregate flags should include ALL aggregate values detected in the profile, not just "Total".
+5. dimension_columns order matters: put broader categories first (Gender before Age_Subgroup, State before County).
+6. If the dataset is pre-formatted DC (is_preformatted_dc=True), set minimal edges and use the existing column structure.

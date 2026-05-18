@@ -185,9 +185,14 @@ poc-auto-schematization/
 | `GROUND_TRUTH_REPO` | Ground truth directory | `ground_truth/` |
 | `DC_API_KEY` | Data Commons API for MCP integration | — |
 | `MAPS_API_KEY` | Google Maps API for place resolution | — |
-| `SAMPLING_AGENT_MODEL` | Override model for sampling agent | `gemini-3-pro-preview` |
-| `PVMAP_GENERATOR_MODEL` | Override model for PVMAP generator | `gemini-3-pro-preview` |
-| `METADATA_AGENT_MODEL` | Override model for metadata agent | `gemini-3-pro-preview` |
+| `SAMPLING_AGENT_MODEL` | Override model for sampling agent | `gemini-3.1-pro-preview` |
+| `PVMAP_GENERATOR_MODEL` | Override model for PVMAP generator | `gemini-3.1-pro-preview` |
+| `FEEDBACK_AGENT_MODEL` | Override model for feedback agent | `gemini-3.1-pro-preview` |
+| `DC_AGENT_MODEL` | Override model for DC query/MCP agents | `gemini-3-flash-preview` |
+| `STATVAR_DISCOVERY_MODEL` | Override model for StatVar discovery | `gemini-3-flash-preview` |
+| `SCHEMA_SELECTION_MODEL` | Override model for schema selection | `gemini-2.5-pro` |
+| `METADATA_AGENT_MODEL` | Override model for metadata agent | `gemini-2.5-pro` |
+| `PIPELINE_MODEL` | Override default model for coordinator | `gemini-3.1-pro-preview` |
 | `PROMPT_VERSION` | PVMAP prompt template version | `v2` |
 | `PER_ATTEMPT_TIMEOUT` | Timeout per pipeline attempt (seconds) | `300` |
 

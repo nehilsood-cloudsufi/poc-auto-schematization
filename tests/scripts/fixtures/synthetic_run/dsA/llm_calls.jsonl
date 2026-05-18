@@ -1,0 +1,4 @@
+{"call_id":"c1","timestamp":"2026-04-17T12:00:00","agent":"SamplingAgent","model":"gemini-3.1-pro-preview","prompt_tokens":1000,"thoughts_tokens":200,"response_tokens":300,"total_tokens":1500,"duration_ms":15000}
+{"call_id":"c2","timestamp":"2026-04-17T12:01:00","agent":"SchemaSelectionAgent","model":"gemini-2.5-pro","prompt_tokens":2000,"thoughts_tokens":400,"response_tokens":600,"total_tokens":3000,"duration_ms":20000}
+{"call_id":"c3","timestamp":"2026-04-17T12:02:00","agent":"Generator","model":"gemini-3.1-pro-preview","prompt_tokens":5000,"thoughts_tokens":1000,"response_tokens":800,"total_tokens":6800,"duration_ms":30000}
+{"call_id":"c4","timestamp":"2026-04-17T12:03:00","agent":"FeedbackAgent","model":"gemini-3.1-pro-preview","prompt_tokens":3000,"thoughts_tokens":500,"response_tokens":400,"total_tokens":3900,"duration_ms":12000}

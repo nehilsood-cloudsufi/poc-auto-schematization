@@ -980,7 +980,7 @@ def generate_context(
             "dimension_columns": dimension_columns,
         })
 
-        # Write context to JSON file for SamplingAgentWrapper to read
+        # Write context to JSON file for the sampling agent to read
         context_file = sampled_file.parent / "data_context.json"
         try:
             with open(context_file, 'w', encoding='utf-8') as f:
@@ -1200,5 +1200,5 @@ def get_sampling_tools() -> List[callable]:
     ]
 
 
-# For backward compatibility
+# Pre-built tool list for convenience
 SAMPLING_TOOLS = get_sampling_tools()

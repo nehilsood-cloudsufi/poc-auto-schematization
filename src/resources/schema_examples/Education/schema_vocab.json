@@ -104,5 +104,65 @@
       "educationalAttainment",
       "race"
     ]
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "Median_AssessmentScore_Student_AsianAlone_SchoolGrade8_VisualArts",
+      "populationType": "dcs:Student",
+      "measuredProperty": "dcs:assessmentScore",
+      "race": "dcs:AsianAlone",
+      "schoolGradeLevel": "dcs:SchoolGrade8",
+      "schoolSubject": "dcs:VisualArts"
+    },
+    {
+      "dcid": "Percent_CA_StandardExceeded_In_Count_Student_OnlyEnglish_SchoolGrade8_EnglishLanguageArts",
+      "populationType": "dcs:Student",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Student_OnlyEnglish_SchoolGrade8_EnglishLanguageArts",
+      "schoolGradeLevel": "dcs:SchoolGrade8",
+      "schoolSubject": "dcs:EnglishLanguageArts",
+      "languageLearned": "dcs:OnlyEnglish",
+      "educationalAchievementLevel": "dcs:CA_StandardExceeded"
+    },
+    {
+      "dcid": "Percentile10_AssessmentScore_Student_EnglishLearner_NotCurrentLearner_SchoolGrade4_Science_PublicSchool",
+      "populationType": "dcs:Student",
+      "measuredProperty": "dcs:assessmentScore",
+      "schoolGradeLevel": "dcs:SchoolGrade4",
+      "schoolSubject": "dcs:Science",
+      "schoolType": "dcs:NCES_PublicSchool",
+      "languageLearned": "dcs:EnglishLearner",
+      "languageLearningStatus": "dcs:NotCurrentLearner"
+    },
+    {
+      "dcid": "Median_AssessmentScore_Student_SchoolGrade8_Suburb_USHistory_PrivateSchool_TechnologyScale",
+      "populationType": "dcs:Student",
+      "measuredProperty": "dcs:assessmentScore",
+      "schoolGradeLevel": "dcs:SchoolGrade8",
+      "schoolSubject": "dcs:USHistory",
+      "subjectAssessmentScale": "dcs:TechnologyScale",
+      "schoolType": "dcs:NCES_PrivateSchool",
+      "schoolLocationType": "dcs:Suburb"
+    },
+    {
+      "dcid": "Percent_NAEP_DiscreteAtProficient_In_Count_Student_WithDisability_SchoolGrade12_USHistory",
+      "populationType": "dcs:Student",
+      "measuredProperty": "dcs:count",
+      "measurementDenominator": "dcs:Count_Student_WithDisability_SchoolGrade12_USHistory",
+      "disabilityStatus": "dcs:WithDisability",
+      "schoolGradeLevel": "dcs:SchoolGrade12",
+      "schoolSubject": "dcs:USHistory",
+      "educationalAchievementLevel": "dcs:NAEP_DiscreteAtProficient"
+    },
+    {
+      "dcid": "MarginOfError_Count_Person_EnrolledInCollegeOrGraduateSchool_ForeignBorn_PlaceOfBirthSouthamerica",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:southamerica",
+      "age": "dcs:Years3Onwards",
+      "schoolEnrollment": "dcs:EnrolledInSchool",
+      "levelOfSchool": "dcs:EnrolledInCollegeOrGraduateSchool"
+    }
+  ]
 }

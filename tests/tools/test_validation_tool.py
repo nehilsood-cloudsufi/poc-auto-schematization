@@ -177,8 +177,8 @@ def test_run_validation_missing_pvmap(temp_dir):
     assert "PVMAP file not found" in result['error']
 
 
-@patch('src.tools.validation_tool.subprocess.run')
-def test_run_validation_success(mock_run, temp_dir):
+@patch('src.tools.validation_tool.subprocess.Popen')
+def test_run_validation_success(mock_popen, temp_dir):
     """Test successful validation subprocess."""
     # Create input files
     input_file = temp_dir / "input.csv"
@@ -197,12 +197,11 @@ def test_run_validation_success(mock_run, temp_dir):
     output_file = output_dir / "processed.csv"
     output_file.write_text("statvar,date,location,value\nvar1,2020,USA,100\nvar2,2021,CAN,200\n")
 
-    # Mock successful subprocess
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "Processing complete"
-    mock_result.stderr = ""
-    mock_run.return_value = mock_result
+    # Mock successful subprocess via Popen
+    mock_proc = Mock()
+    mock_proc.communicate.return_value = (b"Processing complete", b"")
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
 
     result = run_validation(
         input_data=input_file,
@@ -215,11 +214,11 @@ def test_run_validation_success(mock_run, temp_dir):
     assert result['error'] is None
     assert result['data_rows'] == 2
     assert result['output_file'] is not None
-    assert mock_run.called
+    assert mock_popen.called
 
 
-@patch('src.tools.validation_tool.subprocess.run')
-def test_run_validation_empty_output(mock_run, temp_dir):
+@patch('src.tools.validation_tool.subprocess.Popen')
+def test_run_validation_empty_output(mock_popen, temp_dir):
     """Test validation with empty output (only header)."""
     # Create input files
     input_file = temp_dir / "input.csv"
@@ -238,12 +237,11 @@ def test_run_validation_empty_output(mock_run, temp_dir):
     output_file = output_dir / "processed.csv"
     output_file.write_text("statvar,date,location,value\n")
 
-    # Mock subprocess with success but empty output
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "Processing complete"
-    mock_result.stderr = "Warning: No rows matched"
-    mock_run.return_value = mock_result
+    # Mock subprocess with success but empty output via Popen
+    mock_proc = Mock()
+    mock_proc.communicate.return_value = (b"Processing complete", b"Warning: No rows matched")
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
 
     result = run_validation(
         input_data=input_file,
@@ -254,13 +252,11 @@ def test_run_validation_empty_output(mock_run, temp_dir):
 
     assert result['success'] is False
     assert "empty output" in result['error'].lower()
-    assert result['error_logs'] is not None
-    # For short logs, the original text is returned; for long logs, "LAST" prefix is added
-    assert "No rows matched" in result['error_logs'] or "LAST" in result['error_logs']
+    assert result['error'] is not None
 
 
-@patch('src.tools.validation_tool.subprocess.run')
-def test_run_validation_nonzero_exit(mock_run, temp_dir):
+@patch('src.tools.validation_tool.subprocess.Popen')
+def test_run_validation_nonzero_exit(mock_popen, temp_dir):
     """Test validation with non-zero exit code."""
     # Create input files
     input_file = temp_dir / "input.csv"
@@ -275,12 +271,11 @@ def test_run_validation_nonzero_exit(mock_run, temp_dir):
     output_dir = temp_dir / "output"
     output_dir.mkdir()
 
-    # Mock failed subprocess
-    mock_result = Mock()
-    mock_result.returncode = 1
-    mock_result.stdout = ""
-    mock_result.stderr = "Error: Invalid PVMAP format\nTraceback...\nKeyError: 'missing_column'"
-    mock_run.return_value = mock_result
+    # Mock failed subprocess via Popen
+    mock_proc = Mock()
+    mock_proc.communicate.return_value = (b"", b"Error: Invalid PVMAP format\nTraceback...\nKeyError: 'missing_column'")
+    mock_proc.returncode = 1
+    mock_popen.return_value = mock_proc
 
     result = run_validation(
         input_data=input_file,
@@ -291,12 +286,11 @@ def test_run_validation_nonzero_exit(mock_run, temp_dir):
 
     assert result['success'] is False
     assert "exit code 1" in result['error']
-    assert result['error_logs'] is not None
-    assert "Invalid PVMAP format" in result['error_logs']
+    assert "exit code 1" in result['error']
 
 
-@patch('src.tools.validation_tool.subprocess.run')
-def test_run_validation_timeout(mock_run, temp_dir):
+@patch('src.tools.validation_tool.subprocess.Popen')
+def test_run_validation_timeout(mock_popen, temp_dir):
     """Test validation subprocess timeout."""
     # Create input files
     input_file = temp_dir / "input.csv"
@@ -311,8 +305,20 @@ def test_run_validation_timeout(mock_run, temp_dir):
     output_dir = temp_dir / "output"
     output_dir.mkdir()
 
-    # Mock timeout
-    mock_run.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=300)
+    # Mock timeout via Popen — communicate() raises TimeoutExpired
+    mock_proc = Mock()
+    mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=300)
+    mock_proc.kill.return_value = None
+    # After kill, communicate() should succeed (reap zombie)
+    def communicate_after_kill(*args, **kwargs):
+        # First call raises, subsequent calls succeed
+        raise subprocess.TimeoutExpired(cmd="test", timeout=300)
+    # Use side_effect list: first call raises, second call returns
+    mock_proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd="test", timeout=300),
+        (b"", b""),  # reap zombie call
+    ]
+    mock_popen.return_value = mock_proc
 
     result = run_validation(
         input_data=input_file,
@@ -325,10 +331,12 @@ def test_run_validation_timeout(mock_run, temp_dir):
     assert result['success'] is False
     assert "timed out" in result['error'].lower()
     assert result['output_file'] is None
+    # Verify kill was called
+    mock_proc.kill.assert_called_once()
 
 
-@patch('src.tools.validation_tool.subprocess.run')
-def test_run_validation_exception(mock_run, temp_dir):
+@patch('src.tools.validation_tool.subprocess.Popen')
+def test_run_validation_exception(mock_popen, temp_dir):
     """Test validation with unexpected exception."""
     # Create input files
     input_file = temp_dir / "input.csv"
@@ -343,8 +351,8 @@ def test_run_validation_exception(mock_run, temp_dir):
     output_dir = temp_dir / "output"
     output_dir.mkdir()
 
-    # Mock exception
-    mock_run.side_effect = Exception("Unexpected error")
+    # Mock exception on Popen
+    mock_popen.side_effect = Exception("Unexpected error")
 
     result = run_validation(
         input_data=input_file,
@@ -365,8 +373,8 @@ def test_run_validation_exception(mock_run, temp_dir):
 class TestCounterBasedFeedback:
     """Tests for counter-based feedback integration in validation_tool."""
 
-    @patch('src.tools.validation_tool.subprocess.run')
-    def test_uses_counters_when_available(self, mock_run, temp_dir):
+    @patch('src.tools.validation_tool.subprocess.Popen')
+    def test_uses_counters_when_available(self, mock_popen, temp_dir):
         """When counters file exists, should use generate_feedback()."""
         # Create input files
         input_file = temp_dir / "input.csv"
@@ -393,12 +401,11 @@ error-unresolved-place,100
         output_file = output_dir / "processed.csv"
         output_file.write_text("statvar,date,location,value\n")
 
-        # Mock subprocess
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Processing complete"
-        mock_result.stderr = "Warning: place errors"
-        mock_run.return_value = mock_result
+        # Mock subprocess via Popen
+        mock_proc = Mock()
+        mock_proc.communicate.return_value = (b"Processing complete", b"Warning: place errors")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         result = run_validation(
             input_data=str(input_file),
@@ -415,8 +422,8 @@ error-unresolved-place,100
         # Error should be mentioned in the error message
         assert 'unresolved place' in result['error'] or 'error' in result['error'].lower()
 
-    @patch('src.tools.validation_tool.subprocess.run')
-    def test_falls_back_to_random_sampling(self, mock_run, temp_dir):
+    @patch('src.tools.validation_tool.subprocess.Popen')
+    def test_falls_back_to_random_sampling(self, mock_popen, temp_dir):
         """When no counters file, should use extract_log_samples()."""
         # Create input files
         input_file = temp_dir / "input.csv"
@@ -437,12 +444,11 @@ error-unresolved-place,100
         output_file = output_dir / "processed.csv"
         output_file.write_text("statvar,date,location,value\n")
 
-        # Mock subprocess
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Processing complete"
-        mock_result.stderr = "Warning: place errors"
-        mock_run.return_value = mock_result
+        # Mock subprocess via Popen
+        mock_proc = Mock()
+        mock_proc.communicate.return_value = (b"Processing complete", b"Warning: place errors")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         result = run_validation(
             input_data=str(input_file),
@@ -454,11 +460,10 @@ error-unresolved-place,100
         # Should fall back to random sampling
         assert result['success'] is False
         assert result['structured_feedback'] is None  # No counters = no structured feedback
-        assert result['error_logs'] is not None  # Fall back to log sampling
         assert result['counters'] == {}  # Empty counters
 
-    @patch('src.tools.validation_tool.subprocess.run')
-    def test_includes_structured_feedback_in_result(self, mock_run, temp_dir):
+    @patch('src.tools.validation_tool.subprocess.Popen')
+    def test_includes_structured_feedback_in_result(self, mock_popen, temp_dir):
         """Result dict should include structured_feedback key."""
         # Create input files
         input_file = temp_dir / "input.csv"
@@ -484,11 +489,10 @@ output-svobs-csv-rows,50
         output_file = output_dir / "processed.csv"
         output_file.write_text("col\nval\nval2\n")
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
+        mock_proc = Mock()
+        mock_proc.communicate.return_value = (b"", b"")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         result = run_validation(
             input_data=str(input_file),
@@ -501,8 +505,8 @@ output-svobs-csv-rows,50
         assert 'structured_feedback' in result
         assert 'counters' in result
 
-    @patch('src.tools.validation_tool.subprocess.run')
-    def test_counters_included_in_result(self, mock_run, temp_dir):
+    @patch('src.tools.validation_tool.subprocess.Popen')
+    def test_counters_included_in_result(self, mock_popen, temp_dir):
         """Result dict should include parsed counters."""
         # Create input files
         input_file = temp_dir / "input.csv"
@@ -529,11 +533,10 @@ generated-statvars,5
         output_file = output_dir / "processed.csv"
         output_file.write_text("col\nval\nval2\n")
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
+        mock_proc = Mock()
+        mock_proc.communicate.return_value = (b"", b"")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         result = run_validation(
             input_data=str(input_file),
@@ -547,8 +550,8 @@ generated-statvars,5
         # Counters key exists for backward compatibility but is empty
         assert 'counters' in result
 
-    @patch('src.tools.validation_tool.subprocess.run')
-    def test_attempt_number_passed_to_feedback(self, mock_run, temp_dir):
+    @patch('src.tools.validation_tool.subprocess.Popen')
+    def test_attempt_number_passed_to_feedback(self, mock_popen, temp_dir):
         """attempt_number param should be passed to generate_feedback()."""
         # Create input files
         input_file = temp_dir / "input.csv"
@@ -575,11 +578,10 @@ error-unresolved-place,100
         output_file = output_dir / "processed.csv"
         output_file.write_text("col\n")
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
+        mock_proc = Mock()
+        mock_proc.communicate.return_value = (b"", b"")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
 
         # Test with attempt_number=2
         result = run_validation(

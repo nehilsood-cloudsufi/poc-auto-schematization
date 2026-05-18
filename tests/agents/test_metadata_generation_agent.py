@@ -107,8 +107,9 @@ class TestMetadataGenerationAgent:
         # Check params
         params = mock_ctx.session.state.get("generated_config_params", {})
         assert "output_columns" in params
-        assert "mapped_rows" in params
-        assert params["mapped_rows"] == 3
+        # SIMPLE_PVMAP has no COLUMN:VALUE keys → low confidence →
+        # mapped_rows/mapped_columns omitted for safe processor defaults
+        assert "mapped_rows" not in params
 
     def test_merges_with_existing_metadata(self, agent, mock_ctx, mock_dataset, tmp_path):
         """When GT metadata exists, auto params merge under it (user wins)."""
@@ -140,7 +141,8 @@ class TestMetadataGenerationAgent:
         assert mock_ctx.session.state.get("generated_config_path") is not None
         params = mock_ctx.session.state.get("generated_config_params", {})
         assert "output_columns" in params
-        assert params["mapped_rows"] == 3
+        # SIMPLE_PVMAP_OUTPUT has no COLUMN:VALUE keys → low confidence → omitted
+        assert "mapped_rows" not in params
 
     def test_skips_when_no_pvmap(self, agent, mock_ctx):
         """Gracefully skips when neither pvmap_csv nor pvmap_output in state."""
@@ -181,8 +183,8 @@ class TestMetadataGenerationAgent:
         params = mock_ctx.session.state.get("generated_config_params", {})
         assert "output_columns" in params
         assert "header_rows" in params
-        assert "mapped_rows" in params
-        assert "mapped_columns" in params
+        # mapped_rows/mapped_columns only present when confidence is high
+        # SIMPLE_PVMAP has no COLUMN:VALUE keys → low confidence → omitted
 
     def test_output_columns_exclude_statvar_props(self, agent, mock_ctx):
         """StatVar-only props (populationType, measuredProperty) NOT in output_columns."""
@@ -213,6 +215,17 @@ class TestMetadataGenerationAgent:
         events = run_agent(agent, mock_ctx)
 
         assert mock_ctx.session.state.get("generated_config_path") is not None
+
+    def test_no_dropped_flags_in_output(self, agent, mock_ctx):
+        """Dropped flags should not appear in generated config."""
+        mock_ctx.session.state["attempt_number"] = 1
+
+        events = run_agent(agent, mock_ctx)
+
+        params = mock_ctx.session.state.get("generated_config_params", {})
+        assert "generate_statvar_name" not in params
+        assert "drop_statvars_without_svobs" not in params
+        assert "multi_value_properties" not in params
 
 
 class TestResolveExistingMetadata:

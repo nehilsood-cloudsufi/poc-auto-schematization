@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PVMAP Pipeline Workflow</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 24px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            margin-bottom: 8px;
+            color: #58a6ff;
+        }
+        .subtitle {
+            text-align: center;
+            color: #8b949e;
+            margin-bottom: 32px;
+            font-size: 14px;
+        }
+        .diagram-section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            margin-bottom: 32px;
+            overflow: hidden;
+        }
+        .diagram-header {
+            background: #21262d;
+            padding: 16px 24px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .diagram-header h2 {
+            font-size: 18px;
+            color: #f0f6fc;
+        }
+        .diagram-header .badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+        .badge-flowchart { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
+        .badge-sequence { background: #23863633; color: #3fb950; border: 1px solid #238636; }
+        .badge-graph { background: #9e6a0333; color: #d29922; border: 1px solid #9e6a03; }
+        .diagram-body {
+            padding: 24px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+        .diagram-body .mermaid {
+            min-width: 600px;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 32px;
+            padding: 16px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .legend-swatch {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border: 2px solid;
+        }
+        .swatch-entry { background: #1a1a2e; border-color: #e94560; }
+        .swatch-agent { background: #0f3460; border-color: #53a8b6; }
+        .swatch-llm { background: #1b4332; border-color: #52b788; }
+        .swatch-tool { background: #3d405b; border-color: #e07a5f; }
+        .swatch-mcp { background: #5c2d91; border-color: #b4a7d6; }
+        .swatch-state { background: #264653; border-color: #2a9d8f; }
+        .swatch-decision { background: #6b2737; border-color: #e07a5f; }
+        .swatch-success { background: #1b4332; border-color: #40916c; }
+        .swatch-fail { background: #6b2737; border-color: #e07a5f; }
+    </style>
+</head>
+<body>
+    <h1>PVMAP Generation Pipeline Workflow</h1>
+    <p class="subtitle">Comprehensive visualization of src/run_pipeline.py &mdash; all agents, tools, MCP calls, and feedback loops</p>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-swatch swatch-entry"></div> Entry Point</div>
+        <div class="legend-item"><div class="legend-swatch swatch-agent"></div> BaseAgent (non-LLM)</div>
+        <div class="legend-item"><div class="legend-swatch swatch-llm"></div> LlmAgent (Gemini)</div>
+        <div class="legend-item"><div class="legend-swatch swatch-tool"></div> Tool / Function</div>
+        <div class="legend-item"><div class="legend-swatch swatch-mcp"></div> MCP Integration</div>
+        <div class="legend-item"><div class="legend-swatch swatch-state"></div> State Variable</div>
+        <div class="legend-item"><div class="legend-swatch swatch-decision"></div> Decision</div>
+        <div class="legend-item"><div class="legend-swatch swatch-success"></div> Success</div>
+        <div class="legend-item"><div class="legend-swatch swatch-fail"></div> Failure</div>
+    </div>
+
+    <!-- Diagram 1: Main Pipeline Flowchart -->
+    <div class="diagram-section">
+        <div class="diagram-header">
+            <h2>1. Comprehensive Pipeline Flowchart</h2>
+            <span class="badge badge-flowchart">flowchart</span>
+        </div>
+        <div class="diagram-body">
+            <pre class="mermaid">
+flowchart TB
+    classDef entrypoint fill:#1a1a2e,stroke:#e94560,color:#fff,stroke-width:3px
+    classDef phase fill:#16213e,stroke:#0f3460,color:#fff,stroke-width:2px
+    classDef agent fill:#0f3460,stroke:#53a8b6,color:#fff,stroke-width:2px
+    classDef llmagent fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:2px
+    classDef tool fill:#3d405b,stroke:#e07a5f,color:#fff,stroke-width:1px
+    classDef mcp fill:#5c2d91,stroke:#b4a7d6,color:#fff,stroke-width:2px
+    classDef decision fill:#6b2737,stroke:#e07a5f,color:#fff,stroke-width:2px
+    classDef state fill:#264653,stroke:#2a9d8f,color:#fff,stroke-width:1px
+    classDef success fill:#1b4332,stroke:#40916c,color:#fff,stroke-width:3px
+    classDef fail fill:#6b2737,stroke:#e07a5f,color:#fff,stroke-width:3px
+
+    START(["run_pipeline.py __main__"]):::entrypoint
+    START --> ARGPARSE["Parse CLI Arguments<br/>--dataset, --model, --enable-mcp<br/>--skip-sampling, --skip-evaluation<br/>--thinking-level, --prompt-version"]
+
+    ARGPARSE --> INPUT_MODE{"Input Mode?"}:::decision
+    INPUT_MODE -->|"--input-file"| STANDALONE["Standalone Mode<br/>derive_dataset_name"]
+    INPUT_MODE -->|"--dataset"| NAMED["Named Dataset"]
+    INPUT_MODE -->|"neither"| AUTO_DISCOVER["Auto Discovery<br/>run_discovery"]
+
+    STANDALONE --> PIPELINE_ENTRY
+    NAMED --> PIPELINE_ENTRY
+    AUTO_DISCOVER --> PIPELINE_ENTRY
+
+    ARGPARSE --> MCP_CHECK{"--enable-mcp?"}:::decision
+    MCP_CHECK -->|"Yes"| MCP_START["MCPServerManager.start<br/>port 3000, timeout 30s"]:::mcp
+    MCP_START --> MCP_URL["mcp_url ready"]:::mcp
+    MCP_CHECK -->|"No"| NO_MCP["MCP disabled"]
+
+    MCP_URL --> PIPELINE_ENTRY
+    NO_MCP --> PIPELINE_ENTRY
+
+    PIPELINE_ENTRY["run_dataset_pipeline"]:::entrypoint
+
+    subgraph SETUP ["Pipeline Setup"]
+        direction TB
+        SETUP_LOG["setup_python_logging"]
+        SETUP_SAMPLING["Create SamplingAgentWrapper"]
+        SETUP_SCHEMA["Create SchemaSelectionAgent"]
+        SETUP_PVMAP["create_pvmap_retry_loop<br/>LoopAgent"]
+        SETUP_EVAL["Create EvaluationAgent"]
+        SETUP_SEQ["SequentialAgent"]
+        SETUP_RUNNER["create_runner<br/>ADK Runner + plugins"]
+        SETUP_LOG --> SETUP_SAMPLING --> SETUP_SCHEMA --> SETUP_PVMAP --> SETUP_EVAL --> SETUP_SEQ --> SETUP_RUNNER
+    end
+    PIPELINE_ENTRY --> SETUP
+
+    subgraph DISCOVER ["Phase 1: Discovery"]
+        direction TB
+        DISC_AGENT["DiscoveryAgent<br/>BaseAgent"]:::agent
+        DISC_SINGLE["_discover_single_dataset"]:::tool
+        DISC_FILES["Discovers:<br/>input_data, metadata,<br/>schema, sampled_data,<br/>ground truth"]:::state
+        DISC_AGENT --> DISC_SINGLE --> DISC_FILES
+    end
+    SETUP --> DISCOVER
+
+    DISCOVER --> INIT_STATE["Initialize Session State<br/>current_dataset, model,<br/>skip flags, ground truth,<br/>use_metadata, prompt_version"]:::state
+
+    INIT_STATE --> RUN_ASYNC["_create_session_and_run<br/>asyncio event loop<br/>timeout = attempts x 900s"]
+
+    RUN_ASYNC --> EVENT_STREAM["runner.run_async<br/>300s stall detection<br/>120s heartbeat"]
+
+    EVENT_STREAM --> SEQ_AGENT
+
+    subgraph SEQ_AGENT ["SequentialAgent: GenerationAndEvaluation"]
+        direction TB
+
+        subgraph PHASE2 ["Phase 2: Data Sampling"]
+            direction TB
+            SAMP_WRAP["SamplingAgentWrapper<br/>BaseAgent"]:::agent
+            SAMP_SKIP{"skip or cached?"}:::decision
+            SAMP_LLM["Inner LlmAgent"]:::llmagent
+            SAMP_WRAP --> SAMP_SKIP
+            SAMP_SKIP -->|"Yes"| SAMP_CACHED["Use cached data"]
+            SAMP_SKIP -->|"No"| SAMP_LLM
+
+            subgraph SAMP_TOOLS ["Sampling Tools"]
+                direction LR
+                ST1["preview_data"]:::tool
+                ST2["analyze_columns"]:::tool
+                ST3["sample_rows"]:::tool
+                ST4["check_coverage"]:::tool
+                ST5["generate_context"]:::tool
+            end
+            SAMP_LLM --> SAMP_TOOLS
+            SAMP_OUT["skeleton_summary<br/>data_context"]:::state
+            SAMP_TOOLS --> SAMP_OUT
+            SAMP_CACHED --> SAMP_OUT
+        end
+
+        subgraph PHASE25 ["Phase 2.5: Schema Selection"]
+            direction TB
+            SCHEMA_AGENT["SchemaSelectionAgent<br/>LlmAgent"]:::llmagent
+            subgraph SCHEMA_TOOLS ["Schema Tools"]
+                direction LR
+                SCT1["get_schema_categories"]:::tool
+                SCT2["copy_schema_files"]:::tool
+                SCT3["read_schema_vocab"]:::tool
+                SCT4["search_schemaorg"]:::tool
+                SCT5["lookup_schemaorg_type"]:::tool
+            end
+            SCHEMA_AGENT --> SCHEMA_TOOLS
+            SCHEMA_OUT["schema_category<br/>schema_vocab_content"]:::state
+            SCHEMA_TOOLS --> SCHEMA_OUT
+        end
+
+        PHASE2 --> PHASE25
+
+        subgraph RETRY_LOOP ["Phase 3: LoopAgent - PVMAPRetryLoop"]
+            direction TB
+            style RETRY_LOOP fill:#1a1a2e,stroke:#ffd166,color:#fff,stroke-width:3px
+
+            subgraph STATE_PREP ["1. StatePreparationAgent"]
+                SP_AGENT["StatePreparationAgent<br/>BaseAgent"]:::agent
+                SP_ACTIONS["Increment attempt<br/>Populate prompt template<br/>Cache ground truth<br/>Read files into state"]:::state
+                SP_AGENT --> SP_ACTIONS
+            end
+
+            subgraph STATVAR_DISC ["2. StatVarDiscovery (MCP)"]
+                SV_AGENT["StatVarDiscoveryAgent"]:::mcp
+                SV_MCP["search_indicators<br/>get_observations"]:::mcp
+                SV_AGENT --> SV_MCP
+            end
+
+            subgraph GENERATOR ["3. PVMAPGenerator"]
+                GEN_WRAP["GeneratorWrapper<br/>BaseAgent"]:::agent
+                GEN_LLM["PVMAPGenerator<br/>LlmAgent<br/>output_schema=PVMAPOutput"]:::llmagent
+                GEN_WRAP --> GEN_LLM
+                subgraph GEN_TOOLS ["Schema.org Tools"]
+                    direction LR
+                    GT1["lookup_type"]:::tool
+                    GT2["lookup_property"]:::tool
+                    GT3["search_vocab"]:::tool
+                    GT4["validate_prop"]:::tool
+                    GT5["type_hierarchy"]:::tool
+                end
+                GEN_LLM --> GEN_TOOLS
+                subgraph MCP_GEN ["MCP Tools"]
+                    direction LR
+                    MT1["resolve_places"]:::mcp
+                    MT2["validate_statvar"]:::mcp
+                    MT3["get_entity_type"]:::mcp
+                    MT4["DC MCP Toolset"]:::mcp
+                end
+                GEN_LLM -.->|"MCP"| MCP_GEN
+            end
+
+            subgraph META_GEN ["4. MetadataGenerator"]
+                META_AGENT["MetadataGenerationAgent"]:::agent
+                META_ACTION["Generate config CSV"]:::tool
+                META_AGENT --> META_ACTION
+            end
+
+            subgraph SPOT_CHECK ["5. MCPSpotCheck (MCP)"]
+                SC_AGENT["MCPSpotCheckAgent"]:::mcp
+            end
+
+            subgraph VALIDATION ["6. ValidationAgent"]
+                VAL_AGENT["ValidationAgent<br/>BaseAgent"]:::agent
+                VAL_STEPS["JSON to CSV<br/>PVMAP Repair<br/>Pre-validate<br/>stat_var_processor<br/>subprocess (300s)<br/>Key match report"]:::state
+                VAL_AGENT --> VAL_STEPS
+            end
+
+            subgraph MCP_ERR ["7. MCPErrorResolver (MCP)"]
+                ERR_AGENT["MCPErrorResolver"]:::mcp
+            end
+
+            subgraph QUALITY ["8. QualityEvaluationAgent"]
+                QUAL_AGENT["QualityEvaluationAgent"]:::agent
+                QUAL_CHECK{"validated?"}:::decision
+                QUAL_AGENT --> QUAL_CHECK
+                QUAL_CHECK -->|"No"| QUAL_SKIP["Skip"]
+                QUAL_CHECK -->|"Yes"| QUAL_EVAL["Heuristic score<br/>GT PV accuracy"]
+                QUAL_EVAL --> QUAL_D{"Quality?"}:::decision
+                QUAL_D -->|"score>=70 or PV>=30%"| QUAL_OK["ESCALATE exit"]:::success
+                QUAL_D -->|"stagnant <10%"| QUAL_STAG["ESCALATE exit"]:::fail
+                QUAL_D -->|"improving"| QUAL_CONT["Continue"]
+            end
+
+            subgraph MAX_RETRY ["9. MaxRetriesCheck"]
+                MAX_AGENT["MaxRetriesCheckAgent"]:::agent
+                MAX_CHECK{"at max?"}:::decision
+                MAX_AGENT --> MAX_CHECK
+                MAX_CHECK -->|"No"| MAX_CONT["Continue"]
+                MAX_CHECK -->|"Yes"| MAX_BEST["Restore best<br/>ESCALATE exit"]:::fail
+            end
+
+            subgraph FEEDBACK ["10. ConditionalFeedbackAgent"]
+                FB_AGENT["ConditionalFeedbackAgent"]:::agent
+                FB_PATH{"Path?"}:::decision
+                FB_AGENT --> FB_PATH
+                FB_PATH -->|"error"| FB_ERR["Error Feedback"]
+                FB_PATH -->|"quality"| FB_QUAL["Quality Feedback"]
+                FB_PATH -->|"done"| FB_SKIP["Skip"]
+                FB_LLM["FeedbackAgent LlmAgent<br/>Compact + Escape"]:::llmagent
+                FB_ERR --> FB_LLM
+                FB_QUAL --> FB_LLM
+                FB_OUT["error_feedback"]:::state
+                FB_LLM --> FB_OUT
+            end
+
+            STATE_PREP --> STATVAR_DISC
+            STATVAR_DISC --> GENERATOR
+            GENERATOR --> META_GEN
+            META_GEN --> SPOT_CHECK
+            SPOT_CHECK --> VALIDATION
+            VALIDATION --> MCP_ERR
+            MCP_ERR --> QUALITY
+            QUALITY --> MAX_RETRY
+            MAX_RETRY --> FEEDBACK
+
+            FB_OUT -.->|"Next iteration"| STATE_PREP
+        end
+
+        PHASE25 --> RETRY_LOOP
+
+        subgraph PHASE5 ["Phase 5: Evaluation"]
+            direction TB
+            EVAL_AGENT["EvaluationAgent<br/>BaseAgent"]:::agent
+            EVAL_SKIP{"skip?"}:::decision
+            EVAL_AGENT --> EVAL_SKIP
+            EVAL_SKIP -->|"Yes"| EVAL_NONE["Skip"]
+            EVAL_SKIP -->|"No"| EVAL_GT["Find Ground Truth<br/>pvmap > dir > repo"]
+            EVAL_GT --> EVAL_DIFF["pvmap_diff<br/>Node + PV accuracy"]:::tool
+            EVAL_DIFF --> EVAL_OUT["diff_results.json<br/>diff.txt"]:::state
+        end
+
+        RETRY_LOOP --> PHASE5
+    end
+
+    SEQ_AGENT --> POST_CHECK
+
+    subgraph POST_CHECK ["Post-Pipeline Verification"]
+        CHECK_FILES["Check artifacts:<br/>generated_pvmap.csv<br/>processed.csv<br/>eval_results/"]:::state
+        CHECK_FILES --> FINAL["Final State"]:::state
+    end
+
+    POST_CHECK --> EXIT_CODE{"Exit Code"}:::decision
+    EXIT_CODE -->|"success"| EXIT_0(["Exit 0"]):::success
+    EXIT_CODE -->|"validation fail"| EXIT_2(["Exit 2"]):::fail
+    EXIT_CODE -->|"crash"| EXIT_1(["Exit 1"]):::fail
+
+    EXIT_CODE --> MCP_STOP["MCPServerManager.stop"]:::mcp
+            </pre>
+        </div>
+    </div>
+
+    <!-- Diagram 2: Sequence Diagram -->
+    <div class="diagram-section">
+        <div class="diagram-header">
+            <h2>2. Retry Loop — Sequence Diagram</h2>
+            <span class="badge badge-sequence">sequence</span>
+        </div>
+        <div class="diagram-body">
+            <pre class="mermaid">
+sequenceDiagram
+    participant SP as StatePrep
+    participant SV as StatVarDiscovery<br/>(MCP only)
+    participant GEN as PVMAPGenerator<br/>(LlmAgent)
+    participant META as MetadataGen
+    participant VAL as Validation
+    participant QE as QualityEval
+    participant MR as MaxRetries
+    participant FB as Feedback<br/>(LlmAgent)
+
+    rect rgb(30, 40, 60)
+        Note over SP,FB: Attempt 0 — Initial Generation
+        SP->>SP: attempt=0, init tracking<br/>populate prompt template
+        SP->>SV:
+        SV->>SV: MCP StatVar search (if enabled)
+        SV->>GEN: statvar_summary
+        GEN->>GEN: Generate PVMAP<br/>output_schema=PVMAPOutput<br/>Schema.org + DC tools
+        GEN->>META: pvmap_output (JSON)
+        META->>META: Generate output_metadata.csv
+        META->>VAL:
+        VAL->>VAL: JSON→CSV, repair keys<br/>pre-validate, subprocess<br/>key_match_report
+
+        alt Validation PASSED
+            VAL->>QE: validation_passed=True
+            QE->>QE: Heuristic score + GT accuracy
+            alt Quality Acceptable
+                QE-->>QE: ESCALATE (exit loop)
+                Note over QE: exit: quality_met
+            else Stagnant
+                QE-->>QE: ESCALATE (exit loop)
+                Note over QE: exit: stagnant
+            else Low but Improving
+                QE->>MR: Continue
+                MR->>FB: Not at max
+                FB->>FB: Quality feedback<br/>compact + escape
+                FB-->>SP: error_feedback
+            end
+        else Validation FAILED
+            VAL->>QE: validation_passed=False
+            QE->>MR: Skip quality, continue
+            MR->>FB: Not at max
+            FB->>FB: Error feedback<br/>validation_error + key_match
+            FB-->>SP: error_feedback
+        end
+    end
+
+    rect rgb(40, 30, 30)
+        Note over SP,FB: Attempt 1..N — Retry with Feedback
+        SP->>SP: attempt++, inject feedback
+        SP->>GEN: prompt with error_feedback
+        Note over GEN: Improved PVMAP generation
+        GEN->>VAL: same validation flow
+    end
+
+    rect rgb(50, 20, 20)
+        Note over MR: Max Retries Exceeded
+        MR->>MR: Restore best attempt<br/>Re-validate, ESCALATE
+        Note over MR: exit: max_retries
+    end
+            </pre>
+        </div>
+    </div>
+
+    <!-- Diagram 3: Agent Types & Tools -->
+    <div class="diagram-section">
+        <div class="diagram-header">
+            <h2>3. Agent Types & Tool Summary</h2>
+            <span class="badge badge-graph">graph</span>
+        </div>
+        <div class="diagram-body">
+            <pre class="mermaid">
+graph LR
+    classDef base fill:#0f3460,stroke:#53a8b6,color:#fff
+    classDef llm fill:#1b4332,stroke:#52b788,color:#fff
+    classDef tool fill:#3d405b,stroke:#e07a5f,color:#fff
+    classDef mcptool fill:#5c2d91,stroke:#b4a7d6,color:#fff
+
+    subgraph BaseAgents ["BaseAgent — Non-LLM"]
+        D["DiscoveryAgent"]:::base
+        SW["SamplingWrapper"]:::base
+        SPR["StatePreparation"]:::base
+        GW["GeneratorWrapper"]:::base
+        MG["MetadataGen"]:::base
+        VA["Validation"]:::base
+        QE["QualityEval"]:::base
+        MRC["MaxRetries"]:::base
+        CF["FeedbackCond"]:::base
+        EA["Evaluation"]:::base
+    end
+
+    subgraph LlmAgents ["LlmAgent — Gemini"]
+        SA["SamplingAgent"]:::llm
+        SSA["SchemaSelection"]:::llm
+        PG["PVMAPGenerator"]:::llm
+        FA["FeedbackAgent"]:::llm
+    end
+
+    subgraph SchemaOrgTools ["Tools: Schema.org"]
+        T1["lookup_type"]:::tool
+        T2["lookup_property"]:::tool
+        T3["search_vocab"]:::tool
+        T4["validate_prop"]:::tool
+        T5["type_hierarchy"]:::tool
+    end
+
+    subgraph SchemaSelectTools ["Tools: Schema Select"]
+        T6["get_categories"]:::tool
+        T7["copy_files"]:::tool
+        T8["read_vocab"]:::tool
+    end
+
+    subgraph SamplingTools ["Tools: Sampling"]
+        T9["preview_data"]:::tool
+        T10["analyze_columns"]:::tool
+        T11["sample_rows"]:::tool
+        T12["check_coverage"]:::tool
+        T13["generate_context"]:::tool
+    end
+
+    subgraph ValidationTools ["Tools: Validation"]
+        T14["stat_var_processor"]:::tool
+        T15["pvmap_repair"]:::tool
+        T16["pre_validate"]:::tool
+    end
+
+    subgraph MCPTools ["Tools: MCP"]
+        M1["search_indicators"]:::mcptool
+        M2["get_observations"]:::mcptool
+        M3["resolve_places"]:::mcptool
+        M4["validate_statvar"]:::mcptool
+        M5["get_entity_type"]:::mcptool
+    end
+
+    SSA --> T1 & T3 & T6 & T7 & T8
+    SA --> T9 & T10 & T11 & T12 & T13
+    PG --> T1 & T2 & T3 & T4 & T5
+    PG -.-> M1 & M2 & M3 & M4 & M5
+    VA --> T14 & T15 & T16
+            </pre>
+        </div>
+    </div>
+
+    <!-- Diagram 4: State Flow -->
+    <div class="diagram-section">
+        <div class="diagram-header">
+            <h2>4. State Flow Across Agents</h2>
+            <span class="badge badge-flowchart">flowchart</span>
+        </div>
+        <div class="diagram-body">
+            <pre class="mermaid">
+flowchart LR
+    classDef statekey fill:#264653,stroke:#2a9d8f,color:#fff,stroke-width:1px
+
+    subgraph Discovery
+        S1["current_dataset"]:::statekey
+    end
+
+    subgraph Sampling
+        S2["skeleton_summary"]:::statekey
+        S3["data_context"]:::statekey
+        S4["sampled_data_path"]:::statekey
+    end
+
+    subgraph SchemaSelection ["Schema Selection"]
+        S5["schema_category"]:::statekey
+        S6["schema_vocab_content"]:::statekey
+        S7["property_vocabulary"]:::statekey
+    end
+
+    subgraph StatePrep ["State Preparation"]
+        S8["populated_pvmap_prompt"]:::statekey
+        S9["attempt_number"]:::statekey
+    end
+
+    subgraph Generator
+        S10["pvmap_output"]:::statekey
+    end
+
+    subgraph Validation
+        S11["validation_passed"]:::statekey
+        S12["validation_error"]:::statekey
+        S13["key_match_report"]:::statekey
+        S14["validation_data_rows"]:::statekey
+    end
+
+    subgraph Quality
+        S15["quality_metrics"]:::statekey
+        S16["quality_acceptable"]:::statekey
+        S17["exit_reason"]:::statekey
+    end
+
+    subgraph Feedback
+        S18["error_feedback"]:::statekey
+    end
+
+    S1 --> S2 & S3
+    S2 & S3 --> S5
+    S2 & S5 & S6 --> S8
+    S8 --> S10
+    S10 --> S11 & S12 & S13 & S14
+    S11 & S14 --> S15 & S16
+    S12 & S13 & S15 --> S18
+    S18 -->|"next iteration"| S8
+    S16 --> S17
+            </pre>
+        </div>
+    </div>
+
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 20,
+                nodeSpacing: 30,
+                rankSpacing: 40,
+            },
+            sequence: {
+                useMaxWidth: true,
+                actorMargin: 40,
+                boxMargin: 10,
+                messageMargin: 30,
+            },
+            themeVariables: {
+                darkMode: true,
+                background: '#161b22',
+                primaryColor: '#0f3460',
+                primaryTextColor: '#c9d1d9',
+                primaryBorderColor: '#53a8b6',
+                lineColor: '#8b949e',
+                secondaryColor: '#1b4332',
+                tertiaryColor: '#264653',
+                fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+            },
+        });
+    </script>
+</body>
+</html>

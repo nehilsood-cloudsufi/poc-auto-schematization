@@ -3,19 +3,20 @@ set -euo pipefail
 
 PROJECT_ID="${1:-$(gcloud config get-value project)}"
 REGION="${2:-us-central1}"
-SERVICE="agent-b"
-IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/agent-b/app:latest"
-BUCKET="${PROJECT_ID}-agent-b-output"
+SERVICE="auto-schematization-agent"
+IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/auto-schematization-agent/app:latest"
+BUCKET="${PROJECT_ID}-auto-schematization-agent-output"
 
-echo "Deploying Agent B → ${PROJECT_ID} / ${REGION}"
+echo "Deploying Auto Schematization Agent → ${PROJECT_ID} / ${REGION}"
 
 gcloud builds submit --tag "${IMAGE}" --project "${PROJECT_ID}" --timeout=1200
 
-gcloud run deploy "${SERVICE}" \
+gcloud beta run deploy "${SERVICE}" \
   --image "${IMAGE}" \
   --platform managed \
   --region "${REGION}" \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
+  --iap \
   --port 8080 \
   --cpu 2 \
   --memory 4Gi \

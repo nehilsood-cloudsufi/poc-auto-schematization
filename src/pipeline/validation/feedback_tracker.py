@@ -31,6 +31,33 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 
+from src.pipeline.validation.log_filter import ERROR_PRIORITY
+
+
+def _get_primary_error(errors: dict) -> str:
+    """Get primary error by priority, falling back to highest count.
+
+    Uses ERROR_PRIORITY from log_filter to determine which error
+    is most important to address first.
+
+    Args:
+        errors: Dict mapping error_type -> count
+
+    Returns:
+        The error key that should be treated as the primary error
+    """
+    for priority_key in ERROR_PRIORITY:
+        if priority_key in errors:
+            return priority_key
+        # Check prefix match
+        for error_key in errors:
+            if error_key.startswith(priority_key):
+                return error_key
+    # Fallback to highest count
+    if not errors:
+        return ""
+    return max(errors.items(), key=lambda x: x[1])[0]
+
 
 @dataclass
 class AttemptRecord:
@@ -222,8 +249,8 @@ class FeedbackEffectivenessTracker:
         curr_errors = curr.errors or {}
 
         if prev_errors:
-            # Find the primary error from previous attempt
-            primary_error = max(prev_errors.items(), key=lambda x: x[1])[0]
+            # Find the primary error from previous attempt (by priority, not just count)
+            primary_error = _get_primary_error(prev_errors)
             prev_count = prev_errors.get(primary_error, 0)
             curr_count = curr_errors.get(primary_error, 0)
 
@@ -323,9 +350,12 @@ class FeedbackEffectivenessTracker:
         error_changes = analysis.get('error_changes', {})
         net_change = error_changes.get('net_change', -1)
 
+        # Check both concerns independently and combine
+        strategy_parts = []
+
         # Check if we're not making progress (net errors same or worse)
         if net_change >= 0:
-            return (
+            strategy_parts.append(
                 "## Alternative Strategy: Feedback Not Helping\n\n"
                 "The retry loop is not reducing errors. Consider:\n\n"
                 "1. **Start minimal**: Generate a PVMAP with ONLY the three required "
@@ -340,10 +370,10 @@ class FeedbackEffectivenessTracker:
                 "than relying on inference"
             )
 
-        # Check if quality is stagnating
+        # Check if quality is stagnating (independent of error stagnation)
         quality_change = analysis.get('quality_change', 0)
         if len(self.attempts) >= 3 and abs(quality_change) < 5.0:
-            return (
+            strategy_parts.append(
                 "## Alternative Strategy: Quality Stagnating\n\n"
                 "Quality improvements have stalled. Consider:\n\n"
                 "1. **Review ground truth**: Check the expected output format\n\n"
@@ -352,6 +382,9 @@ class FeedbackEffectivenessTracker:
                 "3. **Manual inspection**: Look at the specific failing rows to "
                 "understand the pattern"
             )
+
+        if strategy_parts:
+            return "\n\n".join(strategy_parts)
 
         return None
 

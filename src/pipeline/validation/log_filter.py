@@ -26,6 +26,226 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 
+# ---------------------------------------------------------------------------
+# Error priority, patterns, and iteration advice
+# (ported from counter_feedback.py, trimmed to category + common_causes + fix)
+# ---------------------------------------------------------------------------
+
+ERROR_PRIORITY = [
+    'error-pvmap-dropped-undefined-property',
+    'error-unresolved-place',
+    'error-statvar-missing-property',
+    'error-svobs-missing-property',
+    'error-mismatched-svobs',
+    'error-duplicate-statvars',
+    'error-aggregate-invalid-values',
+    'error-invalid-multiply-factor',
+]
+
+ERROR_PATTERNS = {
+    'error-pvmap-dropped-undefined-property': {
+        'category': 'PVMAP Key Mismatch',
+        'common_causes': [
+            'Case mismatch (State FIPS vs state_fips)',
+            'Typo in column name',
+            'Column renamed or missing from input data',
+        ],
+        'fix': "Keys must match CSV headers EXACTLY (case-sensitive). Check for leading/trailing spaces and underscores vs spaces.",
+    },
+    'error-unresolved-place': {
+        'category': 'Place Resolution',
+        'common_causes': [
+            'FIPS codes missing leading zeros (e.g., 6 instead of 06)',
+            'Missing geoId/ prefix in observationAbout mapping',
+            'Place names ambiguous without typeOf or containedInPlace context',
+        ],
+        'fix': "Use dcid:geoId/[NUMBER:02d] for FIPS codes, dcid:country/[DATA] for ISO codes. Ensure zero-padding for state/county codes.",
+    },
+    'error-statvar-missing-property': {
+        'category': 'StatVar Definition Incomplete',
+        'common_causes': [
+            'Missing populationType (Person, Household, Establishment, etc.)',
+            'Missing measuredProperty (count, income, area, etc.)',
+            'Missing statType (Count, Mean, Median, Percent, etc.)',
+        ],
+        'fix': "Every StatVar needs populationType, measuredProperty, and statType. Add all three.",
+    },
+    'error-svobs-missing-property': {
+        'category': 'Missing Observation Property',
+        'common_causes': [
+            'Missing observationAbout (place) mapping',
+            'Missing observationDate mapping',
+            'Missing value mapping',
+        ],
+        'fix': "Ensure observationAbout, observationDate, and value are ALL mapped. All three are required for every observation.",
+    },
+    'error-mismatched-svobs': {
+        'category': 'Duplicate Observations',
+        'common_causes': [
+            'A dimension column (Gender, Age, Race) not mapped as StatVar qualifier',
+            'Multiple measurement methods not differentiated',
+            'Missing constraint property to distinguish rows',
+        ],
+        'fix': "Add qualifiers (gender, age, race) to differentiate observations. Rule: Place + Date + StatVar = ONE value only.",
+    },
+    'error-duplicate-statvars': {
+        'category': 'Duplicate StatVars',
+        'common_causes': [
+            'Same measurement mapped multiple times',
+            'Redundant PVMAP entries',
+        ],
+        'fix': "Remove duplicate StatVar definitions. Each unique property combination should define ONE StatVar.",
+    },
+    'error-aggregate-invalid-values': {
+        'category': 'Aggregation Error',
+        'common_causes': [
+            'Non-numeric values in aggregation columns',
+            'Missing or null values in aggregated fields',
+        ],
+        'fix': "Ensure numeric columns use [NUMBER] not [DATA]. Check for non-numeric values in measurement columns.",
+    },
+    'error-invalid-multiply-factor': {
+        'category': 'Invalid Multiply Factor',
+        'common_causes': [
+            'Non-numeric multiply factor',
+            'Invalid expression in value transformation',
+        ],
+        'fix': "Ensure multiply factors are valid numbers. Use standard numeric formats.",
+    },
+}
+
+ITERATION_ADVICE = {
+    0: "ATTEMPT 1: Focus on structural fixes -- key matching, required properties (observationAbout, observationDate, value), correct archetype.",
+    1: "ATTEMPT 2: Structure should be sound. Focus on value-level fixes -- place resolution format, placeholder templates, enum values.",
+    2: "ATTEMPT 3 (FINAL): Preserve all working rows. Only fix the highest-impact remaining error. Do not restructure.",
+}
+
+
+# ---------------------------------------------------------------------------
+# Helper functions for error analysis
+# ---------------------------------------------------------------------------
+
+def _sort_errors_by_priority(errors: Dict[str, int]) -> List[Tuple[str, int]]:
+    """Sort errors by ERROR_PRIORITY index; unknown errors sort last by count descending."""
+    def _key(item):
+        name, count = item
+        try:
+            idx = ERROR_PRIORITY.index(name)
+        except ValueError:
+            # Check prefix match
+            for i, p in enumerate(ERROR_PRIORITY):
+                if name.startswith(p):
+                    return (i, -count)
+            return (len(ERROR_PRIORITY), -count)
+        return (idx, -count)
+    return sorted(errors.items(), key=_key)
+
+
+def _get_error_pattern(error_type: str) -> Optional[Dict]:
+    """Lookup error_type in ERROR_PATTERNS with prefix matching."""
+    if error_type in ERROR_PATTERNS:
+        return ERROR_PATTERNS[error_type]
+    for pattern_name, pattern_info in ERROR_PATTERNS.items():
+        if error_type.startswith(pattern_name):
+            return pattern_info
+    return None
+
+
+def detect_systematic_patterns(
+    error_type: str,
+    examples: List[Tuple[str, int]],
+    total_count: int,
+) -> List[Dict]:
+    """Detect single_value, few_values, and format patterns in error examples.
+
+    Args:
+        error_type: The base error type string.
+        examples: List of (failing_value, count) tuples.
+        total_count: Total error count for this error type.
+
+    Returns:
+        List of detected pattern dicts sorted by confidence.
+    """
+    if not examples or total_count < 5:
+        return []
+
+    patterns: List[Dict] = []
+    values = [v for v, _ in examples]
+
+    # Single value pattern
+    if len(examples) == 1:
+        patterns.append({
+            'type': 'single_value',
+            'error': error_type,
+            'value': examples[0][0],
+            'count': total_count,
+            'confidence': 1.0,
+            'description': f"All {total_count} '{error_type}' errors have value='{examples[0][0]}'",
+        })
+
+    # Few values pattern
+    elif len(examples) <= max(2, int(total_count * 0.2)) and total_count >= 10:
+        patterns.append({
+            'type': 'few_values',
+            'error': error_type,
+            'values': values[:5],
+            'count': total_count,
+            'confidence': 0.8,
+            'description': f"Only {len(examples)} unique values causing {total_count} '{error_type}' errors",
+        })
+
+    # Format pattern
+    fmt = _detect_format_pattern(values)
+    if fmt:
+        patterns.append({
+            'type': 'format_pattern',
+            'error': error_type,
+            'pattern': fmt['pattern'],
+            'examples': fmt['examples'],
+            'count': total_count,
+            'confidence': fmt['confidence'],
+            'description': fmt['description'],
+        })
+
+    patterns.sort(key=lambda x: -x['confidence'])
+    return patterns
+
+
+def _detect_format_pattern(values: List[str]) -> Optional[Dict]:
+    """Detect missing_leading_zeros or missing_dcid_prefix patterns."""
+    if not values:
+        return None
+
+    # Missing leading zeros (common FIPS issue)
+    single_digit_count = sum(1 for v in values if v.isdigit() and len(v) == 1)
+    if single_digit_count > len(values) * 0.5 and len(values) >= 3:
+        return {
+            'pattern': 'missing_leading_zeros',
+            'examples': [v for v in values if v.isdigit() and len(v) == 1][:3],
+            'confidence': 0.9,
+            'description': "Values appear to be missing leading zeros (e.g., '6' should be '06' for California)",
+        }
+
+    # Missing dcid: prefix
+    dcid_candidates = sum(
+        1 for v in values
+        if v and not v.startswith('dcid:') and (
+            v.startswith('geoId/') or
+            v.startswith('country/') or
+            v in ('Person', 'Household', 'HousingUnit', 'Establishment')
+        )
+    )
+    if dcid_candidates > len(values) * 0.5:
+        return {
+            'pattern': 'missing_dcid_prefix',
+            'examples': values[:3],
+            'confidence': 0.85,
+            'description': "Values appear to be missing 'dcid:' prefix",
+        }
+
+    return None
+
+
 @dataclass
 class ValuePattern:
     """Pattern detected in unmapped values.
@@ -107,6 +327,10 @@ class FilteredLogs:
     dropped_mcf_statvars: int = 0
     existing_nodes_from_api: int = 0
 
+    # Enrichment fields (ported from counter_feedback.py)
+    error_examples: Dict[str, List[Tuple[str, int]]] = field(default_factory=dict)
+    attempt_number: Optional[int] = None
+
     def to_summary(self) -> str:
         """Generate rich, actionable summary for LLM feedback.
 
@@ -161,13 +385,41 @@ class FilteredLogs:
                 )
                 lines.append(f"  Interpretation: {interp}")
 
-        # Error summary
+        # Error summary (priority-ordered with fix recipes)
         if self.errors:
             lines.append("")
             lines.append("## Errors (must fix)")
-            for err_type, count in sorted(self.errors.items(), key=lambda x: -x[1]):
+            sorted_errors = _sort_errors_by_priority(self.errors)
+            for i, (err_type, count) in enumerate(sorted_errors, 1):
+                pattern = _get_error_pattern(err_type)
+                tag = f" [{pattern['category']}]" if pattern else ""
                 clean_name = err_type.replace('error-', '').replace('-', ' ')
-                lines.append(f"- {clean_name}: {count:,}")
+                lines.append(f"{i}. {clean_name}: {count:,}{tag}")
+
+                # Debug examples (failing values)
+                if err_type in self.error_examples:
+                    examples = self.error_examples[err_type]
+                    vals = ', '.join(f"'{v}' ({c})" for v, c in examples[:5])
+                    lines.append(f"   Failing values: {vals}")
+
+                # Fix recipe
+                if pattern:
+                    lines.append(f"   Common causes: {'; '.join(pattern['common_causes'])}")
+                    lines.append(f"   Fix: {pattern['fix']}")
+
+            # Systematic patterns section
+            all_patterns: List[Dict] = []
+            for err_type, count in sorted_errors:
+                if err_type in self.error_examples:
+                    pats = detect_systematic_patterns(
+                        err_type, self.error_examples[err_type], count
+                    )
+                    all_patterns.extend(pats)
+            if all_patterns:
+                lines.append("")
+                lines.append("## Systematic Error Patterns")
+                for p in all_patterns[:5]:
+                    lines.append(f"- [{p['type']}] {p['description']}")
 
         # StatVar observation breakdown
         if self.statvars_with_obs or self.dropped_statvars:
@@ -300,6 +552,12 @@ class FilteredLogs:
                 clean_name = warn_type.replace('warning-', '').replace('-', ' ')
                 lines.append(f"- {clean_name}: {count:,}")
 
+        # Iteration guidance
+        if self.attempt_number is not None and self.attempt_number in ITERATION_ADVICE:
+            lines.append("")
+            lines.append("## Iteration Guidance")
+            lines.append(ITERATION_ADVICE[self.attempt_number])
+
         return '\n'.join(lines)
 
 
@@ -393,21 +651,25 @@ def _classify_value(value: str) -> str:
     return 'unknown'
 
 
-def filter_counters(counters_path: Path) -> FilteredLogs:
+def filter_counters(counters_path: Path, attempt_number: Optional[int] = None) -> FilteredLogs:
     """Extract useful metrics and analyze value patterns from counter file.
 
     Key improvements over simple filtering:
     1. Extracts aggregate metrics (coverage, statvars)
     2. Analyzes individual value failures to detect PATTERNS
     3. Clusters values by type to identify failing columns
+    4. Mines debug examples for specific error types
+    5. Attaches iteration-specific advice
 
     Args:
         counters_path: Path to the processed_counters.txt file
+        attempt_number: Current attempt number (0-indexed) for iteration advice
 
     Returns:
         FilteredLogs with metrics and pattern analysis
     """
     result = FilteredLogs()
+    result.attempt_number = attempt_number
 
     if not counters_path.exists():
         return result
@@ -511,11 +773,34 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
         result.success_rate_critical = result.coverage_pct < 10
 
     # Extract errors (base types only, no suffixes)
+    # Exclude informational keys that are captured in dedicated fields
+    INFORMATIONAL_ERROR_KEYS = {'error-spell-words'}
+    INFORMATIONAL_WARNING_KEYS = {'dropped-output-statvars-mcf'}
     for key, value in raw_counters.items():
-        if key.startswith('error-') and '_' not in key:
+        if key.startswith('error-') and '_' not in key and key not in INFORMATIONAL_ERROR_KEYS:
             result.errors[key] = value
-        elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key:
+        elif (key.startswith('warning-') or key.startswith('dropped-')) and '_' not in key and key not in INFORMATIONAL_WARNING_KEYS:
             result.warnings[key] = value
+
+    # Mine debug examples universally for ALL error/dropped/warning types
+    # (replaces old hardcoded 7-type list)
+    all_error_types = set(result.errors.keys())
+    # Also mine dropped and warning counter types that have detail suffixes
+    for key in raw_counters:
+        if key in ('dropped-invalid-svobs', 'dropped-invalid-statvars',
+                   'dropped-statvars-without-svobs'):
+            all_error_types.add(key)
+    for err_type in all_error_types:
+        prefix = f"{err_type}_"
+        examples = []
+        for key, value in raw_counters.items():
+            if key.startswith(prefix):
+                example_val = key[len(prefix):]
+                if example_val and not example_val.startswith('/'):
+                    examples.append((example_val, value))
+        if examples:
+            examples.sort(key=lambda x: -x[1])
+            result.error_examples[err_type] = examples
 
     # =====================================================================
     # Rich signal extraction from non-prefixed counters
@@ -529,7 +814,7 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
             if prop_name not in SKIP_CARDINALITY_PROPS:
                 result.property_cardinality[prop_name] = value
 
-    # (b) Per-StatVar observation counts from svobs-added_dcid:*
+    # (b) Per-StatVar observation counts from svobs-added_dcid:* and generated-svobs_*
     for key, value in raw_counters.items():
         if key.startswith('svobs-added_dcid:'):
             sv_name = key.replace('svobs-added_dcid:', '')
@@ -537,13 +822,21 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
             if len(sv_name) > 100:
                 sv_name = sv_name[:100] + '...'
             result.statvars_with_obs.append((sv_name, value))
+        elif key.startswith('generated-svobs_') and not key.endswith('.csv'):
+            sv_name = key[len('generated-svobs_'):]
+            if sv_name and not sv_name.startswith('/'):
+                result.statvars_with_obs.append((sv_name, value))
     result.statvars_with_obs.sort(key=lambda x: -x[1])
 
-    # (c) Dropped StatVars from dropped-statvars-without-svobs_*
+    # (c) Dropped StatVars from dropped-statvars-without-svobs_* and dropped-invalid-statvars_*
+    dropped_prefixes = ['dropped-invalid-statvars_', 'dropped-statvars-without-svobs_']
     for key, value in raw_counters.items():
-        if key.startswith('dropped-statvars-without-svobs_'):
-            sv_name = key.replace('dropped-statvars-without-svobs_', '')
-            result.dropped_statvars.append(sv_name)
+        for dp in dropped_prefixes:
+            if key.startswith(dp):
+                sv_name = key[len(dp):]
+                if sv_name and not sv_name.startswith('/'):
+                    if sv_name not in result.dropped_statvars:
+                        result.dropped_statvars.append(sv_name)
 
     # (d) Per-StatVar generation counts from generated-statvars_*
     for key, value in raw_counters.items():
@@ -560,6 +853,7 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
     # =====================================================================
     # Rich signal extraction from prefixed counters
     # =====================================================================
+    _missing_place_accum = {}
     for pkey, pcount in prefixed_counters:
         # Strip the numeric prefix (e.g., "1:process_input_") to get the suffix
         # The suffix is everything after the last known stage separator
@@ -592,10 +886,7 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
             if 'warning-svobs-missing-place_' in suffix:
                 sv_part = suffix.split('warning-svobs-missing-place_', 1)[1]
             if sv_part:
-                # Accumulate into dict first, convert to list later
-                existing = {k: v for k, v in result.missing_place_statvars}
-                existing[sv_part] = existing.get(sv_part, 0) + pcount
-                result.missing_place_statvars = sorted(existing.items(), key=lambda x: -x[1])
+                _missing_place_accum[sv_part] = _missing_place_accum.get(sv_part, 0) + pcount
 
         # (i) Input structure
         if suffix == 'input-header-rows' or pkey.endswith('_input-header-rows'):
@@ -607,6 +898,10 @@ def filter_counters(counters_path: Path) -> FilteredLogs:
         if suffix == 'input-sections' or pkey.endswith('_input-sections'):
             if result.input_sections == 0:
                 result.input_sections = pcount
+
+    # Finalize missing_place_statvars from accumulated dict
+    if _missing_place_accum:
+        result.missing_place_statvars = sorted(_missing_place_accum.items(), key=lambda x: -x[1])
 
     # Also check non-prefixed for input structure (may exist there too)
     if result.input_header_rows == 0:
@@ -830,4 +1125,11 @@ __all__ = [
     'McpSessionWarningFilter',
     'AdkNoiseFilter',
     '_fragmentation_interpretation',
+    'ERROR_PRIORITY',
+    'ERROR_PATTERNS',
+    'ITERATION_ADVICE',
+    '_sort_errors_by_priority',
+    '_get_error_pattern',
+    'detect_systematic_patterns',
+    '_detect_format_pattern',
 ]

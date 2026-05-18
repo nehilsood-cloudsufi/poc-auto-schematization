@@ -52,6 +52,7 @@ uv.lock
 /schema/
 ui_runs/
 src/resources/schema_org/schemaorg_full.jsonld
+frontend/node_modules/
 
 # Docs
 README.md

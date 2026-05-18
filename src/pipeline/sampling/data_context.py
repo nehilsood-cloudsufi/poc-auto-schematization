@@ -341,20 +341,6 @@ class DataContext:
             'column_stats': self.column_stats,
         }
 
-    def to_mcp_query_context(self) -> Dict[str, Any]:
-        """
-        Generate context for MCP StatVar discovery.
-        Uses P+M+C formula (Population + MeasuredProperty + Constraints).
-        """
-        return {
-            'population': self.population_type,
-            'measurement': self.measurement_type,
-            'constraints': {dim: self.dimension_domains.get(dim, [])
-                          for dim in self.dimension_columns},
-            'statvar_pattern': self.statvar_pattern,
-        }
-
-
 class DataContextGenerator:
     """
     Generates DataContext using UNIVERSAL analysis that works across ALL domains.

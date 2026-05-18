@@ -30,10 +30,22 @@ Usage:
     patterns = detect_systematic_patterns(error_context_dict)
 """
 
+import warnings
+warnings.warn(
+    "counter_feedback is deprecated. Use log_filter.filter_counters() instead. "
+    "Key features have been merged into log_filter.py: ERROR_PRIORITY, ERROR_PATTERNS, "
+    "debug example extraction, systematic pattern detection, and ITERATION_ADVICE.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import csv
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # Error priority order (Gemini-recommended: fix highest-impact errors first)
@@ -281,9 +293,10 @@ def parse_counters_file(counters_path: Path) -> Dict[str, int]:
                     except (ValueError, IndexError):
                         # Keep as string if not numeric
                         counters[key] = row[1].strip() if len(row) > 1 else ''
+    except FileNotFoundError:
+        return counters
     except Exception as e:
-        # Return empty dict if file can't be parsed
-        pass
+        logger.warning("Failed to parse counters file %s: %s", counters_path, e)
 
     return counters
 
@@ -600,14 +613,13 @@ Please review the PVMAP for issues related to: {primary_error.replace('error-', 
                 sample_section += "\n```"
                 sections.append(sample_section)
 
-    # 5. Warning Analysis (if no critical errors)
-    if not error_counters:
-        warning_counters = get_warning_counters(counters)
-        if warning_counters:
-            warning_section = "## Warnings\n"
-            for warn_name, count in sorted(warning_counters.items(), key=lambda x: -x[1]):
-                warning_section += f"- **{warn_name}**: {count:,}\n"
-            sections.append(warning_section)
+    # 5. Warning Analysis (always include — warnings provide context even with errors)
+    warning_counters = get_warning_counters(counters)
+    if warning_counters:
+        warning_section = "## Warnings\n"
+        for warn_name, count in sorted(warning_counters.items(), key=lambda x: -x[1]):
+            warning_section += f"- **{warn_name}**: {count:,}\n"
+        sections.append(warning_section)
 
     # 6. Success Metrics
     generated_svobs = counters.get('generated-svobs', 0)
@@ -749,8 +761,8 @@ def detect_systematic_patterns(
                 })
 
             # Format pattern: detect common format issues
-            if _detect_format_pattern(value_list):
-                pattern_info = _detect_format_pattern(value_list)
+            pattern_info = _detect_format_pattern(value_list)
+            if pattern_info:
                 patterns.append({
                     'type': 'format_pattern',
                     'error': error_type,
@@ -911,59 +923,3 @@ def generate_transformation_feedback(
     return '\n\n---\n\n'.join(sections) if sections else ""
 
 
-def generate_enhanced_feedback(
-    counters: Dict[str, int],
-    error_context: Optional[Dict] = None,
-    log_output: Optional[str] = None,
-    attempt_number: int = 0,
-    include_transformation: bool = True,
-    include_patterns: bool = True
-) -> str:
-    """Generate comprehensive enhanced feedback with all Phase 9-10 features.
-
-    This is the main entry point for enhanced feedback generation, combining:
-    - Standard counter-based feedback
-    - Transformation analysis (before/after)
-    - Systematic pattern detection
-    - Iteration-specific advice
-
-    Args:
-        counters: Parsed counter dictionary
-        error_context: Enhanced error context dict (from EnhancedErrorContext.to_dict())
-        log_output: Optional log output for sample extraction
-        attempt_number: Current attempt number (0-indexed)
-        include_transformation: Whether to include transformation feedback
-        include_patterns: Whether to include pattern detection
-
-    Returns:
-        Comprehensive feedback string
-    """
-    sections = []
-
-    # 1. Standard counter-based feedback
-    base_feedback = generate_feedback(
-        counters=counters,
-        log_output=log_output,
-        include_coverage=True,
-        attempt_number=attempt_number
-    )
-    sections.append(base_feedback)
-
-    # 2. Transformation analysis (if error_context provided)
-    if include_transformation and error_context:
-        errors_dict = error_context.get('errors', {})
-        if errors_dict:
-            transformation_feedback = generate_transformation_feedback(errors_dict)
-            if transformation_feedback:
-                sections.append(transformation_feedback)
-
-    # 3. Pattern detection
-    if include_patterns and error_context:
-        errors_dict = error_context.get('errors', {})
-        if errors_dict:
-            patterns = detect_systematic_patterns(errors_dict)
-            if patterns:
-                pattern_feedback = format_pattern_feedback(patterns)
-                sections.append(pattern_feedback)
-
-    return '\n\n'.join(sections)

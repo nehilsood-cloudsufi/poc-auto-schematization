@@ -54,6 +54,12 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Force re-sampling even if sampled data exists'
     )
+    # Column discovery options
+    parser.add_argument(
+        '--skip-column-discovery',
+        action='store_true',
+        help='Skip PVMAP skeleton generation (disables column completeness checking)'
+    )
 
     # Schema selection phase options
     parser.add_argument(
@@ -78,6 +84,11 @@ def create_parser() -> argparse.ArgumentParser:
         '--skip-evaluation',
         action='store_true',
         help='Skip evaluation phase (Phase 5)'
+    )
+    parser.add_argument(
+        '--use-llm-judge',
+        action='store_true',
+        help='Enable LLM-as-judge qualitative evaluation (runs after GT comparison)'
     )
     parser.add_argument(
         '--ground-truth-repo',
@@ -120,8 +131,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--model', '-m',
         type=str,
-        default='gemini-3-pro-preview',
-        help='Gemini model to use (default: gemini-3-pro-preview)'
+        default='gemini-3.1-pro-preview',
+        help='Gemini model to use (default: gemini-3.1-pro-preview)'
     )
     parser.add_argument(
         '--thinking-level',
@@ -135,14 +146,9 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--enable-mcp',
         action='store_true',
-        help='Enable Data Commons MCP integration for StatVar discovery'
+        default=True,
+        help='Enable Data Commons MCP integration for StatVar discovery (default: on)'
     )
-    parser.add_argument(
-        '--enable-schemaorg-mcp',
-        action='store_true',
-        help='Enable Schema.org MCP server for vocabulary lookup'
-    )
-
     # Schema examples
     parser.add_argument(
         '--no-schema-examples',
@@ -172,26 +178,33 @@ def create_parser() -> argparse.ArgumentParser:
         help='Explicit schema file override'
     )
 
-    # Prompt version
-    parser.add_argument(
-        '--prompt-version',
+    # Mapping plan workflow
+    plan_group = parser.add_mutually_exclusive_group()
+    plan_group.add_argument(
+        '--plan-only',
+        action='store_true',
+        default=False,
+        help='Generate mapping plan and exit without PVMAP generation'
+    )
+    plan_group.add_argument(
+        '--from-plan',
         type=str,
-        choices=['v1', 'v2'],
-        default='v2',
-        help='PVMAP prompt template version (default: v2)'
+        default=None,
+        help='Path to approved mapping plan file (skips plan generation, goes straight to PVMAP generation)'
+    )
+    parser.add_argument(
+        '--auto-approve',
+        action='store_true',
+        default=False,
+        help='Auto-approve mapping plan without interactive prompt'
     )
 
     # Structured output
     parser.add_argument(
         '--structured-output',
-        action='store_true',
+        action=argparse.BooleanOptionalAction,
         default=True,
         help='Use structured output (deterministic CSV) [default: True]'
-    )
-    parser.add_argument(
-        '--no-structured-output',
-        action='store_true',
-        help='Disable structured output'
     )
 
     # Verbose
@@ -199,6 +212,22 @@ def create_parser() -> argparse.ArgumentParser:
         '--verbose',
         action='store_true',
         help='Enable verbose logging'
+    )
+
+    # Prompt version
+    parser.add_argument(
+        '--prompt-version',
+        choices=['v2', 'v3'],
+        default='v3',
+        help='PVMAP prompt version to use (default: v3)'
+    )
+
+    # Feedback prompt version
+    parser.add_argument(
+        '--feedback-prompt-version',
+        choices=['v1', 'v2'],
+        default='v2',
+        help='Feedback agent prompt version (default: v2)'
     )
 
     return parser

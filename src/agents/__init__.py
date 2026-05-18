@@ -2,7 +2,7 @@
 
 Main agents:
 - DiscoveryAgent: Discovers datasets in input directory
-- SamplingAgent: Agentic data sampling with LLM-driven decisions
+- ProgrammaticSamplingAgent: Code-orchestrated data sampling (2 LLM calls)
 - SchemaSelectionAgent: Selects appropriate schema category
 - PVMAPRetryLoop: ADK LoopAgent-based PVMAP generation with retry loop
 - ValidationAgent: Validates PVMAP and escalates on success
@@ -19,15 +19,10 @@ Retry Loop Architecture:
 - Generator produces structured JSON via output_schema
 - Validator converts to CSV and runs subprocess; escalates on success
 - Feedback analyzes errors for next iteration
-
-Sampling Agent:
-The SamplingAgent uses an LLM to make intelligent sampling decisions based on
-data evidence. It has 5 tools: preview_data, analyze_columns, sample_rows,
-check_coverage, and generate_context. Use create_sampling_agent() for new code.
 """
 
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import create_sampling_agent, SamplingAgent
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_generator_agent import create_pvmap_generator
 from src.agents.validation_agent import ValidationAgent
@@ -40,7 +35,7 @@ from src.agents.pvmap_retry_loop import (
     MaxRetriesCheckAgent,
 )
 from src.agents.evaluation_agent import EvaluationAgent
-from src.agents.coordinator import create_pipeline_coordinator, PipelineCoordinator
+from src.agents.coordinator import create_pipeline_coordinator
 
 # StatVar Discovery Agent (requires MCP)
 try:
@@ -52,23 +47,16 @@ except ImportError:
 
 # DC Query Agent (requires MCP)
 try:
-    from src.agents.dc_query_agent import (
-        create_dc_query_agent,
-        create_statvar_discovery_agent,
-        create_observation_fetch_agent
-    )
+    from src.agents.dc_query_agent import create_dc_query_agent
     DC_QUERY_AVAILABLE = True
 except ImportError:
     create_dc_query_agent = None
-    create_statvar_discovery_agent = None
-    create_observation_fetch_agent = None
     DC_QUERY_AVAILABLE = False
 
 __all__ = [
     # Core agents
     'DiscoveryAgent',
-    'create_sampling_agent',
-    'SamplingAgent',
+    'ProgrammaticSamplingAgent',
     'create_schema_selection_agent',
     'EvaluationAgent',
     # ADK LoopAgent-based architecture
@@ -82,12 +70,9 @@ __all__ = [
     'MaxRetriesCheckAgent',
     # Coordinator
     'create_pipeline_coordinator',
-    'PipelineCoordinator',
     # Optional MCP-based agents
     'StatVarDiscoveryAgent',
     'STATVAR_DISCOVERY_AVAILABLE',
     'create_dc_query_agent',
-    'create_statvar_discovery_agent',
-    'create_observation_fetch_agent',
     'DC_QUERY_AVAILABLE'
 ]

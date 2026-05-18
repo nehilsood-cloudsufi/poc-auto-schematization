@@ -1165,13 +1165,6 @@ class StatVarsMap:
             return
 
         # Generate statvar names
-        if self._config.get('google_api_key', '') and self._config.get(
-                'llm_generate_statvar_name', False):
-            pass
-            # TODO: uncomment once LLM tools are merged.
-            # Generate names using LLM
-            # llm_statvar_name_generator.llm_generate_names(
-            #    stat_var_nodes, '', self._config, self._counters)
         if self._config.get('generate_statvar_name', False):
             # Generate name from PVs
             for dcid, pvs in stat_var_nodes.items():

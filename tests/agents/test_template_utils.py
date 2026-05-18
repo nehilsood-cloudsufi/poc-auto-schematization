@@ -306,5 +306,5 @@ class TestBuildThinkingConfig:
 
     def test_model_param_accepted(self):
         """model parameter is accepted (reserved for future use)."""
-        config = build_thinking_config("high", model="gemini-3-pro-preview")
+        config = build_thinking_config("high", model="gemini-3.1-pro-preview")
         assert config is not None

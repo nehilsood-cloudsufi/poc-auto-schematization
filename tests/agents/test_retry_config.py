@@ -61,7 +61,7 @@ class TestCreateResilientModel:
         from google.adk.models import Gemini
         from src.agents.retry_config import create_resilient_model
 
-        for model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview"]:
             result = create_resilient_model(model_name)
             assert isinstance(result, Gemini)
             assert result.model == model_name
@@ -92,14 +92,6 @@ class TestAgentIntegration:
         from src.agents.schema_selection_agent import create_schema_selection_agent
 
         source = inspect.getsource(create_schema_selection_agent)
-        assert "create_resilient_model" in source
-
-    def test_sampling_agent_uses_resilient_model(self):
-        """Verify create_sampling_agent uses create_resilient_model."""
-        import inspect
-        from src.agents.sampling_agent import create_sampling_agent
-
-        source = inspect.getsource(create_sampling_agent)
         assert "create_resilient_model" in source
 
     def test_metadata_enrichment_agent_uses_resilient_model(self):

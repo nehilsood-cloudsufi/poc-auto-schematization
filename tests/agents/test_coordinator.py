@@ -8,7 +8,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.agents.coordinator import create_pipeline_coordinator, PipelineCoordinator
+from src.agents.coordinator import create_pipeline_coordinator
 
 
 def test_coordinator_creation():
@@ -59,8 +59,8 @@ def test_coordinator_custom_max_retries():
     """Test coordinator with custom max_retries."""
     coordinator = create_pipeline_coordinator(max_retries=5)
 
-    # Find PVMAP retry loop (LoopAgent)
-    from google.adk.agents import LoopAgent
+    # Find PVMAP retry loop (SequentialAgent since tiered correction refactor)
+    from google.adk.agents import SequentialAgent
     pvmap_agent = None
     for agent in coordinator.sub_agents:
         if agent.name == "PVMAPRetryLoop":
@@ -68,8 +68,7 @@ def test_coordinator_custom_max_retries():
             break
 
     assert pvmap_agent is not None
-    assert isinstance(pvmap_agent, LoopAgent)
-    assert pvmap_agent.max_iterations == 5 + 1  # max_retries + 1
+    assert isinstance(pvmap_agent, SequentialAgent)
 
 
 def test_coordinator_custom_model():
@@ -87,25 +86,15 @@ def test_coordinator_custom_model():
             schema_agent = agent
 
     assert sampling_agent is not None
-    # model is now a Gemini instance with retry options, not a plain string
-    from google.adk.models import Gemini
-    if isinstance(sampling_agent.model, Gemini):
-        assert sampling_agent.model.model == "gemini-2.0-flash-exp"
-    else:
-        assert sampling_agent.model == "gemini-2.0-flash-exp"
+    # ProgrammaticSamplingAgent stores model as _model (private attr)
+    assert sampling_agent._model == "gemini-2.0-flash-exp"
 
     assert schema_agent is not None
+    from google.adk.models import Gemini
     if isinstance(schema_agent.model, Gemini):
         assert schema_agent.model.model == "gemini-2.0-flash-exp"
     else:
         assert schema_agent.model == "gemini-2.0-flash-exp"
-
-
-def test_coordinator_backward_compatibility_alias():
-    """Test that PipelineCoordinator alias works."""
-    coordinator = PipelineCoordinator()
-    assert coordinator is not None
-    assert coordinator.name == "PipelineCoordinator"
 
 
 @pytest.mark.asyncio
@@ -131,7 +120,7 @@ def test_coordinator_agent_types():
     """Test that coordinator contains correct agent types."""
     coordinator = create_pipeline_coordinator()
 
-    from google.adk.agents import BaseAgent, LlmAgent, LoopAgent
+    from google.adk.agents import BaseAgent, LlmAgent, SequentialAgent
     from src.agents.discovery_agent import DiscoveryAgent
     from src.agents.evaluation_agent import EvaluationAgent
 
@@ -141,9 +130,10 @@ def test_coordinator_agent_types():
 
     # Check specific types
     assert isinstance(coordinator.sub_agents[0], DiscoveryAgent)
-    assert isinstance(coordinator.sub_agents[1], LlmAgent)  # SamplingAgent
+    from src.agents.sampling_agent import ProgrammaticSamplingAgent
+    assert isinstance(coordinator.sub_agents[1], ProgrammaticSamplingAgent)  # SamplingAgent
     assert isinstance(coordinator.sub_agents[2], LlmAgent)  # SchemaSelectionAgent
-    assert isinstance(coordinator.sub_agents[3], LoopAgent)  # PVMAPRetryLoop
+    assert isinstance(coordinator.sub_agents[3], SequentialAgent)  # PVMAPRetryLoop
     assert isinstance(coordinator.sub_agents[4], EvaluationAgent)
 
 

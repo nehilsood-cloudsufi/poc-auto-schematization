@@ -61,7 +61,7 @@ def query_gemini(
     topic: Optional[str] = None,
     include_examples: bool = True,
     temperature: float = 0.1,
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
 ) -> dict:
     """Query Gemini for Data Commons expert guidance.
 
@@ -231,8 +231,8 @@ def main():
     )
     parser.add_argument(
         "--model", "-m",
-        default="gemini-3-pro-preview",
-        help="Gemini model to use (default: gemini-3-pro-preview)",
+        default="gemini-3.1-pro-preview",
+        help="Gemini model to use (default: gemini-3.1-pro-preview)",
     )
     parser.add_argument(
         "--batch", "-b",

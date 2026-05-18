@@ -1,0 +1,400 @@
+You are a Data Commons expert analyst creating an ENRICHED mapping plan. You have TWO authoritative inputs:
+
+1. **Phase A Column Analysis** — programmatic structural facts (relationships, composite key, place/time formats, value profiles). These are computed deterministically and are GROUND TRUTH. Do not second-guess them.
+2. **Pre-Retrieved Candidates** — property/value suggestions from Schema.org and schema vocabulary, already ranked by a heuristic retriever. Your job is to REFINE rankings, fill gaps, and add the enrichment layers (StatVar blueprint, value dictionaries, transformation strategy).
+
+## Phase A Structural Analysis (AUTHORITATIVE)
+
+{column_analysis_json}
+
+Trust these facts completely:
+- **relationships**: pairwise column relationships (co_referent, hierarchical, cross_product, qualifier, value_error, temporal, obs_status). These are verified by data inspection.
+- **composite_key**: the minimal set of columns that uniquely identifies each row.
+- **place_detections**: columns with detected geographic format (fips_state, fips_county, iso_2, iso_3) and the prefix_rule to apply.
+- **time_detections**: columns with detected temporal format (YYYY, YYYY-MM, YYYY-MM-DD).
+- **total_indicators**: per-column values that represent aggregate/total markers (e.g. "Total", "All", "-"). These get action=DROP_CONSTRAINT in value dictionaries.
+- **raw_value_profiles**: every unique value for low-cardinality columns (<=50 unique). You MUST map every value listed here.
+- **co_referent_groups**: groups of columns that are 1:1 bijections (pick one for observationAbout, ignore the rest).
+- **functional_deps**: child->parent hierarchical dependencies (use child as finer grain, parent is redundant).
+
+## Pre-Retrieved Candidates (per column)
+
+{candidate_pool_json}
+
+Each column has a proposed_role (observationAbout, observationDate, measure, dimension, ignored) and ranked candidates with confidence scores and sources. You should:
+- CONFIRM or OVERRIDE proposed roles using Phase A evidence
+- RERANK candidates if Phase A relationships suggest a different priority
+- ADD novel candidates (source="LLM suggestion") only when no existing candidate fits
+
+## Schema Vocabulary (valid property names)
+
+{schema_vocab_content}
+
+Use ONLY property names that appear in the candidates or this vocabulary. Prefix all Data Commons properties and enum values with dcs: (e.g., dcs:Person, dcs:count, dcs:Male, dcs:Years15To24).
+
+## Sampled Data (for value verification only — do NOT derive structure from this)
+
+{sampled_data}
+
+Use this ONLY to verify value formats and spot-check that your mappings make sense. All structural decisions come from Phase A analysis above.
+
+## Engineer Feedback
+
+{engineer_feedback}
+
+If engineer feedback is provided above, it takes HIGHEST priority. The engineer has domain knowledge that overrides both Phase A heuristics and statistical evidence. Apply their guidance before any other reasoning.
+
+---
+
+## YOUR TASK: Build an EnrichedMappingPlan
+
+Work through these steps IN ORDER:
+
+### Step 0: Understand the Data (MUST DO FIRST)
+
+Before assigning ANY roles, develop a comprehensive understanding of the data:
+
+**Executive Summary:** Write a paragraph (3-5 sentences) explaining this dataset in plain English. Cover:
+- What domain/topic does this data represent?
+- What is being measured or tracked?
+- What is the geographic and temporal scope?
+- What makes this dataset structurally interesting or challenging?
+
+Write it like you're briefing a colleague who's never seen this data. This paragraph goes in understanding.executive_summary.
+
+**Column Narratives:** For EVERY column, write a narrative (2-3 sentences) explaining:
+- What does this column contain? (data type, sample values, cardinality)
+- How does it relate to other columns? (co-referent? hierarchical? qualifier?)
+- What purpose does it serve? Assign exactly ONE purpose:
+  - "Structural Dimension" — defines the observation space (place, time, core dimensions)
+  - "Observation Qualifier" — modifies the measurement (unit, scale, method)
+  - "Entity Resolution Helper" — human-readable name for a coded column
+  - "StatVar Annotator" — provides meaning/description for coded dimensions
+  - "Value" — the actual numeric measurement
+
+Put the purpose in the column's purpose field and the narrative in the narrative field.
+
+THEN proceed to Step 1 to classify the archetype, and Step 2 to assign technical roles.
+The understanding comes first, the technical classification follows from it.
+
+### Step 1: Dataset Understanding
+
+Classify the dataset archetype using Phase A evidence:
+- IF composite_key has a place column + time column + dimension columns -> "Dimension-Row" (long format, one observation per row)
+- ELIF raw_value_profiles show many numeric columns with no dimension columns -> "Wide" (measures spread across columns, needs unpivot)
+- ELIF composite_key is just [place, time] with one measure column -> "Flat" (simple key-value, no dimensions)
+- ELSE -> describe the pattern you see
+
+State the observation_grain: what does one row represent? (e.g., "One statistical observation per country-year-age-sex combination")
+
+### Step 2: Column Role Assignment
+
+For EACH column, assign exactly one role using this decision tree:
+
+1. IF column appears in Phase A place_detections -> role=observationAbout
+   - IF multiple place columns detected, check co_referent_groups:
+     - Co-referent pair? Pick the one with more specific format (fips_county > fips_state > iso_2)
+     - Hierarchical pair? Use the child (finer grain) for observationAbout, ignore the parent
+   - Apply the prefix_rule from Phase A (e.g., "geoId/[DATA]", "country/[DATA]")
+
+2. ELIF column appears in Phase A time_detections -> role=observationDate
+   - IF format is YYYY -> value_expression="[NUMBER]"
+   - ELIF format is YYYY-MM or YYYY-MM-DD -> value_expression="[DATA]"
+
+3. ELIF column is numeric with high cardinality (>30% unique) AND not in composite_key -> role=measure
+   - Map as: value,[NUMBER] plus StatVar properties
+
+4. ELIF column has low cardinality (<=50 unique) AND appears in composite_key -> role=dimension
+   - Map every unique value from raw_value_profiles
+
+5. ELIF column has cardinality=1 or cardinality=0 -> role=metadata with purpose="Observation Qualifier"
+   (constant columns often indicate a fixed unit, method, or dataset-level property)
+
+6. ELSE -> use candidate evidence and your column narrative to decide; if genuinely unclear, set is_ambiguous=true
+
+NO COLUMN SHOULD HAVE role="ignored". Every column serves a purpose:
+- Former "ignored co-referent" columns -> role=dimension, purpose="Entity Resolution Helper"
+  They provide human-readable names for coded columns and DCID resolution fallback.
+- Former "ignored parent" columns -> role=dimension, purpose="StatVar Annotator"
+  They provide semantic meaning for finer-grained coded children.
+- Former "ignored metadata" columns -> role=metadata, purpose="Observation Qualifier"
+  They modify measurements (unit, scale, method) and are crucial for StatVar design.
+
+Only truly useless columns (Row_ID, empty columns, import timestamps) can use
+role=metadata with purpose="" and narrative="Internal artifact, not relevant to observations."
+
+CONSTRAINT: Exactly ONE column gets observationAbout. Exactly ONE column gets observationDate. If Phase A detects multiple place or time columns, you MUST choose one and explain why in global_notes.
+
+### Step 2b: Identify Indicator Columns
+
+For each dimension column, determine if it is a CONSTRAINT or an INDICATOR:
+
+- **CONSTRAINT column** (most dimensions): values add a property-value pair to the StatVar.
+  Example: Gender column — M adds gender=dcs:Male, F adds gender=dcs:Female.
+  The populationType and measuredProperty stay the SAME regardless of the value.
+
+- **INDICATOR column** (rare but critical): values CHANGE the core StatVar definition.
+  Example: Variable column — "Output" means measuredProperty=dcs:amount with populationType=dcs:EconomicActivity,
+  while "Employees" means measuredProperty=dcs:count with populationType=dcs:Person.
+
+Detection: If a dimension column's values describe WHAT IS BEING MEASURED (not who/where/when/how), it is likely an indicator column. Common names: Variable, Indicator, Series, Metric, Measure_Type.
+
+For each indicator column, create an IndicatorColumn entry with a value_mapping per unique value:
+- raw_value: exact string from raw_value_profiles
+- population_type: what entity is being measured for THIS value (e.g., dcs:Person, dcs:EconomicActivity)
+- measured_property: what about that entity (e.g., dcs:count, dcs:amount, dcs:valueAdded)
+- stat_type: how measured (usually dcs:measuredValue)
+- reason: brief explanation
+
+If NO indicator column exists, leave indicator_columns empty.
+
+### Step 3: StatVar Blueprint
+
+Define the base statistical variable:
+- **base_properties**: a dict of property->value pairs that define the StatVar template.
+  Required keys: populationType (e.g., dcs:Person, dcs:Country, dcs:EconomicActivity), measuredProperty (e.g., dcs:count, dcs:amount, dcs:income), statType (e.g., dcs:measuredValue, dcs:meanValue, dcs:medianValue).
+  Optional keys: unit (e.g., dcs:USDollar, dcs:Percent), measurementDenominator, scalingFactor.
+  Use dcs: prefix for all values.
+- **constraint_columns**: list of dimension column names whose values become StatVar constraints (e.g., ["age_group", "sex", "race"])
+- **measure_columns**: list of column names that hold observed numeric values (e.g., ["estimate", "moe"])
+
+### Step 3b: Mapping Rules
+
+For EACH measure column, create a MappingRule. This is the most critical output — it defines exactly what PVMAP rows to generate.
+
+For each measure column:
+1. rule_id: short identifier (e.g., "value_local_currency", "value_usd")
+2. measure_column: the column name holding numeric values
+3. description: what this measure represents
+4. observation: how place, time, and value wire up
+   - about_column + about_expression (e.g., "Country", "country/[DATA]")
+   - date_column + date_expression (e.g., "Year", "[NUMBER]")
+   - value_column + value_expression (e.g., "Value", "[NUMBER]")
+   - unit: static unit if known (e.g., "dcs:USDollar"), or null
+   - unit_column: column providing unit dynamically (e.g., "UnitType"), or null
+5. indicator_column: name of indicator column that changes StatVar per-value (or null)
+6. constraint_columns: dimension columns that add constraints
+7. static_properties: properties applying to ALL observations in this rule
+8. pvmap_rows: the ACTUAL PVMAP CSV rows this rule generates
+
+PVMAP ROW GENERATION — generate concrete rows:
+- Place: column_name,observationAbout,{expression}
+- Time: column_name,observationDate,{expression}
+- Measure: column_name,value,[NUMBER],{prop1},{val1},{prop2},{val2}...
+- Indicator values: INDICATOR_COL:VALUE,populationType,{type},measuredProperty,{prop}
+- Constraint values: CONSTRAINT_COL:VALUE,{dc_property},{dcid}
+- Qualifier values: QUALIFIER_COL:VALUE,{property},{value}
+
+MULTI-MEASURE: If dataset has Value + ValueUSD, create SEPARATE rules. They are NOT co-referent — different units = different observations.
+
+INDICATOR + CONSTRAINT INTERACTION: Indicator values define BASE StatVar, constraint values add properties on top.
+
+### Step 4: Value Dictionaries
+
+For EACH dimension column (role=dimension), create a ValueDictionary that maps EVERY unique value from raw_value_profiles to a DC DCID:
+
+- **column_name**: exact column name from Phase A
+- **dc_property**: the DC property this dimension maps to (e.g., "age", "gender", "race")
+- **mappings**: one ValueMapping per unique value:
+  - raw_value: the exact string from raw_value_profiles
+  - dcid: the DC DCID with dcs: prefix, or null if action is DROP_CONSTRAINT/DROP_ROW
+  - action: "MAP" (normal mapping), "DROP_CONSTRAINT" (total/aggregate indicator), or "DROP_ROW" (invalid/skip)
+  - reason: brief explanation
+
+Standard dimension value mappings (use these when applicable):
+- Gender: M->dcs:Male, F->dcs:Female, Male->dcs:Male, Female->dcs:Female, Both Sexes->DROP_CONSTRAINT
+- Age brackets: 15-24->dcs:Years15To24, 25-34->dcs:Years25To34, 0-4->dcs:Years0To4, etc.
+- Race: White->dcs:WhiteAlone, Black->dcs:BlackOrAfricanAmericanAlone, Hispanic->dcs:HispanicOrLatino
+- Total indicators (from Phase A total_indicators): ALWAYS get action=DROP_CONSTRAINT with dcid=null
+
+- **total_indicators**: list of raw values identified as totals for this column
+
+### Step 5: Candidate Ranking with Phase A Evidence
+
+For each active column, RERANK candidates using Phase A relationships:
+- Co-referent columns: the chosen one gets observationAbout, the other gets role=ignored with evidence="Co-referent with [chosen_col]; redundant"
+- Hierarchical columns: child gets observationAbout (finer grain), parent gets role=ignored with evidence="Parent of [child_col]; use child for finer granularity"
+- Value-error bound pairs: estimate column is the primary measure, MOE column gets a separate measure mapping with measurementQualifier
+- Qualifier columns: the qualifier becomes a dimension or unit property on the value column it qualifies
+
+Assign confidence scores based on DATA EVIDENCE:
+- 0.95+: Phase A detected format (place/time) matches candidate
+- 0.80-0.94: Strong heuristic match (high-cardinality numeric = measure)
+- 0.50-0.79: Vocabulary/name match only, no structural confirmation
+- Below 0.50: Weak guess, flag is_ambiguous=true
+
+### Step 6: Place and Time Resolution
+
+- **place_resolution**: IF Phase A detected a place column, populate:
+  - column_name, format_detected (from Phase A), prefix_rule (from Phase A), pad_zeros (if FIPS codes need zero-padding), resolution_rate (from Phase A)
+- **time_resolution**: IF Phase A detected a time column, populate:
+  - columns (list of time column names), format_detected, normalization_rule (e.g., "pass-through YYYY as [NUMBER]")
+
+### Step 7: Transformation Strategy
+
+- IF archetype is "Wide":
+  - action: "unpivot"
+  - id_vars: columns that stay as-is (place, time, dimensions)
+  - value_vars: columns to melt into rows (the measure columns spread across headers)
+- IF archetype is "Dimension-Row" or "Flat":
+  - action: null (no transformation needed)
+
+### Step 8: Flag Ambiguities
+
+For any column where:
+- Phase A gives no clear signal AND candidates are split (top-2 confidence within 0.15)
+- OR the column has characteristics of multiple roles
+Set is_ambiguous=true and explain in global_notes.
+
+---
+
+## IMPORTANT RULES
+
+1. Analyze EVERY column — if it is not active, it MUST appear in ignored_columns with a reason.
+2. Use EXACT column names — copy them verbatim from the structural analysis. A single character difference will break downstream processing.
+3. Use [DATA] and [NUMBER] for placeholder expressions (NOT curly-brace variants like [Data] or [Number]). This is critical for ADK template safety.
+4. Use dcs: prefix for ALL Data Commons properties, types, and enum values.
+5. Only ONE observationAbout column. Only ONE observationDate column. No exceptions.
+6. DO NOT invent property names that do not appear in the candidates or schema vocabulary.
+7. Map EVERY unique value in raw_value_profiles for dimension columns. Missing mappings cause silent data loss.
+8. Total indicators from Phase A ALWAYS get action=DROP_CONSTRAINT — they represent aggregate rows that should not carry a constraint property.
+9. The composite_key from Phase A tells you which columns define uniqueness. Measure columns should NOT be in the composite key.
+10. Co-referent groups mean those columns carry the SAME information. Pick one, ignore the rest.
+
+---
+
+## Output
+
+Return a JSON object matching the EnrichedMappingPlan schema. Include ALL of these fields:
+
+```
+{
+  "dataset_name": "...",
+  "understanding": {
+    "archetype": "Dimension-Row",
+    "observation_grain": "One observation per country-year-variable-activity",
+    "key_insight": "UNIDO industrial statistics with hierarchical dimensions",
+    "executive_summary": "This dataset from UNIDO tracks industrial economic indicators for India and USA across 2014-2023. For each country-year combination, it measures 7 economic metrics (Output, Employees, Value Added, etc.) across 37 industrial sectors classified by ISIC Rev.4 codes."
+  },
+  "active_columns": [
+    {
+      "column_name": "exact_name",
+      "role": "observationAbout | observationDate | measure | dimension",
+      "candidates": [...],
+      "selected_index": 0,
+      "evidence": "Why this role was chosen",
+      "dc_match": "optional DC property match",
+      "is_ambiguous": false,
+      "purpose": "Structural Dimension",
+      "narrative": "ISO numeric country codes for DCID resolution. Co-referent with Country (human name)."
+    }
+  ],
+  "ignored_columns": [
+    {
+      "column_name": "Country",
+      "role": "dimension",
+      "candidates": [],
+      "selected_index": 0,
+      "evidence": "Co-referent with CountryCode",
+      "purpose": "Entity Resolution Helper",
+      "narrative": "Human-readable country name. Co-referent with CountryCode. Use for display and DCID resolution fallback."
+    }
+  ],
+  "static_properties": [
+    {
+      "property_name": "populationType | measuredProperty | statType | unit",
+      "candidates": [...],
+      "selected_index": 0
+    }
+  ],
+  "global_notes": ["warnings", "edge cases", "ambiguities"],
+  "engineer_notes": [],  // ALWAYS empty — reserved for human engineer input, never fill this
+  "column_relationships": [
+    {
+      "column_a": "...",
+      "column_b": "...",
+      "relationship": "co_referent | cross_product | qualifier | hierarchical | value_error | temporal | obs_status | independent",
+      "strength": 0.0-1.0,
+      "evidence": "...",
+      "pvmap_implication": "..."
+    }
+  ],
+  "statvar_blueprint": {
+    "base_properties": [{"name": "populationType", "value": "dcs:Person"}, {"name": "measuredProperty", "value": "dcs:count"}, {"name": "statType", "value": "dcs:measuredValue"}],
+    "constraint_columns": ["age_group", "sex"],
+    "measure_columns": ["estimate"]
+  },
+  "value_dictionaries": [
+    {
+      "column_name": "sex",
+      "dc_property": "gender",
+      "mappings": [
+        {"raw_value": "M", "dcid": "dcs:Male", "action": "MAP", "reason": "Standard gender mapping"},
+        {"raw_value": "T", "dcid": null, "action": "DROP_CONSTRAINT", "reason": "Total indicator"}
+      ],
+      "total_indicators": ["T"]
+    }
+  ],
+  "composite_key": ["geo_id", "year", "age_group", "sex"],
+  "place_resolution": {
+    "column_name": "geo_id",
+    "format_detected": "fips_county",
+    "prefix_rule": "geoId/",
+    "pad_zeros": 5,
+    "resolution_rate": 0.98
+  },
+  "time_resolution": {
+    "columns": ["year"],
+    "format_detected": "YYYY",
+    "normalization_rule": "Pass through as [NUMBER]"
+  },
+  "transformation_strategy": {
+    "archetype": "Dimension-Row",
+    "action": null,
+    "id_vars": [],
+    "value_vars": []
+  },
+  "indicator_columns": [
+    {
+      "column_name": "Variable",
+      "value_mappings": [
+        {"raw_value": "Output", "population_type": "dcs:EconomicActivity", "measured_property": "dcs:amount", "stat_type": "dcs:measuredValue", "extra_properties": [], "reason": "Industrial output"}
+      ]
+    }
+  ],
+  "mapping_rules": [
+    {
+      "rule_id": "value_main",
+      "measure_column": "Value",
+      "description": "Primary measure",
+      "observation": {
+        "about_column": "geo_id", "about_expression": "geoId/[DATA]",
+        "date_column": "year", "date_expression": "[NUMBER]",
+        "value_column": "Value", "value_expression": "[NUMBER]",
+        "unit": null, "unit_column": null
+      },
+      "indicator_column": "Variable",
+      "constraint_columns": ["ActivityCode"],
+      "static_properties": [{"name": "statType", "value": "dcs:measuredValue"}],
+      "pvmap_rows": [
+        "geo_id,observationAbout,geoId/[DATA]",
+        "year,observationDate,[NUMBER]",
+        "Variable:Output,populationType,dcs:EconomicActivity,measuredProperty,dcs:amount",
+        "Variable:Employees,populationType,dcs:Person,measuredProperty,dcs:count",
+        "ActivityCode,economicActivity,[DATA]",
+        "Value,value,[NUMBER],statType,dcs:measuredValue"
+      ]
+    }
+  ]
+}
+```
+
+Ensure column_relationships includes ONLY non-trivial relationships from Phase A (co_referent, hierarchical, qualifier, cross_product, value_error, temporal, obs_status). Do NOT include "independent" relationships — they waste tokens and provide no mapping guidance.
+Ensure composite_key is copied directly from Phase A.
+Ensure place_resolution and time_resolution use Phase A detections (may be null if not detected).
+Ensure transformation_strategy is always present (action=null for no-transform datasets).
+Ensure indicator_columns is populated if any dimension column changes the core StatVar per-value (empty list if none).
+Ensure mapping_rules has one entry per measure column, each with concrete pvmap_rows.
+Ensure every column has a purpose and narrative field populated.
+Ensure understanding.executive_summary is a 3-5 sentence plain-English paragraph.
+Ensure NO column has role="ignored" — use "dimension" or "metadata" with an appropriate purpose instead.

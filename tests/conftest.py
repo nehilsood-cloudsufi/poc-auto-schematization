@@ -50,16 +50,6 @@ def temp_dir():
 
 
 @pytest.fixture
-def mock_dataset_info():
-    """Create a mock DatasetInfo object for testing."""
-    from src.state.dataset_info import DatasetInfo
-
-    dataset_path = BASE_DIR / "input" / "test_dataset"
-    dataset = DatasetInfo(name="test_dataset", path=dataset_path)
-    return dataset
-
-
-@pytest.fixture
 def mock_invocation_context(temp_dir):
     """
     Create a mock ADK InvocationContext for testing agents.
@@ -81,23 +71,6 @@ def mock_invocation_context(temp_dir):
 
 
 @pytest.fixture
-def mock_context():
-    """
-    Create a mock state dictionary for testing (ADK-style).
-
-    ⚠️ DEPRECATED: Use mock_invocation_context for agent tests.
-    This fixture is kept for backward compatibility with tool tests.
-    """
-    return {
-        "name": "test_dataset",
-        "path": Path("input/test_dataset"),
-        "skip_sampling": False,
-        "skip_evaluation": False,
-        "model": "gemini-2.5-flash"
-    }
-
-
-@pytest.fixture
 def sample_pvmap_csv():
     """Return a sample PVMAP CSV content for testing."""
     return """key,property,value
@@ -108,24 +81,6 @@ value,value,100000
 """
 
 
-@pytest.fixture
-def sample_metadata_csv():
-    """Return sample metadata content for testing."""
-    return """parameter,value
-dataset_name,test_dataset
-source,Test Source
-date_format,%Y-%m-%d
-"""
-
-
-@pytest.fixture
-def sample_sampled_data_csv():
-    """Return sample sampled data content for testing."""
-    return """location,date,population
-USA,2020,100000
-USA,2021,100500
-USA,2022,101000
-"""
 
 
 # Pytest hooks

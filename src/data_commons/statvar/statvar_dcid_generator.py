@@ -25,15 +25,8 @@ import sys
 _SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(_SCRIPT_PATH, '.'))  # For soc_codes_names
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.data_commons.codes.soc_codes_names import SOC_MAP
-    from src.data_commons.codes.naics_codes import NAICS_CODES
-except ImportError:
-    from soc_codes_names import SOC_MAP
-    from naics_codes import NAICS_CODES
-# pylint: enable=wrong-import-position
-# pylint: enable=import-error
+from src.data_commons.codes.soc_codes_names import SOC_MAP
+from src.data_commons.codes.naics_codes import NAICS_CODES
 
 # Global constants
 # Regex to match the quantity notations - [value quantity], [quantity value]

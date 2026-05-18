@@ -8,6 +8,8 @@ from pathlib import Path
 
 from src.tools.metadata_tools import (
     extract_output_columns,
+    compute_mapped_rows,
+    compute_mapped_columns,
     count_mapped_rows,
     count_mapped_columns,
     detect_multi_value_properties,
@@ -123,32 +125,50 @@ class TestExtractOutputColumns:
         # value should come before scalingFactor
         assert cols.index("value") < cols.index("scalingFactor")
 
+    def test_required_columns_always_present(self):
+        """4 required columns present even when PVMAP has none of them."""
+        pvmap_no_svobs = "key,p,v\nFoo,gender,Male\nBar,age,25\n"
+        result = extract_output_columns(pvmap_no_svobs)
+        cols = result.split(",")
+        assert "observationAbout" in cols
+        assert "observationDate" in cols
+        assert "variableMeasured" in cols
+        assert "value" in cols
+
+    def test_required_columns_present_with_empty_pvmap(self):
+        """Empty PVMAP still returns all 4 required columns."""
+        result = extract_output_columns("")
+        cols = result.split(",")
+        assert "variableMeasured" in cols
+
+    def test_optional_unit_added_when_in_pvmap(self):
+        """unit added only when PVMAP contains it."""
+        result = extract_output_columns(PVMAP_WITH_UNIT)
+        cols = result.split(",")
+        assert "unit" in cols
+
+    def test_optional_not_added_when_absent(self):
+        """measurementMethod NOT in output when PVMAP doesn't use it."""
+        result = extract_output_columns(SIMPLE_PVMAP)
+        cols = result.split(",")
+        assert "measurementMethod" not in cols
+
 
 # ============================================================================
-# TestCountMappedRows
+# TestComputeMappedRows
 # ============================================================================
 
-class TestCountMappedRows:
-    def test_counts_data_rows(self):
-        """PVMAP with header + 3 data rows → mapped_rows=3."""
-        assert count_mapped_rows(SIMPLE_PVMAP) == 3
+class TestComputeMappedRows:
+    def test_equals_header_rows(self):
+        """mapped_rows always equals header_rows."""
+        assert compute_mapped_rows(1) == 1
+        assert compute_mapped_rows(2) == 2
+        assert compute_mapped_rows(3) == 3
 
-    def test_skips_header(self):
-        """Row starting with 'key' is excluded."""
-        pvmap = "key,property,value\nFoo,bar,baz\n"
-        assert count_mapped_rows(pvmap) == 1
-
-    def test_empty_pvmap(self):
-        """Empty content → 0."""
-        assert count_mapped_rows("") == 0
-
-    def test_header_only(self):
-        """Header-only PVMAP → 0."""
-        assert count_mapped_rows("key,property,value\n") == 0
-
-    def test_passthrough_pvmap(self):
-        """Passthrough has 4 data rows."""
-        assert count_mapped_rows(PASSTHROUGH_PVMAP) == 4
+    def test_minimum_1(self):
+        """At least 1."""
+        assert compute_mapped_rows(0) == 1
+        assert compute_mapped_rows(-1) == 1
 
 
 # ============================================================================
@@ -231,6 +251,29 @@ class TestDetectHeaderRows:
         result = detect_header_rows(input_file="/nonexistent/file.csv")
         assert result == 1
 
+    def test_pvmap_cross_reference_confirms_single_header(self, tmp_path):
+        """PVMAP keys matching row 1 column names confirms 1 header row."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("State,Year,Value\nAlice,2020,100\nBob,2021,200\n")
+        pvmap = "key,p,v\nState,observationAbout,{Data}\nYear,observationDate,{Data}\n"
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=pvmap)
+        assert result == 1
+
+    def test_pvmap_cross_reference_detects_two_header_rows(self, tmp_path):
+        """PVMAP keys matching both row 1 and row 2 values -> 2 header rows."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("Category,SubCat,Value\nTypeA,SubX,Count\n10,20,100\n")
+        pvmap = "key,p,v\nCategory,observationAbout,{Data}\nTypeA,populationType,{Data}\n"
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=pvmap)
+        assert result == 2
+
+    def test_no_pvmap_falls_back_to_text_scan(self, tmp_path):
+        """Without PVMAP, uses existing text-scan logic."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("Name,Value,Year\nAlice,100,2020\n")
+        result = detect_header_rows(input_file=str(csv_file), pvmap_csv_content=None)
+        assert result == 1
+
 
 # ============================================================================
 # TestMergeWithExisting
@@ -305,8 +348,10 @@ class TestGenerateProcessorConfig:
 
         params = result["parameters"]
         assert "output_columns" in params
-        assert "mapped_rows" in params
-        assert params["mapped_rows"] == 3
+        # SIMPLE_PVMAP has no COLUMN:VALUE keys → low confidence →
+        # mapped_rows/mapped_columns omitted (processor uses safe defaults)
+        assert "mapped_rows" not in params
+        assert "mapped_columns" not in params
 
     def test_writes_to_output_dir(self, tmp_path):
         """File at output/{dataset}/output_metadata.csv."""
@@ -321,24 +366,27 @@ class TestGenerateProcessorConfig:
         result = generate_processor_config(pvmap_csv_content="")
         assert result["success"] is False
         assert "Empty" in result["error"]
+        assert result["mapped_columns_confidence"] is None
 
     def test_no_output_dir(self):
         """No output_dir → config_path is None but params generated."""
         result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP)
         assert result["success"] is True
         assert result["config_path"] is None
-        assert result["parameters"]["mapped_rows"] == 3
+        # SIMPLE_PVMAP has low confidence → mapped_rows omitted
+        assert "mapped_rows" not in result["parameters"]
 
-    def test_llm_enrichment_merged(self, tmp_path):
-        """LLM enrichment params merge into config."""
+    def test_llm_enrichment_mapped_columns(self, tmp_path):
+        """LLM enrichment sets mapped_columns (promotes to high confidence)."""
         result = generate_processor_config(
             pvmap_csv_content=SIMPLE_PVMAP,
             output_dir=str(tmp_path),
-            llm_enrichment={"schemaless": True, "description": "Test dataset"},
+            llm_enrichment={"mapped_columns": 5},
         )
         assert result["success"] is True
-        assert result["parameters"]["schemaless"] is True
-        assert result["parameters"]["description"] == "Test dataset"
+        assert result["parameters"]["mapped_columns"] == 5
+        # LLM override promotes to high confidence → mapped_rows also set
+        assert "mapped_rows" in result["parameters"]
 
     def test_existing_metadata_overrides(self, tmp_path):
         """Existing metadata values override auto-generated ones."""
@@ -364,5 +412,179 @@ class TestGenerateProcessorConfig:
         cols = result["parameters"]["output_columns"].split(",")
         assert "observationAbout" in cols
         assert "variableMeasured" in cols
-        assert result["parameters"]["mapped_rows"] == 4
+        # Passthrough has no COLUMN:VALUE keys → low confidence → omitted
+        assert "mapped_rows" not in result["parameters"]
+        assert "mapped_columns" not in result["parameters"]
+
+    def test_no_generate_statvar_name(self, tmp_path):
+        """generate_statvar_name no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "generate_statvar_name" not in result["parameters"]
+
+    def test_no_drop_statvars(self, tmp_path):
+        """drop_statvars_without_svobs no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "drop_statvars_without_svobs" not in result["parameters"]
+
+    def test_no_multi_value_properties(self, tmp_path):
+        """multi_value_properties no longer in output."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "multi_value_properties" not in result["parameters"]
+
+    def test_mapped_rows_set_when_high_confidence(self, tmp_path):
+        """mapped_rows set to header_rows when mapped_columns confidence is high."""
+        # PVMAP with COLUMN:VALUE keys → high confidence → both set
+        pvmap_with_cv = "key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\nval_col,value,{Number}\n"
+        result = generate_processor_config(
+            pvmap_csv_content=pvmap_with_cv,
+            input_headers=["col_a", "val_col", "other"],
+            data_context={"header_rows": 1},
+            output_dir=str(tmp_path),
+        )
+        assert result["parameters"]["mapped_rows"] == 1
         assert result["parameters"]["mapped_columns"] == 1
+
+    def test_returns_confidence(self, tmp_path):
+        """Result includes mapped_columns_confidence."""
+        result = generate_processor_config(pvmap_csv_content=SIMPLE_PVMAP, output_dir=str(tmp_path))
+        assert "mapped_columns_confidence" in result
+
+    def test_required_output_columns_always_present(self, tmp_path):
+        """Even with minimal PVMAP, all 4 required columns present."""
+        minimal_pvmap = "key,p,v\nFoo,gender,Male\n"
+        result = generate_processor_config(pvmap_csv_content=minimal_pvmap, output_dir=str(tmp_path))
+        cols = result["parameters"]["output_columns"].split(",")
+        assert "observationAbout" in cols
+        assert "variableMeasured" in cols
+
+    def test_empty_pvmap_returns_confidence_none(self):
+        """Empty PVMAP error result includes mapped_columns_confidence: None."""
+        result = generate_processor_config(pvmap_csv_content="")
+        assert result["mapped_columns_confidence"] is None
+
+    def test_reads_input_headers_from_file(self, tmp_path):
+        """When input_headers not provided, reads from input_file."""
+        csv_file = tmp_path / "input.csv"
+        csv_file.write_text("State,Year,Population\nAlice,2020,100\n")
+        pvmap = "key,p,v\nState:CA,observationAbout,geoId/06\nYear,observationDate,{Data}\nPopulation,value,{Number}\n"
+        result = generate_processor_config(
+            pvmap_csv_content=pvmap,
+            input_file=str(csv_file),
+            output_dir=str(tmp_path),
+        )
+        assert result["success"] is True
+        # State is a dimension column (State:CA pattern), should be detected
+        assert result["parameters"]["mapped_columns"] >= 1
+
+    def test_input_headers_param_used_when_provided(self, tmp_path):
+        """Explicit input_headers parameter takes precedence over file read."""
+        result = generate_processor_config(
+            pvmap_csv_content="key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\nval,value,{Number}\n",
+            input_headers=["col_a", "val", "other"],
+            output_dir=str(tmp_path),
+        )
+        assert result["success"] is True
+        # col_a is a dimension column at position 1
+        assert result["parameters"]["mapped_columns"] == 1
+
+
+# ============================================================================
+# TestComputeMappedColumns
+# ============================================================================
+
+class TestComputeMappedColumns:
+    """Test mapped_columns computation using PVMAP key analysis."""
+
+    # SAHIE: dimension columns are agecat, racecat, sexcat, iprcat (positions 6-9 in headers)
+    SAHIE_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+year,observationDate,{Number},observationPeriod,P1Y,,
+statefips,#Format,StateFips={Number:0>2},,,,
+countyfips,#Format,CountyFips={Number:0>3},,,,
+agecat:0,age,Years0Onwards,,,,
+agecat:1,age,Years0To18,,,,
+racecat:0,race,USC_AllRaces,,,,
+sexcat:0,gender,USC_BothSexes,,,,
+iprcat:0,povertyStatus,USC_AllIncomes,,,,
+NIPR,variableMeasured,dcid:Count_Person,,,,
+NUI,variableMeasured,dcid:Count_Person,,,,
+"""
+
+    SAHIE_HEADERS = [
+        "year", "version", "statefips", "countyfips", "geocat",
+        "agecat", "racecat", "sexcat", "iprcat",
+        "NIPR", "nipr_moe", "NUI", "nui_moe", "NIC", "nic_moe",
+    ]
+
+    # BRFSS: life_stage is dimension column (position 11)
+    BRFSS_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+State,observationAbout,{Data},populationType,Person,healthOutcome,Asthma
+year,observationDate,{Data},,,,
+life_stage:child,age,YearsUpto18,,,,
+life_stage:adult,age,Years18Onwards,,,,
+Prevalence (Percent),value,{Number},,,,
+Standard Error,marginOfError,{Number},,,,
+"""
+
+    BRFSS_HEADERS = [
+        "State", "Income", "Sample Sizec", "Prevalence (Percent)",
+        "Standard Error", "95% CId (Percent)", "|| ||",
+        "Weighted Numbere", "95% CId (Weighted Number)", "year", "life_stage",
+    ]
+
+    # BIS: all direct keys (headers contain colons but match full header names)
+    BIS_PVMAP = """\
+key,p1,v1,p2,v2,p3,v3
+REF_AREA:Reference area,observationAbout,{Data},,,,
+TIME_PERIOD:Time period or range,observationDate,{Data},,,,
+OBS_VALUE:Observation Value,value,{Number},,,,
+UNIT_MEASURE:Unit of measure,unit,{Data},,,,
+"""
+
+    BIS_HEADERS = [
+        "STRUCTURE", "STRUCTURE_ID", "ACTION", "FREQ:Frequency",
+        "REF_AREA:Reference area", "TIME_PERIOD:Time period or range",
+        "OBS_VALUE:Observation Value", "UNIT_MEASURE:Unit of measure",
+    ]
+
+    def test_sahie_dimension_columns(self):
+        """SAHIE has COLUMN:VALUE keys -> detects dimension columns."""
+        result, confidence = compute_mapped_columns(self.SAHIE_PVMAP, self.SAHIE_HEADERS)
+        # Dimension columns: agecat(6), racecat(7), sexcat(8), iprcat(9)
+        assert result == 9
+        assert confidence == "high"
+
+    def test_brfss_dimension_columns(self):
+        """BRFSS has life_stage:child/adult -> detects life_stage as dimension."""
+        result, confidence = compute_mapped_columns(self.BRFSS_PVMAP, self.BRFSS_HEADERS)
+        # life_stage is at position 11 — it's the only COLUMN:VALUE column
+        assert result == 11
+
+    def test_bis_all_direct_keys(self):
+        """BIS has only direct keys (header names contain colons, not COLUMN:VALUE)."""
+        result, confidence = compute_mapped_columns(self.BIS_PVMAP, self.BIS_HEADERS)
+        # No COLUMN:VALUE keys -> confidence should be LOW
+        assert confidence == "low"
+
+    def test_empty_pvmap(self):
+        """Empty PVMAP -> 0, low confidence."""
+        result, confidence = compute_mapped_columns("", ["A", "B", "C"])
+        assert result == 0
+        assert confidence == "low"
+
+    def test_simple_passthrough(self):
+        """Passthrough PVMAP (all direct keys matching headers) -> 0, low."""
+        pvmap = "key,p,v\nobservationAbout,observationAbout,{Data}\nvalue,value,{Number}\n"
+        headers = ["observationAbout", "observationDate", "value"]
+        result, confidence = compute_mapped_columns(pvmap, headers)
+        assert result == 0
+        assert confidence == "low"
+
+    def test_contiguous_dimensions_high_confidence(self):
+        """When dimension columns are contiguous from left -> high confidence."""
+        pvmap = "key,p,v\ncol_a:1,foo,bar\ncol_a:2,foo,baz\ncol_b:x,qux,quux\nval_col,value,{Number}\n"
+        headers = ["col_a", "col_b", "val_col", "other"]
+        result, confidence = compute_mapped_columns(pvmap, headers)
+        assert result == 2  # col_a(1) and col_b(2)
+        assert confidence == "high"

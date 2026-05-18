@@ -36,5 +36,64 @@
       }
     },
     "dc_only_properties": []
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "Median_Earnings_Person_30To39Years_EducationalAttainmentCollegeGraduate_Employed_NotHispanicOrLatino_Female_SOCBiologicalScientistsAllOtherOccupation_WhiteAlone",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:earnings",
+      "race": "dcs:WhiteAlone",
+      "employmentStatus": "dcs:Employed",
+      "gender": "dcs:Female",
+      "educationalAttainment": "dcs:CollegeGraduate",
+      "age": "dcs:Years30To39",
+      "occupation": "dcs:SOCv2018/19-1029",
+      "ethnicity": "dcs:NotHispanicOrLatino"
+    },
+    {
+      "dcid": "Count_Person_Employed_NAICSManufacturing_ForeignBorn_PlaceOfBirthEasternAsia",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "armedForcesStatus": "dcs:Civilian",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:EasternAsia",
+      "age": "dcs:Years16Onwards",
+      "employment": "dcs:BLS_Employed",
+      "naics": "dcs:NAICS/33"
+    },
+    {
+      "dcid": "MarginOfError_Count_Person_LocalGovernmentOwnedEstablishment_Female_Worker",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "gender": "dcs:Female",
+      "armedForcesStatus": "dcs:Civilian",
+      "age": "dcs:Years16Onwards",
+      "employment": "dcs:BLS_Employed",
+      "establishmentOwnership": "dcs:LocalGovernmentOwned",
+      "workerClassification": "dcs:Worker"
+    },
+    {
+      "dcid": "Count_Person_Employed_NAICSTransportationWarehousingUtilities_ForeignBorn_PlaceOfBirthSouthCentralAsia",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "armedForcesStatus": "dcs:Civilian",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:SouthCentralAsia",
+      "age": "dcs:Years16Onwards",
+      "employment": "dcs:BLS_Employed",
+      "naics": "dcs:NAICS/48-49_22"
+    },
+    {
+      "dcid": "Count_Person_ScienceAndEngineeringRelatedMajor_EducationalAttainmentDoctorateDegree_UniversityAndCollegeTeacher_Male_SOCPsychologistsOccupation_Asian_TenureNotApplicable",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "race": "dcs:Asian",
+      "gender": "dcs:Male",
+      "educationalAttainment": "dcs:DoctorateDegree",
+      "occupation": "dcs:SOCv2018/19-3030",
+      "facultyType": "dcs:UniversityAndCollegeTeacher",
+      "doctorateDegreeMajor": "dcs:ScienceAndEngineeringRelatedMajor",
+      "tenureStatus": "dcs:TenureNotApplicable"
+    }
+  ]
 }

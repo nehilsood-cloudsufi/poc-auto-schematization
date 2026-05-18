@@ -1,440 +1,385 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the 'License');
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#         https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Agentic Data Sampling Agent for ADK pipeline.
+"""Programmatic Sampling Agent — Python controls flow, LLM does reasoning.
 
-This agent uses an LLM to make sampling decisions based on data evidence,
-rather than hardcoded heuristics. The LLM decides:
-- Which columns are place/time/dimension/value
-- What sampling strategy to use
-- How many rows to sample
+Replaces the LLM-orchestrated SamplingAgentWrapper with a deterministic
+6-step DAG that uses exactly 2 LLM calls for semantic reasoning:
 
-The agent has access to 5 tools that provide statistical evidence:
-1. preview_data - Quick overview of file structure
-2. analyze_columns - Statistical analysis for classification
-3. sample_rows - Execute sampling with chosen strategy
-4. check_coverage - Validate dimension hypothesis
-5. generate_context - Create DataContext for PVMAP generation
+DAG: profile -> semantic_analysis -> skeleton -> sampling -> grounding -> assembly
 
-Data Commons Context:
-The downstream PVMAP generator needs to understand the data's "Skeleton":
-- Anchors: Place (observationAbout) + Time (observationDate)
-- Dimensions: Categorical columns that define StatVar uniqueness
-- Values: Numeric measurement columns
+The agent maintains the same state contract as SamplingAgentWrapper so
+downstream agents (SchemaSelection, PVMAPGenerator, Evaluation) see no change.
 
-Rule: Place + Time + StatVar (defined by dimensions) = Unique Observation
+State Contract:
+    Reads:  current_dataset, skip_sampling, force_resample
+    Writes: skeleton_summary, data_context, sampling_success,
+            sampled_data_path, context_file_path
 """
 
+import asyncio
 import json
 import logging
 import os
-import sys
+import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from google.adk.agents import BaseAgent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from google.adk import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
+
+from src.agents.sampling.schemas import RelationalSkeleton, SemanticAnalysis
+from src.agents.sampling.semantic_analyzer import create_semantic_analyzer
+from src.agents.sampling.skeleton_mapper import create_skeleton_mapper
+from src.pipeline.sampling.context_assembler import assemble_context
+from src.pipeline.sampling.profiler import profile_dataset
+from src.pipeline.sampling.statvar_grounder import ground_statvars
+from src.pipeline.sampling.stratified_sampler import execute_sampling
 
 logger = logging.getLogger(__name__)
 
-from google.adk.agents import BaseAgent, LlmAgent
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event
-from google.adk.tools import FunctionTool
-from google.genai import types
 
-from src.tools.sampling_tools import (
-    preview_data,
-    analyze_columns,
-    sample_rows,
-    check_coverage,
-    generate_context,
-)
-from src.agents.retry_config import create_resilient_model
-from src.agents.template_utils import build_thinking_config
+class ProgrammaticSamplingAgent(BaseAgent):
+    """Programmatic sampling agent with exactly 2 LLM calls.
 
-
-# ============================================================================
-# Agent Instruction
-# ============================================================================
-
-from src.agents.prompt_loader import load_prompt
-
-SAMPLING_AGENT_INSTRUCTION = load_prompt("sampling_agent.txt")
-
-
-# ============================================================================
-# Agent Factory
-# ============================================================================
-
-def create_sampling_agent(
-    name: str = "SamplingAgent",
-    model: Optional[str] = None,
-    thinking_level: Optional[str] = None,
-) -> LlmAgent:
-    """Create an agentic Data Sampling Agent with forced tool calling.
-
-    This agent uses an LLM to make intelligent sampling decisions based on
-    data evidence, rather than relying on hardcoded heuristics.
-
-    The agent has access to 5 tools:
-    1. preview_data - Quick overview of file structure
-    2. analyze_columns - Statistical analysis for classification
-    3. sample_rows - Execute sampling with chosen strategy
-    4. check_coverage - Validate dimension hypothesis
-    5. generate_context - Create DataContext for PVMAP generation
-
-    Uses FunctionCallingConfigMode.ANY to ensure the LLM MUST call at least
-    one tool per turn, guaranteeing the workflow is followed.
-
-    Args:
-        name: Agent name (default: "SamplingAgent")
-        model: LLM model to use (default: from SAMPLING_AGENT_MODEL env var
-               or "gemini-2.5-flash")
-
-    Returns:
-        Configured LlmAgent ready for pipeline integration
-    """
-    # Get model from environment or use default
-    if model is None:
-        model = os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
-
-    # Create function tools
-    tools = [
-        FunctionTool(func=preview_data),
-        FunctionTool(func=analyze_columns),
-        FunctionTool(func=sample_rows),
-        FunctionTool(func=check_coverage),
-        FunctionTool(func=generate_context),
-    ]
-
-    # Force tool calling with mode=ANY
-    # This ensures the LLM MUST call at least one tool per turn,
-    # guaranteeing it follows the complete workflow including generate_context
-    config_kwargs = dict(
-        tool_config=types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(
-                mode=types.FunctionCallingConfigMode.ANY
-            )
-        )
-    )
-    thinking_config = build_thinking_config(thinking_level, model=model)
-    if thinking_config:
-        config_kwargs["thinking_config"] = thinking_config
-    generate_content_config = types.GenerateContentConfig(**config_kwargs)
-
-    # Create LlmAgent with forced tool calling
-    agent = LlmAgent(
-        name=name,
-        model=create_resilient_model(model),
-        instruction=SAMPLING_AGENT_INSTRUCTION,
-        tools=tools,
-        generate_content_config=generate_content_config,
-    )
-
-    return agent
-
-
-# ============================================================================
-# Backward Compatibility: SamplingAgent class wrapper
-# ============================================================================
-
-class SamplingAgent:
-    """Wrapper class for backward compatibility.
-
-    The old SamplingAgent was a BaseAgent subclass. This wrapper provides
-    the same interface while delegating to the new LlmAgent-based implementation.
-
-    For new code, use create_sampling_agent() directly.
-    """
-
-    def __init__(self, name: str = "SamplingAgent", model: Optional[str] = None,
-                 thinking_level: Optional[str] = None):
-        """Initialize SamplingAgent wrapper.
-
-        Args:
-            name: Agent name
-            model: LLM model to use
-            thinking_level: Thinking level for Gemini models
-        """
-        self._agent = create_sampling_agent(name=name, model=model, thinking_level=thinking_level)
-        self.name = name
-
-    @property
-    def agent(self) -> LlmAgent:
-        """Return the underlying LlmAgent."""
-        return self._agent
-
-    def __getattr__(self, name):
-        """Delegate attribute access to underlying agent."""
-        return getattr(self._agent, name)
-
-
-# ============================================================================
-# SamplingAgentWrapper: BaseAgent for Pipeline Integration
-# ============================================================================
-
-class SamplingAgentWrapper(BaseAgent):
-    """
-    BaseAgent wrapper that manages session state for SamplingAgent.
-
-    The LlmAgent-based SamplingAgent generates context but doesn't automatically
-    persist structured results to session state. This wrapper:
-    1. Reads current_dataset from session state
-    2. Creates the inner LlmAgent and runs it with file paths
-    3. Reads the generated data_context.json file
-    4. Stores skeleton_summary, data_context, etc. to session state
-
-    ADK State Inputs:
-        - current_dataset: DatasetInfo - Current dataset being processed
-        - skip_sampling: bool - If True, skip sampling entirely
-        - force_resample: bool - If True, always re-run sampling
-
-    ADK State Outputs:
-        - skeleton_summary: str - Markdown summary for PVMAP prompt
-        - data_context: dict - Full context dictionary
-        - column_roles: dict - Column classification
-        - dimension_columns: list - Dimension column names
-        - sampling_success: bool - Whether sampling succeeded
-        - sampled_data_path: str - Path to sampled CSV file
+    Steps:
+        1. CODE: Profile dataset (pandas, <2s)
+        2. LLM:  Semantic analysis (single-shot, output_schema)
+        3. LLM:  Relational skeleton (single-shot, output_schema)
+        4. CODE: Execute sampling (deterministic, pandas)
+        5. CODE: Ground StatVars (optional, DC API)
+        6. CODE: Assemble context (deterministic, template)
     """
 
     def __init__(
         self,
-        name: str = "SamplingAgent",
+        name: str = "ProgrammaticSamplingAgent",
         model: Optional[str] = None,
-        thinking_level: Optional[str] = None,
+        enable_mcp: bool = False,
+        mcp_url: Optional[str] = None,
     ):
-        """
-        Initialize SamplingAgentWrapper.
-
-        Args:
-            name: Agent name
-            model: LLM model to use (default: from SAMPLING_AGENT_MODEL env var
-                   or "gemini-3-pro-preview")
-            thinking_level: Thinking level for Gemini models
-        """
         super().__init__(name=name)
-        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview")
-        self._thinking_level = thinking_level
-        self._fallback_model = "gemini-2.5-pro"
-        self._timeout = float(os.getenv("SAMPLING_AGENT_TIMEOUT", "300"))
+        self._model = model or os.getenv("SAMPLING_AGENT_MODEL", "gemini-3.1-pro-preview")
+        self._enable_mcp = enable_mcp
+        self._mcp_url = mcp_url
 
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
-        """
-        Run sampling workflow and persist results to session state.
-        """
-        # Check skip flag
+        """Run the 6-step programmatic sampling DAG."""
+
+        # --- Pre-checks ---
         skip_sampling = ctx.session.state.get("skip_sampling", False)
         if skip_sampling:
-            yield self._create_event("Sampling skipped per skip_sampling flag")
+            yield self._emit("Sampling skipped per skip_sampling flag")
             ctx.session.state["sampling_success"] = True
-            ctx.session.state["skeleton_summary"] = ""
+            # Preserve existing skeleton_summary from Phase 1 state (if injected
+            # via extra_initial_state). Only set to empty if not already present.
+            if not ctx.session.state.get("skeleton_summary"):
+                ctx.session.state["skeleton_summary"] = ""
             return
 
-        # Get current dataset from state
         current_dataset = ctx.session.state.get("current_dataset")
         if not current_dataset:
-            yield self._create_event("No current_dataset in session state, skipping sampling")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = "No current_dataset specified"
+            yield self._emit("No current_dataset in session state")
+            self._set_failure_defaults(ctx, "No current_dataset specified")
             return
 
-        # Get input file path
+        # Resolve input file
         input_file = None
         if current_dataset.input_data_files:
-            input_file = str(current_dataset.input_data_files[0])
+            input_file = Path(str(current_dataset.input_data_files[0]))
 
-        if not input_file or not Path(input_file).exists():
-            yield self._create_event(f"No input file found for dataset {current_dataset.name}")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = "No input data file available"
+        if not input_file or not input_file.exists():
+            yield self._emit(f"No input file found for {current_dataset.name}")
+            self._set_failure_defaults(ctx, "No input data file available")
             return
 
-        # Set up output paths
+        # Output paths
         output_dir = Path(current_dataset.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = str(output_dir / "agentic_sampled.csv")
+        sampled_file = output_dir / "agentic_sampled.csv"
         context_file = output_dir / "data_context.json"
 
-        yield self._create_event(f"Starting agentic sampling for {current_dataset.name}")
-        yield self._create_event(f"Input: {Path(input_file).name}, Output: {output_file}")
-
-        # Check if we should skip (existing context file and not force_resample)
+        # --- Cache check ---
         force_resample = ctx.session.state.get("force_resample", False)
         if context_file.exists() and not force_resample:
-            yield self._create_event(f"Found existing data_context.json, loading from cache")
+            yield self._emit("Found existing data_context.json, loading from cache")
             try:
                 with open(context_file, 'r', encoding='utf-8') as f:
-                    cached_context = json.load(f)
-                self._populate_state_from_context(ctx, cached_context, str(context_file))
-                yield self._create_event("Loaded cached sampling context successfully")
+                    cached = json.load(f)
+                self._populate_state(ctx, cached, str(context_file))
+                yield self._emit("Loaded cached sampling context successfully")
                 return
             except Exception as e:
-                yield self._create_event(f"Failed to load cached context: {e}, re-running sampling")
+                yield self._emit(f"Cache load failed: {e}, re-running sampling")
 
-        # Create the inner LlmAgent
-        sampling_llm = create_sampling_agent(
-            name=f"{self.name}_LLM", model=self._model,
-            thinking_level=self._thinking_level,
-        )
+        yield self._emit(f"Starting programmatic sampling for {current_dataset.name}")
 
-        # Construct message with file paths for the LLM
-        message_text = f"""
-Sample the data file and generate context for PVMAP generation.
-
-Input file: {input_file}
-Output sampled file: {output_file}
-
-Follow the complete workflow:
-1. Call preview_data with file_path="{input_file}" to see structure
-2. Call analyze_columns with file_path="{input_file}" to get evidence
-3. Call sample_rows with file_path="{input_file}", output_path="{output_file}", and strategy_json based on your analysis
-4. Call check_coverage with sampled_file="{output_file}" and your identified columns
-5. Call generate_context with sampled_file="{output_file}", your classifications as column_roles_json, and dimension_columns list
-
-CRITICAL: You MUST call generate_context at the end to create the skeleton_summary.
-The generate_context tool will write the results to a JSON file.
-"""
-
-        # Run the LlmAgent using Runner (same pattern as StatVarDiscoveryAgent)
         try:
-            from google.adk import Runner
-            from google.adk.sessions import InMemorySessionService
-            import uuid
-
-            # Create a runner for the sampling agent
-            runner = Runner(
-                app_name="sampling",
-                agent=sampling_llm,
-                session_service=InMemorySessionService(),
-                auto_create_session=True
+            # --- Step 1: Profile dataset (CODE) ---
+            yield self._emit("Step 1/6: Profiling dataset...")
+            profile = profile_dataset(input_file)
+            yield self._emit(
+                f"Profile: {profile.total_rows} rows, {profile.total_columns} cols, "
+                f"preformatted={profile.is_preformatted_dc}"
             )
 
-            session_id = f"sampling_{uuid.uuid4().hex[:8]}"
-            user_message = types.Content(parts=[types.Part(text=message_text)])
+            # --- Step 2: Semantic analysis (LLM) ---
+            yield self._emit("Step 2/6: Running semantic analysis (LLM)...")
+            analysis = await self._run_semantic_analysis(profile)
+            yield self._emit(
+                f"Analysis: topology={analysis.topology}, "
+                f"population={analysis.population_type}, "
+                f"preformatted={analysis.is_preformatted_dc}"
+            )
 
-            yield self._create_event("Running LLM sampling agent...")
+            # --- Step 3: Relational skeleton (LLM) ---
+            yield self._emit("Step 3/6: Building relational skeleton (LLM)...")
+            skeleton = await self._run_skeleton_mapping(profile, analysis)
+            yield self._emit(
+                f"Skeleton: pattern={skeleton.statvar_pattern}, "
+                f"dims={skeleton.dimension_columns}, "
+                f"place={skeleton.place_column}, time={skeleton.time_column}"
+            )
 
-            result_text = ""
-            max_events = 50  # Limit to prevent infinite loops with forced tool calling
-            event_count = 0
+            # --- Step 4: Execute sampling (CODE) ---
+            yield self._emit("Step 4/6: Executing deterministic sampling...")
+            sample_result = execute_sampling(
+                file_path=input_file,
+                output_path=sampled_file,
+                skeleton=skeleton,
+                analysis=analysis,
+                profile=profile,
+            )
+            if not sample_result.success:
+                yield self._emit(f"Sampling failed: {sample_result.error}")
+                self._set_failure_defaults(ctx, sample_result.error)
+                return
+            yield self._emit(
+                f"Sampled {sample_result.rows_sampled} rows "
+                f"(strategy={sample_result.strategy_used})"
+            )
 
-            for event in runner.run(user_id="sampler", session_id=session_id, new_message=user_message):
-                event_count += 1
-                if event_count > max_events:
-                    yield self._create_event(f"Max events ({max_events}) reached, stopping sampling agent")
-                    break
+            # --- Step 5: Ground StatVars (CODE, optional) ---
+            grounded = []
+            if self._enable_mcp:
+                yield self._emit("Step 5/6: Grounding StatVars via DC API...")
+                grounded = ground_statvars(
+                    skeleton, analysis, enable_mcp=True, mcp_url=self._mcp_url
+                )
+                confirmed = sum(1 for g in grounded if g.confirmed)
+                yield self._emit(f"Grounded {confirmed}/{len(grounded)} StatVars")
+            else:
+                yield self._emit("Step 5/6: StatVar grounding skipped (no --enable-mcp)")
 
-                if hasattr(event, 'content') and event.content:
-                    for part in event.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            result_text += part.text
+            # --- Step 6: Assemble context (CODE) ---
+            yield self._emit("Step 6/6: Assembling context...")
+            skeleton_summary, data_context = assemble_context(
+                profile=profile,
+                analysis=analysis,
+                skeleton=skeleton,
+                sampled_file=sampled_file,
+                grounded_statvars=grounded if grounded else None,
+            )
+            yield self._emit(
+                f"Context assembled: skeleton_summary={len(skeleton_summary)} chars"
+            )
 
-            yield self._create_event(f"LLM sampling agent completed ({event_count} events)")
+            # --- Persist to state ---
+            ctx.session.state["skeleton_summary"] = skeleton_summary
+            ctx.session.state["data_context"] = data_context
+            ctx.session.state["sampling_success"] = True
+            ctx.session.state["sampled_data_path"] = str(sampled_file)
+            ctx.session.state["context_file_path"] = str(context_file)
+
+            yield self._emit("Programmatic sampling complete")
 
         except Exception as e:
-            yield self._create_event(f"Sampling LLM error: {str(e)}")
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = str(e)
-            return
+            logger.exception("Programmatic sampling failed")
+            yield self._emit(f"ERROR: Sampling failed: {e}")
+            self._set_failure_defaults(ctx, str(e))
 
-        # After LLM finishes, read the generated context file
-        # With FunctionCallingConfigMode.ANY, the LLM is forced to call tools,
-        # so generate_context should always be called and context_file should exist
-        if context_file.exists():
+    async def _run_semantic_analysis(
+        self, profile: 'DatasetProfile'
+    ) -> SemanticAnalysis:
+        """Run SemanticAnalyzer LlmAgent and extract structured output."""
+        agent = create_semantic_analyzer(self._model)
+        profile_json = json.dumps(profile.to_dict(), indent=2)
+
+        session_service = InMemorySessionService()
+        runner = Runner(
+            app_name="semantic_analysis",
+            agent=agent,
+            session_service=session_service,
+        )
+
+        session_id = f"sem_{uuid.uuid4().hex[:8]}"
+
+        # Pre-populate state so {dataset_profile} resolves in instruction template
+        await session_service.create_session(
+            app_name="semantic_analysis",
+            user_id="sampler",
+            session_id=session_id,
+            state={"dataset_profile": profile_json},
+        )
+
+        message = types.Content(parts=[types.Part(text="Analyze this dataset profile.")])
+
+        result = None
+        for event in runner.run(
+            user_id="sampler",
+            session_id=session_id,
+            new_message=message,
+        ):
+            # Check for structured output in event
+            if hasattr(event, 'content') and event.content:
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        try:
+                            data = json.loads(part.text)
+                            result = SemanticAnalysis(**data)
+                        except (json.JSONDecodeError, Exception):
+                            pass
+
+        # Also check session state for output_key
+        if result is None:
             try:
-                with open(context_file, 'r', encoding='utf-8') as f:
-                    data_context = json.load(f)
-                self._populate_state_from_context(ctx, data_context, str(context_file))
-                yield self._create_event(f"Sampling complete. Skeleton summary stored in state.")
+                session = await session_service.get_session(
+                    app_name="semantic_analysis",
+                    user_id="sampler",
+                    session_id=session_id,
+                )
+                if session and session.state:
+                    state_result = session.state.get("semantic_analysis")
+                    if state_result:
+                        if isinstance(state_result, SemanticAnalysis):
+                            result = state_result
+                        elif isinstance(state_result, dict):
+                            result = SemanticAnalysis(**state_result)
             except Exception as e:
-                yield self._create_event(f"ERROR: Failed to read data_context.json: {e}")
-                yield self._create_event("Check Gemini API status or manually create agentic_sampled.csv + data_context.json")
-                ctx.session.state["sampling_success"] = False
-                ctx.session.state["error"] = f"Failed to read context file: {e}"
-        else:
-            # Context file not created
-            yield self._create_event("ERROR: LLM didn't call generate_context despite forced tool calling")
-            yield self._create_event("Check Gemini API status or manually create agentic_sampled.csv + data_context.json")
-            ctx.session.state["skeleton_summary"] = ""
-            ctx.session.state["sampling_success"] = False
-            ctx.session.state["error"] = "generate_context was not called by the LLM"
+                logger.warning("Failed to read semantic_analysis from session state: %s", e)
 
-    def _populate_state_from_context(
+        if result is None:
+            raise RuntimeError("SemanticAnalyzer did not return valid output")
+
+        return result
+
+    async def _run_skeleton_mapping(
+        self, profile: 'DatasetProfile', analysis: SemanticAnalysis
+    ) -> RelationalSkeleton:
+        """Run SkeletonMapper LlmAgent and extract structured output."""
+        agent = create_skeleton_mapper(self._model)
+        profile_json = json.dumps(profile.to_dict(), indent=2)
+        analysis_json = analysis.model_dump_json(indent=2)
+
+        session_service = InMemorySessionService()
+        runner = Runner(
+            app_name="skeleton_mapping",
+            agent=agent,
+            session_service=session_service,
+        )
+
+        session_id = f"skel_{uuid.uuid4().hex[:8]}"
+
+        # Pre-populate state so {dataset_profile} and {semantic_analysis} resolve
+        await session_service.create_session(
+            app_name="skeleton_mapping",
+            user_id="sampler",
+            session_id=session_id,
+            state={
+                "dataset_profile": profile_json,
+                "semantic_analysis": analysis_json,
+            },
+        )
+
+        message = types.Content(parts=[types.Part(text="Build relational skeleton.")])
+
+        result = None
+        for event in runner.run(
+            user_id="sampler",
+            session_id=session_id,
+            new_message=message,
+        ):
+            if hasattr(event, 'content') and event.content:
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        try:
+                            data = json.loads(part.text)
+                            result = RelationalSkeleton(**data)
+                        except (json.JSONDecodeError, Exception):
+                            pass
+
+        # Check session state
+        if result is None:
+            try:
+                session = await session_service.get_session(
+                    app_name="skeleton_mapping",
+                    user_id="sampler",
+                    session_id=session_id,
+                )
+                if session and session.state:
+                    state_result = session.state.get("relational_skeleton")
+                    if state_result:
+                        if isinstance(state_result, RelationalSkeleton):
+                            result = state_result
+                        elif isinstance(state_result, dict):
+                            result = RelationalSkeleton(**state_result)
+            except Exception as e:
+                logger.warning("Failed to read relational_skeleton from session state: %s", e)
+
+        if result is None:
+            raise RuntimeError("SkeletonMapper did not return valid output")
+
+        return result
+
+    def _populate_state(
         self,
         ctx: InvocationContext,
         data_context: dict,
-        context_file_path: str
-    ):
-        """Populate session state from data context dict.
+        context_file_path: str,
+    ) -> None:
+        """Populate session state from cached data context.
 
-        State Keys (2 keys, ordered by importance):
-
-        1. skeleton_summary (str) — PRIMARY output. Enriched 9-section markdown
-           injected directly into the PVMAP generation prompt via {{DATA_CONTEXT}}.
-           All downstream LLM consumers should prefer this key.
-
-        2. data_context (dict) — SECONDARY output. Full structured dict for
-           programmatic access (evaluation agent, MCP queries, debugging).
-           Contains column_roles and dimension_columns for any agent that
-           needs them (e.g. data_context.get("column_roles")).
+        Same logic as SamplingAgentWrapper._populate_state_from_context().
         """
         ctx.session.state["skeleton_summary"] = data_context.get("skeleton_summary", "")
         ctx.session.state["data_context"] = data_context.get("data_context", data_context)
         ctx.session.state["sampling_success"] = data_context.get("success", True)
         ctx.session.state["context_file_path"] = context_file_path
 
-        inner_ctx = data_context.get("data_context", {})
-        logger.info(
-            "Sampling complete: rows=%s, columns=%s, dimensions=%s",
-            inner_ctx.get("row_count", "?"),
-            inner_ctx.get("column_count", "?"),
-            inner_ctx.get("dimension_columns", []),
-        )
-
-        # Set sampled_data_path in state for downstream agents
-        sampled_path = data_context.get("data_context", {}).get("sampled_file")
+        sampled_path = data_context.get("sampled_file") or data_context.get(
+            "data_context", {}
+        ).get("sampled_file")
         if sampled_path:
             ctx.session.state["sampled_data_path"] = sampled_path
         else:
-            # Fallback: derive from output_dir (where agentic_sampled.csv is written)
             current_dataset = ctx.session.state.get("current_dataset")
             if current_dataset and hasattr(current_dataset, 'output_dir'):
                 fallback = Path(current_dataset.output_dir) / "agentic_sampled.csv"
                 if fallback.exists():
                     ctx.session.state["sampled_data_path"] = str(fallback)
 
-    def _create_event(self, text: str) -> Event:
+    def _set_failure_defaults(self, ctx: InvocationContext, error: str) -> None:
+        """Populate safe defaults on sampling failure.
+
+        Downstream agent instructions reference {skeleton_summary} and
+        {data_context} via ADK template resolution. If sampling fails and those
+        keys aren't set, ADK raises 'Context variable not found' and aborts the
+        pipeline. Writing empty defaults lets downstream agents either recover
+        or produce a clean failure that surfaces the underlying cause.
+        """
+        ctx.session.state["sampling_success"] = False
+        ctx.session.state["error"] = error
+        if not ctx.session.state.get("skeleton_summary"):
+            ctx.session.state["skeleton_summary"] = ""
+        if "data_context" not in ctx.session.state:
+            ctx.session.state["data_context"] = {}
+
+    def _emit(self, text: str) -> Event:
         """Create an event with text content."""
         return Event(
             author=self.name,
             content=types.Content(parts=[types.Part(text=text)])
         )
-
-
-# ============================================================================
-# Module exports
-# ============================================================================
-
-__all__ = [
-    'create_sampling_agent',
-    'SamplingAgent',
-    'SamplingAgentWrapper',
-    'SAMPLING_AGENT_INSTRUCTION',
-]

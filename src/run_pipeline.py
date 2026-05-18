@@ -30,22 +30,98 @@ sys.path.insert(0, str(PROJECT_ROOT / "util"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from google.adk import Runner
-from google.adk.agents import SequentialAgent
+from google.adk.agents import BaseAgent, SequentialAgent
+from google.adk.agents.invocation_context import InvocationContext
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
+from google.adk.events import Event, EventActions
 from src.utils.logging_config import setup_adk_logging, setup_python_logging
 from src.utils.artifact_plugin import ArtifactLoggingPlugin
+from src.utils.phase_timer import PhaseTimer
+from src.utils.run_manifest import write_run_manifest
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import SamplingAgent, SamplingAgentWrapper
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
-from typing import Optional, Dict, Any
+from src.agents.llm_judge_agent import LLMJudgeAgent
+from typing import AsyncGenerator, Optional, Dict, Any
 import uuid
 import logging
 import asyncio
 
 logger = logging.getLogger(__name__)
+
+class PlanGateAgent(BaseAgent):
+    """Gate agent between MappingPlanAgent and PVMAPRetryLoop.
+
+    Handles plan_only exit, auto_approve, and from_plan loading.
+    For interactive mode, currently auto-approves (true interactive blocking is Phase 2).
+    """
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        from src.agents.template_utils import escape_pvmap_placeholders
+
+        plan_only = ctx.session.state.get("plan_only", False)
+        mapping_plan = ctx.session.state.get("mapping_plan", "")
+
+        if plan_only:
+            # Save plan and exit
+            output_dir = Path(ctx.session.state.get("output_dir", "."))
+            plan_path = output_dir / "mapping_plan.md"
+            logger.info("Plan-only mode: plan at %s. Exiting pipeline.", plan_path)
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text=f"Plan generated. Saved to {plan_path}. Use --from-plan to generate PVMAP.")]
+                ),
+            )
+            # Escalate to exit the pipeline
+            yield Event(
+                author=self.name,
+                actions=EventActions(escalate=True),
+                content=types.Content(parts=[types.Part(text="plan_only: exiting")]),
+            )
+            return
+
+        if mapping_plan:
+            # Check if it's structured JSON (new format) or markdown (legacy)
+            try:
+                import json
+                plan_data = json.loads(mapping_plan)
+                # Structured plan — generate skeleton and store both
+                from src.api.models.plan import MappingPlan
+                from src.pipeline.plan.skeleton_converter import plan_to_skeleton_csv
+                from src.agents.mapping_plan_agent import _plan_to_markdown
+                plan_obj = MappingPlan.model_validate(plan_data)
+                skeleton = plan_to_skeleton_csv(plan_obj)
+                ctx.session.state["pvmap_skeleton"] = skeleton
+                ctx.session.state["approved_plan_json"] = mapping_plan
+                # Also generate markdown for backward compatibility
+                escaped = escape_pvmap_placeholders(_plan_to_markdown(plan_obj))
+                ctx.session.state["approved_mapping_plan"] = escaped
+                logger.info("Structured plan approved — skeleton: %d rows", skeleton.count("\n"))
+            except (json.JSONDecodeError, Exception) as e:
+                # Legacy markdown plan — keep existing behavior
+                logger.info("Legacy markdown plan detected: %s", e)
+                escaped = escape_pvmap_placeholders(mapping_plan)
+                ctx.session.state["approved_mapping_plan"] = escaped
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text="Mapping plan approved. Proceeding to PVMAP generation.")]
+                ),
+            )
+        else:
+            yield Event(
+                author=self.name,
+                content=types.Content(
+                    parts=[types.Part(text="No mapping plan found. Proceeding without plan.")]
+                ),
+            )
+
 
 # Per-attempt timeout (seconds). The total pipeline timeout is calculated as
 # (max_retries + 1) * PER_ATTEMPT_TIMEOUT. This scales with retry count —
@@ -99,9 +175,10 @@ async def _run_pipeline_async(runner, user_id, session_id, user_message, events_
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
-                _log.warning(
+                _log.error(
                     "No event received in 300s (%d events so far). "
-                    "Pipeline may be stalled — breaking event loop.",
+                    "Pipeline stalled — breaking event loop. "
+                    "This likely means an LLM API call exceeded the stall timeout.",
                     len(events_out),
                 )
                 break
@@ -269,21 +346,16 @@ def run_discovery(
     for _ in runner.run(user_id="pipeline_user", session_id=session_id, new_message=dummy_message):
         pass
 
-    # Step 2: Get the session properly using async and modify its state
-    async def set_session_state():
-        session = await runner.session_service.get_session(
-            session_id=session_id,
-            user_id="pipeline_user",
-            app_name="agents"
-        )
-        if session:
-            session.state["input_dir"] = str(input_dir)
-            session.state["use_metadata"] = use_metadata
-            session.state["ground_truth_repo"] = ground_truth_repo
-            return True
-        return False
-
-    asyncio.run(set_session_state())
+    # Step 2: Inject state directly into the stored session object
+    # (get_session() returns a copy; we must access internal storage)
+    stored_sessions = getattr(runner.session_service, 'sessions', {})
+    for app_sessions in stored_sessions.values():
+        for user_sessions in app_sessions.values():
+            if session_id in user_sessions:
+                user_sessions[session_id].state["input_dir"] = str(input_dir)
+                user_sessions[session_id].state["use_metadata"] = use_metadata
+                user_sessions[session_id].state["ground_truth_repo"] = ground_truth_repo
+                break
 
     # Step 3: Run actual discovery
     user_message = types.Content(parts=[types.Part(text="Discover datasets")])
@@ -305,8 +377,8 @@ def run_dataset_pipeline(
     input_dir: Path,
     output_dir: Path,
     schema_base_dir: Optional[Path] = None,
-    model: str = "gemini-3-pro-preview",
-    enable_mcp: bool = False,
+    model: str = "gemini-3.1-pro-preview",
+    enable_mcp: bool = True,
     mcp_url: Optional[str] = None,
     skip_sampling: bool = False,
     force_resample: bool = False,
@@ -326,7 +398,16 @@ def run_dataset_pipeline(
     max_retries: int = 2,
     extra_plugins: Optional[list] = None,
     thinking_level: Optional[str] = None,
-    prompt_version: str = "v2",
+    skip_column_discovery: bool = False,
+    use_llm_judge: bool = False,
+    prompt_version: str = "v3",
+    feedback_prompt_version: str = "v2",
+    plan_only: bool = False,
+    from_plan: Optional[str] = None,
+    auto_approve: bool = False,
+    extra_initial_state: Optional[dict] = None,
+    sdmx_mode: bool = False,
+    sdmx_metadata_xml_path: Optional[str] = None,
 ) -> dict:
     """
     Run full pipeline for a single dataset with comprehensive logging.
@@ -354,12 +435,15 @@ def run_dataset_pipeline(
         use_schema_examples: If True (default), inject schema examples into PVMAP prompt
         human_feedback: Optional human feedback text to inject as initial error_feedback
         min_attempts: Minimum pipeline attempts before allowing quality exit
-        max_retries: Max retry attempts after initial generation (default: 2, for 3 total)
+        max_retries: DEPRECATED. Accepted for backward compatibility; the tiered correction
+            pipeline always performs up to 3 validation passes regardless of this value.
         extra_plugins: Additional ADK plugins (e.g., progress tracking for UI)
-
     Returns:
         Final state dictionary
     """
+    if plan_only and from_plan:
+        raise ValueError("plan_only and from_plan are mutually exclusive — cannot skip plan generation and skip PVMAP generation simultaneously")
+
     # Generate session ID early for logging
     session_id = f"{dataset_name}_{uuid.uuid4().hex[:8]}"
 
@@ -373,17 +457,19 @@ def run_dataset_pipeline(
     logger.info(f"Starting PVMAP pipeline for dataset: {dataset_name}")
     logger.info(
         "Pipeline config: model=%s, enable_mcp=%s, skip_sampling=%s, "
-        "skip_schema=%s, skip_eval=%s, use_metadata=%s, max_retries=%d, prompt=%s",
+        "skip_schema=%s, skip_eval=%s, use_metadata=%s, max_retries=%d",
         model, enable_mcp, skip_sampling, skip_schema_selection,
-        skip_evaluation, use_metadata, max_retries, prompt_version,
+        skip_evaluation, use_metadata, max_retries,
     )
 
-    # Create Sampling agent (agentic sampling with LLM)
-    sampling_agent = SamplingAgentWrapper(
+    # Create Sampling agent (programmatic, code-orchestrated)
+    sampling_agent = ProgrammaticSamplingAgent(
         name="Sampling",
-        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3-pro-preview"),
-        thinking_level=thinking_level,
+        model=os.getenv("SAMPLING_AGENT_MODEL", "gemini-3.1-pro-preview"),
+        enable_mcp=enable_mcp,
+        mcp_url=mcp_url,
     )
+    logger.info("Using ProgrammaticSamplingAgent (code-orchestrated)")
 
     # Create PVMAP retry loop (ADK LoopAgent-based)
     pvmap_agent = create_pvmap_retry_loop(
@@ -394,32 +480,78 @@ def run_dataset_pipeline(
         mcp_url=mcp_url,
         min_attempts=min_attempts,
         thinking_level=thinking_level,
+        feedback_prompt_version=feedback_prompt_version,
     )
     logger.info("Using ADK LoopAgent-based PVMAP retry loop")
     if enable_mcp and mcp_url:
         logger.info("MCP integration: INSIDE retry loop (loop-aware discovery + error resolution)")
 
-    # Create evaluation agent
+    # Create evaluation agent and LLM judge
     evaluation_agent = EvaluationAgent(name="Evaluation")
+    llm_judge_agent = LLMJudgeAgent(name="LLMJudge")
 
     # Build sub_agents list - Sampling first, then StatVar discovery, then generation, then evaluation
     sub_agents = [sampling_agent]
-    logger.info("SamplingAgentWrapper added to pipeline")
+    logger.info("SamplingAgent added to pipeline")
 
     # Add SchemaSelectionAgent if not skipped (Phase 2.5)
-    if not skip_schema_selection:
+    # Skip in SDMX mode — SDMX datasets carry their own concept schemes
+    # via the DSD, so the 7-category DC schema classifier is moot.
+    if sdmx_mode:
+        logger.info("SchemaSelectionAgent skipped (SDMX mode)")
+    elif not skip_schema_selection:
         schema_agent = create_schema_selection_agent(model=model)
         sub_agents.append(schema_agent)
         logger.info("SchemaSelectionAgent added to pipeline")
     else:
         logger.info("SchemaSelectionAgent skipped (--skip-schema-selection)")
 
+    # Add SchemaOrgEnrichmentAgent (programmatic Schema.org lookups per column)
+    from src.agents.schemaorg_enrichment_agent import SchemaOrgEnrichmentAgent
+    schemaorg_agent = SchemaOrgEnrichmentAgent(name="SchemaOrgEnrichment")
+    sub_agents.append(schemaorg_agent)
+    logger.info("SchemaOrgEnrichmentAgent added to pipeline")
+
     # Note: StatVarDiscoveryAgent is now INSIDE the retry loop (loop-aware).
     # It was previously here as a pre-pipeline agent. With MCP inside the loop,
     # discovery happens on every attempt with error-driven refinement.
 
-    # Add generation and evaluation
-    sub_agents.extend([pvmap_agent, evaluation_agent])
+    # Add ColumnAnalyzer + CandidateRetriever + MappingPlanAgent + PlanValidator + PlanGate
+    if not from_plan:
+        from src.pipeline.plan.column_analyzer import ColumnAnalyzerAgent
+        from src.pipeline.plan.candidate_retriever import CandidateRetrieverAgent
+        from src.agents.mapping_plan_agent import MappingPlanAgent
+        from src.pipeline.plan.plan_validator import PlanValidatorAgent
+
+        column_analyzer_agent = ColumnAnalyzerAgent(name="ColumnAnalyzer")
+        sub_agents.append(column_analyzer_agent)
+        logger.info("ColumnAnalyzerAgent added to pipeline")
+
+        retriever_agent = CandidateRetrieverAgent(name="CandidateRetriever")
+        sub_agents.append(retriever_agent)
+        logger.info("CandidateRetrieverAgent added to pipeline")
+
+        plan_agent = MappingPlanAgent(name="MappingPlan", model=model)
+        sub_agents.append(plan_agent)
+        logger.info("MappingPlanAgent added to pipeline")
+
+        validator_agent = PlanValidatorAgent(name="PlanValidator")
+        sub_agents.append(validator_agent)
+        logger.info("PlanValidatorAgent added to pipeline")
+
+        gate_agent = PlanGateAgent(name="PlanGate")
+        sub_agents.append(gate_agent)
+        logger.info("PlanGateAgent added to pipeline")
+    else:
+        logger.info("MappingPlanAgent skipped (--from-plan provided)")
+
+    # Add generation, evaluation, and LLM judge (skip for plan_only mode)
+    if not plan_only:
+        sub_agents.extend([pvmap_agent, evaluation_agent, llm_judge_agent])
+    else:
+        logger.info("plan_only=True — skipping PVMAP generation, evaluation, and LLM judge agents")
+
+    logger.info("Pipeline sub_agents (%d): %s", len(sub_agents), [a.name for a in sub_agents])
 
     # Create a sequential agent to run the pipeline
     # With MCP: StatVarDiscovery -> PVMAPGeneration -> Evaluation
@@ -438,9 +570,62 @@ def run_dataset_pipeline(
         extra_plugins=extra_plugins,
     )
 
+    # Phase timer (per-phase wall-time) — always set since dataset_name is required here
+    dataset_out = output_dir / dataset_name
+    dataset_out.mkdir(parents=True, exist_ok=True)
+    phase_timer = PhaseTimer(output_path=dataset_out / "phase_timings.json")
+
+    # Run manifest (git state + CLI/config snapshot)
+    try:
+        worker_id_env = int(os.environ.get("BATCH_WORKER_ID", "-1"))
+        worker_id_val = worker_id_env if worker_id_env >= 0 else None
+    except ValueError:
+        worker_id_val = None
+    try:
+        mcp_port_env = int(os.environ.get("MCP_PORT", "0"))
+        mcp_port_val = mcp_port_env if mcp_port_env > 0 else None
+    except ValueError:
+        mcp_port_val = None
+    write_run_manifest(
+        output_dir=dataset_out,
+        dataset=dataset_name,
+        cli_args={
+            "model": model,
+            "thinking_level": thinking_level,
+            "enable_mcp": enable_mcp,
+            "prompt_version": prompt_version,
+            "feedback_prompt_version": feedback_prompt_version,
+            "use_metadata": use_metadata,
+            "use_llm_judge": use_llm_judge,
+            "skip_sampling": skip_sampling,
+            "skip_schema_selection": skip_schema_selection,
+            "max_retries": max_retries,
+        },
+        pipeline_config={
+            "prompt_version": prompt_version,
+            "feedback_prompt_version": feedback_prompt_version,
+            "sampling_mode": "programmatic",
+        },
+        worker_id=worker_id_val,
+        mcp_port=mcp_port_val,
+    )
+
     # Auto-enable use_metadata if metadata_file_path is provided
     if metadata_file_path:
         use_metadata = True
+
+    # SDMX mode: auto-detect XML metadata file alongside input CSV if not
+    # explicitly supplied. Presence of an XML metadata file ALSO enables sdmx_mode.
+    if not sdmx_metadata_xml_path:
+        for candidate_dir in (input_dir, input_dir / dataset_name):
+            if candidate_dir.is_dir():
+                for xml_candidate in candidate_dir.glob("*.xml"):
+                    sdmx_metadata_xml_path = str(xml_candidate)
+                    break
+            if sdmx_metadata_xml_path:
+                break
+    if sdmx_metadata_xml_path:
+        sdmx_mode = True
 
     # Discover dataset files using DiscoveryAgent helper
     discovery_agent = DiscoveryAgent(name="Discovery")
@@ -488,6 +673,91 @@ def run_dataset_pipeline(
             with open(metadata_path, 'r') as f:
                 metadata_content = f.read()
 
+    # SDMX mode: extract DSD + codelists from the XML metadata file and
+    # render the prompt block + deterministic PVMAP skeleton.
+    sdmx_metadata: dict = {}
+    sdmx_structure: str = ""
+    sdmx_skeleton: str = ""
+    sdmx_metadata_json_str: str = ""
+    if sdmx_mode and sdmx_metadata_xml_path:
+        try:
+            import json as _json
+            from src.tools.sdmx_metadata_extractor import extract_sdmx_metadata
+            from src.agents.sdmx_context import (
+                render_sdmx_structure, build_sdmx_skeleton,
+            )
+
+            # Reuse the pre-extracted JSON written at upload time if available;
+            # otherwise extract now and persist it for future reference.
+            run_dir_for_sdmx = Path(input_dir).parent
+            sdmx_input_dir = run_dir_for_sdmx / "sdmx_input"
+            sdmx_json_path = sdmx_input_dir / "sdmx_metadata.json"
+
+            if sdmx_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_json_path.read_text())
+                logger.info("SDMX metadata loaded from pre-extracted JSON: %s", sdmx_json_path)
+            else:
+                sdmx_metadata = extract_sdmx_metadata(Path(sdmx_metadata_xml_path))
+                sdmx_input_dir.mkdir(parents=True, exist_ok=True)
+                sdmx_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                logger.info("SDMX metadata extracted and saved to %s", sdmx_json_path)
+
+            # Stage 1-3: Enrich metadata with plain-English descriptions for
+            # ambiguous codes/concepts before rendering the prompt block.
+            sdmx_enriched_json_path = sdmx_input_dir / "sdmx_metadata_enriched.json"
+            if sdmx_enriched_json_path.exists():
+                sdmx_metadata = _json.loads(sdmx_enriched_json_path.read_text())
+                logger.info("SDMX enriched metadata loaded from %s", sdmx_enriched_json_path)
+            else:
+                _gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+                if _gemini_api_key:
+                    try:
+                        from src.tools.sdmx_metadata_enricher import enrich_sdmx_metadata
+                        _enrich_model = "gemini-2.0-flash"
+                        logger.info(
+                            "SDMX enrichment: running 3-stage pipeline (find → fetch → merge) "
+                            "with model=%s", _enrich_model
+                        )
+                        sdmx_metadata = enrich_sdmx_metadata(
+                            sdmx_metadata, _gemini_api_key, _enrich_model
+                        )
+                        sdmx_enriched_json_path.write_text(_json.dumps(sdmx_metadata, indent=2))
+                        logger.info(
+                            "SDMX enriched metadata saved to %s", sdmx_enriched_json_path
+                        )
+                    except Exception as _enrich_err:
+                        logger.warning(
+                            "SDMX enrichment failed (non-fatal, continuing with base metadata): %s",
+                            _enrich_err,
+                        )
+                else:
+                    logger.warning("SDMX enrichment skipped: GEMINI_API_KEY not set.")
+
+            sdmx_metadata_json_str = _json.dumps(sdmx_metadata, indent=2)
+
+            # Pull CSV headers so the structure block ties to actual columns.
+            csv_columns: list[str] = []
+            try:
+                import pandas as _pd
+                input_csv_path = Path(input_file) if input_file else current_dataset.path
+                if input_csv_path and Path(input_csv_path).exists():
+                    csv_columns = list(_pd.read_csv(input_csv_path, nrows=0).columns)
+            except Exception as e:
+                logger.warning("Could not read CSV headers for SDMX column mapping: %s", e)
+            sdmx_structure = render_sdmx_structure(sdmx_metadata, csv_columns)
+            sdmx_skeleton = build_sdmx_skeleton(sdmx_metadata, csv_columns)
+            logger.info(
+                "SDMX metadata extracted: %d dataflow(s), structure=%d chars, skeleton=%d rows",
+                len(sdmx_metadata.get("dataflows") or []),
+                len(sdmx_structure),
+                sdmx_skeleton.count("\n"),
+            )
+        except Exception as e:
+            logger.error("Failed to extract SDMX metadata from %s: %s", sdmx_metadata_xml_path, e)
+            # Degrade gracefully — continue with sdmx_mode off so the run
+            # doesn't die from a bad metadata file.
+            sdmx_mode = False
+
     # Initial state with DatasetInfo object
     # Use dataset-specific output_dir so EvaluationAgent saves results in correct location
     initial_state = {
@@ -495,6 +765,9 @@ def run_dataset_pipeline(
         "output_dir": str(current_dataset.output_dir),  # Dataset-specific output dir
         "dataset_name": dataset_name,
         "current_dataset": current_dataset,
+        # Flat string keys for ADK template resolution (ADK can't do dotted access)
+        "current_dataset_name": current_dataset.name,
+        "current_dataset_path": str(current_dataset.path),
         "model": model,  # LLM model name for artifact logging
         "sampled_data_content": sampled_data_content,  # For StatVar discovery
         "metadata_content": metadata_content,          # For StatVar discovery
@@ -510,6 +783,9 @@ def run_dataset_pipeline(
         "ground_truth_repo": ground_truth_repo or str(PROJECT_ROOT / "ground_truth"),
         # Evaluation flags
         "skip_evaluation": skip_evaluation,
+        "skip_llm_judge": not use_llm_judge,
+        # Column discovery flag
+        "skip_column_discovery": skip_column_discovery,
         # Default data_context (may be updated by SamplingAgent)
         "data_context": {},
         # New discovery flags
@@ -519,12 +795,47 @@ def run_dataset_pipeline(
         "schema_file": schema_file,
         # Schema examples control
         "use_schema_examples": use_schema_examples,
-        # Prompt version (v1 or v2)
         "prompt_version": prompt_version,
+        "feedback_prompt_version": feedback_prompt_version,
+        # SDMX mode
+        "sdmx_mode": sdmx_mode,
+        "sdmx_metadata_xml_path": sdmx_metadata_xml_path,
+        "sdmx_metadata": sdmx_metadata,
+        "sdmx_metadata_json_str": sdmx_metadata_json_str,
+        "sdmx_structure": sdmx_structure,
+        "sdmx_skeleton": sdmx_skeleton,
     }
+
+    # Handle --from-plan: load plan from file into initial state
+    if from_plan:
+        from src.pipeline.approval_gate import read_plan_file
+        from src.agents.template_utils import escape_pvmap_placeholders
+        plan_content = read_plan_file(from_plan)
+        initial_state["approved_mapping_plan"] = escape_pvmap_placeholders(plan_content)
+        initial_state["mapping_plan"] = plan_content
+        logger.info("Loaded approved plan from %s (%d chars)", from_plan, len(plan_content))
+
+    # Add plan workflow flags to initial state
+    initial_state["plan_only"] = plan_only
+    initial_state["auto_approve"] = auto_approve
 
     # Inject human feedback if provided (for UI re-runs)
     if human_feedback:
+        # Check if ledger JSON in initial_state or extra_initial_state (extra_initial_state
+        # is applied AFTER this block, so we must peek at it here)
+        ledger_json = initial_state.get("feedback_ledger_json") or (
+            extra_initial_state.get("feedback_ledger_json") if extra_initial_state else None
+        )
+        if not ledger_json:
+            # Legacy: wrap raw feedback string in a ledger
+            from src.api.models.feedback import FeedbackEntry, FeedbackLedger, FeedbackType
+            ledger = FeedbackLedger()
+            ledger.add_entry(FeedbackEntry(
+                type=FeedbackType.FREE_TEXT, round=1,
+                source="human", content=human_feedback,
+            ))
+            initial_state["feedback_ledger_json"] = ledger.model_dump_json()
+        # Keep backward compat keys
         initial_state["error_feedback"] = human_feedback
         initial_state["human_feedback_provided"] = True
 
@@ -533,6 +844,11 @@ def run_dataset_pipeline(
         initial_state["schema_base_dir"] = str(schema_base_dir)
     else:
         initial_state["schema_base_dir"] = str(PROJECT_ROOT / "src" / "resources" / "schema_examples")
+
+    # Inject extra initial state (e.g., Phase 1 state for Phase 2 runs)
+    if extra_initial_state:
+        initial_state.update(extra_initial_state)
+        logger.info("Injected %d extra state keys: %s", len(extra_initial_state), list(extra_initial_state.keys()))
 
     # Add MCP state if enabled
     if enable_mcp and mcp_url:
@@ -559,10 +875,10 @@ def run_dataset_pipeline(
         user_message = types.Content(parts=[types.Part(text=f"Generate PVMAP for {dataset_name}")])
         events = []  # Shared mutable list — survives timeout
 
-        # Dynamic timeout: scales with retry count
-        pipeline_timeout = (max_retries + 1) * PER_ATTEMPT_TIMEOUT
-        logger.info("Pipeline timeout: %ds (%d attempts x %ds)",
-                     pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT)
+        # Fixed timeout: tiered correction pipeline always does max 3 validation passes
+        pipeline_timeout = 3 * PER_ATTEMPT_TIMEOUT
+        logger.info("Pipeline timeout: %ds (3 validation passes x %ds)",
+                     pipeline_timeout, PER_ATTEMPT_TIMEOUT)
 
         async def _create_session_and_run():
             # Create session with initial state
@@ -598,54 +914,58 @@ def run_dataset_pipeline(
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
                     logger.warning("Runner cleanup in finally (non-fatal): %s", e)
 
-        for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
-            try:
-                # Use explicit event loop instead of asyncio.run() to avoid
-                # shutdown_asyncgens/shutdown_default_executor deadlocks when
-                # MCP connections are open in daemon threads.
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(_create_session_and_run())
-                finally:
-                    # Cancel pending tasks but skip shutdown_asyncgens
-                    # (which deadlocks when MCP connections are open).
+        try:
+            with phase_timer.phase("pipeline_total"):
+                for pipeline_attempt in range(MAX_PIPELINE_RETRIES + 1):
                     try:
-                        pending = asyncio.all_tasks(loop)
-                        for task in pending:
-                            task.cancel()
-                        if pending:
-                            loop.run_until_complete(
-                                asyncio.gather(*pending, return_exceptions=True)
-                            )
+                        # Use explicit event loop instead of asyncio.run() to avoid
+                        # shutdown_asyncgens/shutdown_default_executor deadlocks when
+                        # MCP connections are open in daemon threads.
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(_create_session_and_run())
+                        finally:
+                            # Cancel pending tasks but skip shutdown_asyncgens
+                            # (which deadlocks when MCP connections are open).
+                            try:
+                                pending = asyncio.all_tasks(loop)
+                                for task in pending:
+                                    task.cancel()
+                                if pending:
+                                    loop.run_until_complete(
+                                        asyncio.gather(*pending, return_exceptions=True)
+                                    )
+                            except Exception as e:
+                                logger.warning("Event loop cleanup error (non-fatal): %s", e)
+                            finally:
+                                loop.close()
+                        break  # Success — exit retry loop
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "Pipeline timed out after %ds (%d attempts x %ds). "
+                            "Collected %d events before timeout.",
+                            pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT,
+                            len(events),
+                        )
+                        break  # Timeout = proceed to artifact check, don't retry
                     except Exception as e:
-                        logger.warning("Event loop cleanup error (non-fatal): %s", e)
-                    finally:
-                        loop.close()
-                break  # Success — exit retry loop
-            except asyncio.TimeoutError:
-                logger.error(
-                    "Pipeline timed out after %ds (%d attempts x %ds). "
-                    "Collected %d events before timeout.",
-                    pipeline_timeout, max_retries + 1, PER_ATTEMPT_TIMEOUT,
-                    len(events),
-                )
-                break  # Timeout = proceed to artifact check, don't retry
-            except Exception as e:
-                err_str = str(e)
-                is_transient = any(s in err_str for s in [
-                    "429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
-                    "Internal Server Error", "ServiceUnavailable",
-                ])
-                if is_transient and pipeline_attempt < MAX_PIPELINE_RETRIES:
-                    logger.warning(
-                        "Transient API error (attempt %d/%d): %s. Sleeping 60s...",
-                        pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
-                    )
-                    time.sleep(60)
-                    events.clear()
-                else:
-                    raise
+                        err_str = str(e)
+                        is_transient = any(s in err_str for s in [
+                            "429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
+                            "Internal Server Error", "ServiceUnavailable",
+                        ])
+                        if is_transient and pipeline_attempt < MAX_PIPELINE_RETRIES:
+                            logger.warning(
+                                "Transient API error (attempt %d/%d): %s. Sleeping 60s...",
+                                pipeline_attempt + 1, MAX_PIPELINE_RETRIES + 1, e
+                            )
+                            time.sleep(60)
+                            events.clear()
+                        else:
+                            raise
+        finally:
+            phase_timer.finalize()
 
         # ADK's InMemorySessionService doesn't persist agent state changes back
         # to the stored session. Instead, determine success by checking artifacts.
@@ -655,6 +975,103 @@ def run_dataset_pipeline(
             user_id="pipeline_user",
             session_id=session_id
         )
+
+        # Handle plan_only: pipeline escalated after generating plan
+        if plan_only:
+            plan_path = str(current_dataset.output_dir / "mapping_plan.md")
+            logger.info("Plan-only mode complete. Plan at: %s", plan_path)
+
+            # Read Phase 1 outputs from disk (ADK session state is unreliable
+            # for agent-modified keys — InMemorySessionService doesn't persist them)
+            out = current_dataset.output_dir
+
+            mapping_plan = ""
+            if Path(plan_path).exists():
+                mapping_plan = Path(plan_path).read_text()
+
+            # Read structured plan JSON (written by MappingPlanAgent)
+            mapping_plan_json = ""
+            plan_json_path = out / "mapping_plan.json"
+            if plan_json_path.exists():
+                mapping_plan_json = plan_json_path.read_text()
+            if not mapping_plan_json:
+                mapping_plan_json = final_state.get("mapping_plan_json", "")
+
+            # Read candidate pool (written by CandidateRetrieverAgent to session state)
+            candidate_pool = final_state.get("candidate_pool", "")
+
+            # Read column analysis (written by ColumnAnalyzerAgent to session state)
+            column_analysis = final_state.get("column_analysis", "")
+
+            skeleton_summary = ""
+            data_context_dict = {}
+            data_context_path = out / "data_context.json"
+            if data_context_path.exists():
+                try:
+                    import json as _json
+                    data_context_dict = _json.loads(data_context_path.read_text())
+                    skeleton_summary = data_context_dict.get("skeleton_summary", "")
+                except Exception:
+                    pass
+
+            # Fallback: try session state (sometimes works)
+            if not skeleton_summary:
+                skeleton_summary = final_state.get("skeleton_summary", "")
+
+            # Schema.org enrichment (written by SchemaOrgEnrichmentAgent)
+            schemaorg_mappings = ""
+            schemaorg_path = out / "schemaorg_enrichment.md"
+            if schemaorg_path.exists():
+                schemaorg_mappings = schemaorg_path.read_text()
+
+            sampled_data_path = ""
+            agentic_sampled = out / "agentic_sampled.csv"
+            if agentic_sampled.exists():
+                sampled_data_path = str(agentic_sampled)
+
+            # Schema category and vocab from session state (set by SchemaSelectionAgent)
+            schema_category = final_state.get("schema_category", "")
+            schema_vocab_content = final_state.get("schema_vocab_content", "")
+
+            # If schema_vocab_content missing, try reading from schema dir
+            if not schema_vocab_content and schema_category:
+                # Extract category name from "Selected schema category: X"
+                cat_name = schema_category.replace("Selected schema category: ", "").strip()
+                schema_dir = Path(initial_state.get("schema_base_dir", ""))
+                vocab_path = schema_dir / cat_name / "schema_vocab.json"
+                if vocab_path.exists():
+                    schema_vocab_content = vocab_path.read_text()
+
+            logger.info(
+                "Phase 1 state from disk: skeleton=%d chars, plan=%d chars, sampled=%s, category=%s",
+                len(skeleton_summary), len(mapping_plan), sampled_data_path, schema_category,
+            )
+
+            # Detect plan generation failure (pipeline stalled or agent crashed)
+            plan_status = "plan_generated" if (mapping_plan or mapping_plan_json) else "plan_failed"
+            if plan_status == "plan_failed":
+                logger.error(
+                    "Plan generation failed: no mapping_plan files found. "
+                    "The MappingPlanAgent likely stalled or crashed. "
+                    "Check logs for 'stall' or 'Unexpected error' messages."
+                )
+
+            return {
+                "status": plan_status,
+                "phase": "plan",
+                "plan_path": plan_path,
+                "dataset_name": dataset_name,
+                "skeleton_summary": skeleton_summary,
+                "schema_category": schema_category,
+                "schema_vocab_content": schema_vocab_content,
+                "mapping_plan": mapping_plan,
+                "mapping_plan_json": mapping_plan_json,
+                "sampled_data_path": sampled_data_path,
+                "data_context": data_context_dict,
+                "schemaorg_column_mappings": schemaorg_mappings,
+                "candidate_pool": candidate_pool,
+                "column_analysis": column_analysis,
+            }
 
         # Determine success by checking actual artifacts
         pvmap_path = current_dataset.output_dir / "generated_pvmap.csv"
@@ -734,19 +1151,19 @@ if __name__ == "__main__":
                         help="Output directory (default: output/)")
     parser.add_argument("--input-dir", "-i", type=str, default=None,
                         help="Input directory (default: input/)")
-    parser.add_argument("--model", "-m", type=str, default="gemini-3-pro-preview",
-                        help="Gemini model to use (default: gemini-3-pro-preview)")
+    parser.add_argument("--model", "-m", type=str, default="gemini-3.1-pro-preview",
+                        help="Gemini model to use (default: gemini-3.1-pro-preview)")
     parser.add_argument("--thinking-level", type=str,
                         choices=["low", "medium", "high", "minimal", "none"],
                         default="high",
                         help="Thinking level for Gemini models (default: high). Use 'none' to disable.")
-    # MCP integration flags
-    parser.add_argument("--enable-mcp", action="store_true",
-                        help="Enable MCP integration for Data Commons StatVar discovery")
+    # MCP integration flags (enabled by default)
+    parser.add_argument("--enable-mcp", action="store_true", default=True,
+                        help="Enable MCP integration for Data Commons StatVar discovery (default: on)")
     parser.add_argument("--mcp-port", type=int, default=None,
                         help="MCP server port (default: from MCP_PORT env or 3000)")
     parser.add_argument("--no-mcp", action="store_true",
-                        help="Explicitly disable MCP (overrides --enable-mcp)")
+                        help="Disable MCP integration")
     # Sampling agent flags
     parser.add_argument("--skip-sampling", action="store_true",
                         help="Skip agentic sampling phase (use existing sampled files)")
@@ -784,13 +1201,28 @@ if __name__ == "__main__":
                         help="Skip injecting schema examples into PVMAP generation prompt")
     parser.add_argument("--schema-base-dir", type=str, default=None,
                         help="Override schema examples base directory")
-    # Prompt version (A/B testing)
-    parser.add_argument("--prompt-version", type=str, choices=["v1", "v2"],
-                        default="v2",
-                        help="PVMAP prompt template version (default: v2)")
+    # Column discovery flags
+    parser.add_argument("--skip-column-discovery", action="store_true",
+                        help="Skip PVMAP skeleton generation (disables column completeness checking)")
+    # LLM judge
+    parser.add_argument("--use-llm-judge", action="store_true",
+                        help="Enable LLM-as-judge qualitative evaluation")
     # Dry run
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without executing")
+    # Prompt version
+    parser.add_argument("--prompt-version", choices=["v2", "v3"], default="v3",
+                        help="PVMAP prompt version to use (default: v3)")
+    parser.add_argument("--feedback-prompt-version", choices=["v1", "v2"], default="v2",
+                        help="Feedback agent prompt version (default: v1)")
+    # Mapping plan workflow flags
+    plan_group = parser.add_mutually_exclusive_group()
+    plan_group.add_argument("--plan-only", action="store_true", default=False,
+                            help="Generate mapping plan and exit without PVMAP generation")
+    plan_group.add_argument("--from-plan", type=str, default=None,
+                            help="Path to approved mapping plan file (skips plan generation)")
+    parser.add_argument("--auto-approve", action="store_true", default=False,
+                        help="Auto-approve mapping plan without interactive prompt")
     args = parser.parse_args()
 
     # Validation: --input-file and --dataset are mutually exclusive
@@ -808,6 +1240,8 @@ if __name__ == "__main__":
         parser.error(f"Metadata file not found: {args.metadata_file_path}")
     if args.schema_file and not Path(args.schema_file).exists():
         parser.error(f"Schema file not found: {args.schema_file}")
+    if args.from_plan and not Path(args.from_plan).exists():
+        parser.error(f"Plan file not found: {args.from_plan}")
 
     # Setup paths
     base_dir = Path(__file__).parent.parent
@@ -864,6 +1298,7 @@ if __name__ == "__main__":
         print(f"  Skip sampling: {args.skip_sampling}")
         print(f"  Skip schema selection: {args.skip_schema_selection}")
         print(f"  Skip evaluation: {args.skip_evaluation}")
+        print(f"  Use LLM judge: {getattr(args, 'use_llm_judge', False)}")
         print(f"  Ground truth repo: {args.ground_truth_repo}")
         if args.ground_truth_pvmap:
             print(f"  Ground truth PVMAP: {args.ground_truth_pvmap}")
@@ -928,7 +1363,13 @@ if __name__ == "__main__":
             use_schema_examples=not args.no_schema_examples,
             schema_base_dir=Path(args.schema_base_dir) if args.schema_base_dir else None,
             thinking_level=args.thinking_level,
-            prompt_version=getattr(args, 'prompt_version', 'v2'),
+            skip_column_discovery=getattr(args, 'skip_column_discovery', False),
+            use_llm_judge=getattr(args, 'use_llm_judge', False),
+            prompt_version=getattr(args, 'prompt_version', 'v3'),
+            feedback_prompt_version=getattr(args, 'feedback_prompt_version', 'v2'),
+            plan_only=args.plan_only,
+            from_plan=args.from_plan,
+            auto_approve=args.auto_approve,
         )
 
         print("\n" + "=" * 60)
@@ -961,6 +1402,20 @@ if __name__ == "__main__":
             print(f"  Eval results: {output_dir}/{dataset_name}/eval_results/")
         else:
             print("\nEvaluation: No ground truth found or evaluation skipped")
+
+        # Display LLM Judge results if available
+        llm_judge = final_state.get('llm_judge_report', {})
+        if llm_judge and not llm_judge.get('error'):
+            struct = llm_judge.get('structural_quality', {}).get('score', '?')
+            sem = llm_judge.get('semantic_accuracy', {}).get('score', '?')
+            val = llm_judge.get('value_mapping_quality', {}).get('score', '?')
+            overall = llm_judge.get('overall_score', '?')
+            print(f"\nLLM Judge: Structural={struct}/5, Semantic={sem}/5, Values={val}/5 (Overall: {overall}/5)")
+            top_issues = llm_judge.get('top_issues', [])
+            if top_issues:
+                print("  Top issues:")
+                for issue in top_issues[:3]:
+                    print(f"    - {issue}")
 
         print(f"\nLogs location: {output_dir}/logs/")
         print(f"Artifacts location: {output_dir}/{dataset_name}/")

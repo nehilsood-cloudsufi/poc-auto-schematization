@@ -63,11 +63,7 @@ from typing import Union
 
 from absl import logging
 
-# Try new import path first, fall back to old path for backward compatibility
-try:
-    from src.infrastructure.io import file_util
-except ImportError:
-    import file_util
+from src.infrastructure.io import file_util
 
 
 class ConfigMap:

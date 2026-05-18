@@ -4,9 +4,10 @@ Pure functions for deterministic config generation. No ADK dependency.
 
 The stat_var_processor expects a config/metadata CSV (--config_file) with
 processing parameters. This module auto-generates that config from:
-- PVMAP CSV content (output_columns, mapped_rows, mapped_columns)
-- Data context from sampling (header_rows, number_decimal)
-- Optional LLM enrichment (schemaless, description)
+- PVMAP CSV content (output_columns, mapped_columns)
+- Data context from sampling (header_rows)
+- Input CSV headers (mapped_columns confidence)
+- Optional LLM enrichment (mapped_columns override)
 
 Config CSV format: 2-column (parameter,value) matching file_util.file_load_py_dict().
 """
@@ -20,75 +21,80 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# StatVarObs properties that belong in output CSV columns.
-# Validated against config_flags.py:258-271 (default_svobs_pvs keys).
-# Excludes typeOf and #Aggregate (internal).
-VALID_SVOBS_PROPERTIES = {
+# Required output columns — always included regardless of PVMAP content.
+# 100% presence across 51 ground truth metadata files.
+REQUIRED_OUTPUT_COLUMNS = [
     "observationAbout",
     "observationDate",
     "variableMeasured",
     "value",
-    "unit",
-    "scalingFactor",
-    "measurementMethod",
-    "observationPeriod",
-    "measurementResult",
-}
-
-# Canonical ordering for output_columns (required first, then optional).
-_OUTPUT_COLUMNS_ORDER = [
-    "observationAbout",
-    "observationDate",
-    "variableMeasured",
-    "value",
-    "unit",
-    "scalingFactor",
-    "measurementMethod",
-    "observationPeriod",
-    "measurementResult",
 ]
+
+# Optional output columns — included only when the PVMAP uses them.
+OPTIONAL_OUTPUT_COLUMNS = [
+    "unit",
+    "scalingFactor",
+    "measurementMethod",
+    "observationPeriod",
+]
+
+# Combined set for validation (replaces old VALID_SVOBS_PROPERTIES).
+VALID_SVOBS_PROPERTIES = set(REQUIRED_OUTPUT_COLUMNS + OPTIONAL_OUTPUT_COLUMNS)
+
+# Full canonical ordering for output_columns.
+_OUTPUT_COLUMNS_ORDER = REQUIRED_OUTPUT_COLUMNS + OPTIONAL_OUTPUT_COLUMNS
 
 
 def extract_output_columns(pvmap_csv_content: str) -> str:
-    """Parse PVMAP CSV and collect StatVarObs properties from odd-indexed columns.
+    """Extract output columns from PVMAP, guaranteeing required columns.
 
-    PVMAP rows have the format:
-        key, property1, value1, property2, value2, ...
-    Odd-indexed columns (1, 3, 5, ...) are property names.
-
-    Only properties in VALID_SVOBS_PROPERTIES are included.
-    Always includes the 4 required columns first, then optional ones.
+    Always includes the 4 required StatVarObs columns. Adds optional columns
+    (unit, scalingFactor, measurementMethod, observationPeriod) only when
+    they appear as property names in the PVMAP.
 
     Args:
         pvmap_csv_content: Raw PVMAP CSV text.
 
     Returns:
-        Comma-separated string of output columns, e.g.
-        'observationAbout,observationDate,variableMeasured,value,unit'
+        Comma-separated string of output columns in canonical order.
     """
-    found_props = set()
-    reader = csv.reader(io.StringIO(pvmap_csv_content))
+    found_optional = set()
+    if pvmap_csv_content and pvmap_csv_content.strip():
+        reader = csv.reader(io.StringIO(pvmap_csv_content))
+        for row in reader:
+            if not row:
+                continue
+            if row[0].strip().lower() == "key":
+                continue
+            # Odd-indexed columns are property names
+            for i in range(1, len(row), 2):
+                prop = row[i].strip()
+                if prop in OPTIONAL_OUTPUT_COLUMNS:
+                    found_optional.add(prop)
 
-    for row in reader:
-        if not row:
-            continue
-        # Skip header row
-        if row[0].strip().lower() == "key":
-            continue
-        # Odd-indexed columns are property names
-        for i in range(1, len(row), 2):
-            prop = row[i].strip()
-            if prop in VALID_SVOBS_PROPERTIES:
-                found_props.add(prop)
+    # Build: required (always) + optional (only if found), in canonical order
+    result = list(REQUIRED_OUTPUT_COLUMNS)
+    for col in OPTIONAL_OUTPUT_COLUMNS:
+        if col in found_optional:
+            result.append(col)
 
-    # Build ordered list: canonical order, only those found
-    ordered = [p for p in _OUTPUT_COLUMNS_ORDER if p in found_props]
+    return ",".join(result)
 
-    # If we found nothing, return the 4 required columns as default
-    if not ordered:
-        ordered = _OUTPUT_COLUMNS_ORDER[:4]
 
-    return ",".join(ordered)
+def compute_mapped_rows(header_rows: int) -> int:
+    """Compute mapped_rows for stat_var_processor config.
+
+    In the processor, mapped_rows controls which input rows get row-based
+    PV lookups. Ground truth analysis confirms mapped_rows == header_rows
+    in all datasets where both are set.
+
+    Args:
+        header_rows: Number of header rows in the input CSV.
+
+    Returns:
+        mapped_rows value (minimum 1).
+    """
+    return max(1, header_rows)
 
 
 def count_mapped_rows(pvmap_csv_content: str) -> int:
@@ -136,6 +142,85 @@ def count_mapped_columns(pvmap_csv_content: str) -> int:
     return max_pairs
 
 
+def compute_mapped_columns(
+    pvmap_csv_content: str,
+    input_headers: List[str],
+) -> tuple:
+    """Compute mapped_columns by classifying input columns as dimension vs value.
+
+    Parses PVMAP keys to find COLUMN:VALUE patterns (e.g., "agecat:0"),
+    then identifies which input columns are dimension columns (their cell
+    values are PVMAP keys) vs value columns (their header is a PVMAP key).
+
+    In stat_var_processor, mapped_columns controls which input columns get
+    cell-value PV lookups. It should be the 1-based position of the rightmost
+    dimension column.
+
+    Args:
+        pvmap_csv_content: Raw PVMAP CSV text.
+        input_headers: List of column names from the input CSV.
+
+    Returns:
+        Tuple of (mapped_columns: int, confidence: str).
+        confidence is "high" or "low".
+    """
+    if not pvmap_csv_content or not pvmap_csv_content.strip() or not input_headers:
+        return (0, "low")
+
+    # Build case-insensitive header lookup
+    header_lower = {h.strip().lower() for h in input_headers}
+
+    # Step 1: Parse PVMAP keys — classify as direct or column:value
+    direct_keys = set()
+    column_value_columns = set()  # Column names from COLUMN:VALUE patterns
+
+    reader = csv.reader(io.StringIO(pvmap_csv_content))
+    for row in reader:
+        if not row:
+            continue
+        key = row[0].strip()
+        if not key or key.lower() == "key":
+            continue
+
+        # Check for COLUMN:VALUE pattern
+        if ":" in key:
+            col_part = key.split(":")[0].strip()
+            # It's COLUMN:VALUE if the column part matches an input header
+            # (but the full key does NOT match a header — distinguishes from
+            # "REF_AREA:Reference area" which is a full header name)
+            if col_part.lower() in header_lower and key.lower() not in header_lower:
+                column_value_columns.add(col_part.lower())
+                continue
+
+        direct_keys.add(key)
+
+    # Step 2: Find dimension column positions (1-based)
+    dimension_positions = []
+    for i, h in enumerate(input_headers):
+        if h.strip().lower() in column_value_columns:
+            dimension_positions.append(i + 1)  # 1-based
+
+    if not dimension_positions:
+        return (0, "low")
+
+    dimension_positions.sort()
+    rightmost = max(dimension_positions)
+
+    # Step 3: Confidence scoring
+    # HIGH: at least 1 column:value key found AND dimension columns form
+    #        a reasonable block (not scattered across the entire width)
+    is_contiguous = True
+    if len(dimension_positions) > 1:
+        # Check gap ratio: are dimensions clustered together?
+        span = max(dimension_positions) - min(dimension_positions) + 1
+        if span > len(dimension_positions) * 3:
+            is_contiguous = False
+
+    confidence = "high" if is_contiguous and len(column_value_columns) > 0 else "low"
+
+    return (rightmost, confidence)
+
+
 def detect_multi_value_properties(pvmap_csv_content: str) -> List[str]:
     """Detect properties appearing in rows for multiple different keys.
 
@@ -177,20 +262,23 @@ def detect_multi_value_properties(pvmap_csv_content: str) -> List[str]:
 def detect_header_rows(
     input_file: Optional[str] = None,
     data_context: Optional[dict] = None,
+    pvmap_csv_content: Optional[str] = None,
 ) -> int:
     """Detect number of header rows.
 
-    Uses data_context first if available, then scans input file.
+    Uses data_context first if available, then scans input file using both
+    text-scan and PVMAP cross-reference (taking the maximum of the two).
     Default: 1.
 
     Args:
         input_file: Path to input CSV file.
         data_context: Data context dict from sampling agent.
+        pvmap_csv_content: Optional PVMAP CSV text for cross-reference.
 
     Returns:
         Number of header rows (minimum 1).
     """
-    # 1. Check data_context
+    # 1. Check data_context (trusted source — use directly)
     if data_context:
         hr = data_context.get("header_rows")
         if hr is not None:
@@ -211,19 +299,78 @@ def detect_header_rows(
                     rows.append(row)
 
             if len(rows) >= 2:
-                # Count leading text-only rows
-                header_count = 0
+                # text_scan: count leading text-only rows (minimum 1 if any found)
+                text_scan = 0
                 for row in rows:
                     if _is_text_row(row):
-                        header_count += 1
+                        text_scan += 1
                     else:
                         break
-                if header_count > 0:
-                    return header_count
+                text_scan = max(1, text_scan) if text_scan > 0 else 1
+
+                # pvmap_cross_ref: check input rows against PVMAP keys
+                pvmap_cross_ref = _pvmap_cross_ref_headers(rows, pvmap_csv_content)
+
+                return max(text_scan, pvmap_cross_ref)
         except Exception:
             pass
 
     return 1
+
+
+def _pvmap_cross_ref_headers(
+    input_rows: List[list],
+    pvmap_csv_content: Optional[str],
+) -> int:
+    """Cross-reference input rows against PVMAP keys to count header rows.
+
+    For each of the first 5 input rows, checks if any cells match PVMAP keys
+    (case-insensitive). Stops counting at the first non-matching row.
+
+    Args:
+        input_rows: List of CSV rows (each row is a list of strings).
+        pvmap_csv_content: Raw PVMAP CSV text, or None.
+
+    Returns:
+        Number of header rows detected (0 if no PVMAP or no matches found,
+        otherwise max(1, matched_count)).
+    """
+    if not pvmap_csv_content or not pvmap_csv_content.strip():
+        return 0
+
+    # Collect all PVMAP keys (lowercased)
+    pvmap_keys: set = set()
+    try:
+        reader = csv.reader(io.StringIO(pvmap_csv_content))
+        for row in reader:
+            if not row:
+                continue
+            key = row[0].strip()
+            if not key or key.lower() == "key":
+                continue
+            pvmap_keys.add(key.lower())
+    except Exception:
+        return 0
+
+    if not pvmap_keys:
+        return 0
+
+    # Check each of the first 5 rows — stop at first non-matching row.
+    # Require at least 2 matches OR at least 30% of non-empty cells to match,
+    # to avoid false positives from data values that coincidentally match PVMAP keys.
+    header_count = 0
+    for row in input_rows[:5]:
+        row_cells = {cell.strip().lower() for cell in row if cell.strip()}
+        if not row_cells:
+            break
+        matches = row_cells & pvmap_keys
+        match_ratio = len(matches) / len(row_cells)
+        if len(matches) >= 2 or match_ratio >= 0.3:
+            header_count += 1
+        else:
+            break
+
+    return max(1, header_count) if header_count > 0 else 0
 
 
 def _is_text_row(row: list) -> bool:
@@ -305,76 +452,81 @@ def generate_processor_config(
     pvmap_csv_content: str,
     data_context: Optional[dict] = None,
     input_file: Optional[str] = None,
+    input_headers: Optional[List[str]] = None,
     output_dir: Optional[str] = None,
     existing_metadata_path: Optional[str] = None,
     llm_enrichment: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Main entry: generates config dict and writes CSV.
 
-    Merges deterministic params + optional LLM enrichment + existing metadata.
+    Computes P1 flags: output_columns, header_rows, mapped_rows, mapped_columns.
+    Merges with optional LLM enrichment and existing metadata.
     Priority: existing_metadata > llm_enrichment > deterministic.
 
     Args:
         pvmap_csv_content: Raw PVMAP CSV text.
         data_context: Data context from sampling (optional).
         input_file: Path to input CSV for header detection (optional).
+        input_headers: List of input column names (optional, read from input_file if absent).
         output_dir: Directory to write output_metadata.csv (optional).
         existing_metadata_path: Path to existing metadata CSV (optional).
         llm_enrichment: Dict of LLM-suggested params (optional).
 
     Returns:
-        Dict with keys: success, config_path, parameters, error.
+        Dict with keys: success, config_path, parameters, mapped_columns_confidence, error.
     """
     if not pvmap_csv_content or not pvmap_csv_content.strip():
         return {
             "success": False,
             "config_path": None,
             "parameters": {},
+            "mapped_columns_confidence": None,
             "error": "Empty PVMAP content",
         }
 
     try:
-        # Phase A: Deterministic params
         auto_params: Dict[str, Any] = {}
 
-        output_columns = extract_output_columns(pvmap_csv_content)
-        auto_params["output_columns"] = output_columns
+        # 1. output_columns — required 4 always + optional from PVMAP
+        auto_params["output_columns"] = extract_output_columns(pvmap_csv_content)
 
-        header_rows = detect_header_rows(input_file, data_context)
+        # 2. header_rows — text scan + PVMAP cross-reference
+        header_rows = detect_header_rows(input_file, data_context, pvmap_csv_content)
         auto_params["header_rows"] = header_rows
 
-        mapped_rows = count_mapped_rows(pvmap_csv_content)
-        auto_params["mapped_rows"] = mapped_rows
+        # 3 & 4. mapped_rows + mapped_columns — PVMAP key analysis + confidence
+        # CRITICAL: When confidence is LOW (can't classify dimension columns),
+        # we OMIT both mapped_rows and mapped_columns. This lets the processor
+        # use its defaults (0 and []) which triggers the "allow all lookups"
+        # fallback at stat_var_processor.py:2065. Setting mapped_rows=1 with
+        # mapped_columns=0 would BLOCK dimension column lookups.
+        if not input_headers and input_file and Path(input_file).exists():
+            try:
+                with open(input_file, "r", encoding="utf-8", errors="replace") as f:
+                    reader = csv.reader(f)
+                    input_headers = next(reader, [])
+            except Exception:
+                input_headers = []
 
-        mapped_columns = count_mapped_columns(pvmap_csv_content)
-        auto_params["mapped_columns"] = mapped_columns
+        mapped_cols, confidence = compute_mapped_columns(
+            pvmap_csv_content, input_headers or []
+        )
 
-        # Detect multi-value properties
-        multi_val = detect_multi_value_properties(pvmap_csv_content)
-        if multi_val:
-            # Combine with defaults
-            defaults = ["name", "alternateName", "measurementDenominator"]
-            combined = defaults + [p for p in multi_val if p not in defaults]
-            auto_params["multi_value_properties"] = ",".join(combined)
-
-        # Detect number format
-        if data_context and data_context.get("number_decimal"):
-            auto_params["number_decimal"] = data_context["number_decimal"]
-
-        # Default processing params
-        auto_params["drop_statvars_without_svobs"] = 1
-        auto_params["generate_statvar_name"] = "True"
-
-        # Phase B: Merge LLM enrichment (if provided)
+        # LLM enrichment can override mapped_columns
         if llm_enrichment and isinstance(llm_enrichment, dict):
-            for key in ["schemaless", "drop_statvars_without_svobs", "description"]:
-                if key in llm_enrichment:
-                    auto_params[key] = llm_enrichment[key]
+            if "mapped_columns" in llm_enrichment:
+                mapped_cols = llm_enrichment["mapped_columns"]
+                confidence = "high"  # LLM provided explicit value
 
-        # Phase C: Merge with existing metadata (existing wins)
+        # Only set mapped_rows/mapped_columns when we're confident
+        if confidence == "high" and mapped_cols > 0:
+            auto_params["mapped_rows"] = compute_mapped_rows(header_rows)
+            auto_params["mapped_columns"] = mapped_cols
+
+        # Merge with existing metadata (existing wins)
         final_params = merge_with_existing(auto_params, existing_metadata_path)
 
-        # Write to file if output_dir specified
+        # Write to file
         config_path = None
         if output_dir:
             config_path = write_config_csv(
@@ -385,6 +537,7 @@ def generate_processor_config(
             "success": True,
             "config_path": config_path,
             "parameters": final_params,
+            "mapped_columns_confidence": confidence,
             "error": None,
         }
 
@@ -394,5 +547,6 @@ def generate_processor_config(
             "success": False,
             "config_path": None,
             "parameters": {},
+            "mapped_columns_confidence": None,
             "error": str(e),
         }

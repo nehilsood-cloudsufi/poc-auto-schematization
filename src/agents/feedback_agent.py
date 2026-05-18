@@ -35,9 +35,10 @@ FEEDBACK_AGENT_INSTRUCTION = load_prompt("feedback_agent.txt")
 
 
 def create_feedback_agent(
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
     name: str = "FeedbackAgent",
     thinking_level: Optional[str] = None,
+    prompt_version: str = "v1",
 ) -> LlmAgent:
     """
     Create unified feedback agent for error/quality analysis between retry attempts.
@@ -70,19 +71,23 @@ def create_feedback_agent(
         - validation_statvar_analysis: str - StatVar analysis from MCF output
 
     State Outputs (written via output_key):
-        - error_feedback: str - Actionable feedback for next attempt
+        - auto_feedback_raw: str - Raw feedback, parsed into ledger by StatePrep
     """
     # Get model from environment override if available
     model = os.getenv("FEEDBACK_AGENT_MODEL", model)
-    logger.info("Creating FeedbackAgent: model=%s", model)
+    logger.info("Creating FeedbackAgent: model=%s, prompt_version=%s", model, prompt_version)
+
+    # Load the correct prompt template based on version
+    template_name = f"feedback_agent{'_v2' if prompt_version == 'v2' else ''}.txt"
+    instruction = load_prompt(template_name)
 
     from google.genai import types
 
     kwargs = dict(
         name=name,
         model=create_resilient_model(model),
-        instruction=FEEDBACK_AGENT_INSTRUCTION,
-        output_key="error_feedback",  # Generator reads this on retry
+        instruction=instruction,
+        output_key="auto_feedback_raw",  # Parsed into ledger by StatePrep
         include_contents="none",  # Prevent conversation history accumulation across loop iterations
         # Schema.org tools removed: feedback agent only needs to analyze errors
         # and produce concise guidance. The Generator has these tools for PVMAP creation.

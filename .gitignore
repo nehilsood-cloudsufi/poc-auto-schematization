@@ -237,3 +237,20 @@ http_cache.sqlite
 ui_output/
 ui_runs/
 src/resources/schema_org/schemaorg_full.jsonld
+
+# Claude Code local files (persist across branches, not tracked)
+.claude/rules/
+.claude/*.lock
+CLAUDE.md
+docs/superpowers/
+.worktrees/
+output_test_cleanup/
+feedback/
+.superpowers
+
+# Frontend (React + Vite)
+frontend/node_modules/
+frontend/dist/
+# Un-ignore frontend/src/lib/ (root .gitignore has lib/ pattern for Python venvs)
+!frontend/src/lib/
+!frontend/src/lib/**

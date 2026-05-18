@@ -6,9 +6,7 @@ Modules:
 - sampling_interface: Agentic sampling interface (RECOMMENDED)
 - column_analyzer: Column classification and analysis
 - data_context: DataContext generation for understanding dataset structure
-- dimension_detector: Dimension column detection using heuristics
 - combination_tracker: Track dimension combination coverage
-- skeleton_sampler: Fixed-Pivot strategic sampling
 
 Usage:
     from src.pipeline.sampling.sampling_interface import sample_dataset, SamplingResult
@@ -30,11 +28,9 @@ __all__ = [
     # Agentic interface
     'SamplingResult',
     'sample_dataset',
-    # Module names for backward compatibility
+    # Submodules
     'column_analyzer',
     'data_context',
-    'dimension_detector',
     'combination_tracker',
-    'skeleton_sampler',
     'sampling_interface',
 ]

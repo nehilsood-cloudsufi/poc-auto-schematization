@@ -15,6 +15,7 @@ MCP Integration:
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -27,7 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from google.adk.agents import SequentialAgent
 
 from src.agents.discovery_agent import DiscoveryAgent
-from src.agents.sampling_agent import create_sampling_agent
+from src.agents.sampling_agent import ProgrammaticSamplingAgent
 from src.agents.schema_selection_agent import create_schema_selection_agent
 from src.agents.pvmap_retry_loop import create_pvmap_retry_loop
 from src.agents.evaluation_agent import EvaluationAgent
@@ -37,20 +38,22 @@ logger = logging.getLogger(__name__)
 
 def create_pipeline_coordinator(
     name: str = "PipelineCoordinator",
-    max_retries: int = 2,
-    model: str = "gemini-3-pro-preview",
+    max_retries: int = 2,  # DEPRECATED: tiered correction pipeline always runs max 3 validation passes
+    model: str = None,
     enable_mcp: bool = False,
     mcp_url: Optional[str] = None
 ) -> SequentialAgent:
     """
     Create pipeline coordinator using SequentialAgent.
 
-    The coordinator orchestrates all pipeline phases in sequence:
+    The coordinator orchestrates all pipeline phases in sequence using a
+    tiered correction architecture:
     1. Discovery - Scan input directory for datasets
     2. Sampling - Create representative data samples
     3. Schema Selection - Choose appropriate schema category
     3.5. (Optional) DC Query - Pre-generation StatVar discovery via MCP
-    4. PVMAP Generation - Generate and validate PVMAP with retry loop
+    4. PVMAP Generation - Generate and validate PVMAP with tiered retry loop
+       (always performs up to 3 validation passes: generate → repair → validate → feedback)
     5. Evaluation - Compare against ground truth
 
     Each agent checks its own skip flags in ctx.session.state:
@@ -62,8 +65,10 @@ def create_pipeline_coordinator(
 
     Args:
         name: Coordinator name (default: "PipelineCoordinator")
-        max_retries: Max retries for PVMAP generation (default: 2, for 3 total attempts)
-        model: Gemini model to use for LLM agents (default: "gemini-3-pro-preview")
+        max_retries: DEPRECATED. Accepted for backward compatibility but logged as deprecated
+            inside create_pvmap_retry_loop(). The tiered pipeline always performs up to 3
+            validation passes regardless of this value.
+        model: Gemini model to use for LLM agents (default: "gemini-3.1-pro-preview")
         enable_mcp: Enable MCP integration for StatVar discovery (default: False)
         mcp_url: MCP server URL (default: None, uses "http://localhost:3000/mcp" if enable_mcp=True)
 
@@ -96,9 +101,11 @@ def create_pipeline_coordinator(
         ```
     """
 
+    model = model or os.getenv("PIPELINE_MODEL", "gemini-3.1-pro-preview")
+
     # Create individual agents
     discovery = DiscoveryAgent(name="DiscoveryAgent")
-    sampling = create_sampling_agent(name="SamplingAgent", model=model)
+    sampling = ProgrammaticSamplingAgent(name="SamplingAgent", model=model)
     schema_selection = create_schema_selection_agent(name="SchemaSelectionAgent", model=model)
 
     # Build sub_agents list
@@ -142,6 +149,3 @@ def create_pipeline_coordinator(
 
     return coordinator
 
-
-# Alias for backward compatibility
-PipelineCoordinator = create_pipeline_coordinator

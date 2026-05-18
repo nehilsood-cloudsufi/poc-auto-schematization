@@ -2,14 +2,17 @@
 
 Hybrid approach:
 - Phase A (deterministic): Extract output_columns, header_rows, mapped_rows,
-  mapped_columns from PVMAP CSV and data_context. Always runs. No LLM cost.
-- Phase B (LLM-assisted): Optionally call an inner LlmAgent to analyze PVMAP +
-  data_context and suggest contextual params: schemaless flag, description, etc.
-  Only runs on first attempt (attempt_number == 0) to avoid repeated LLM costs.
+  mapped_columns from PVMAP CSV, data_context, and input headers. Always runs.
+  No LLM cost.
+- Phase B (LLM-assisted): Only when mapped_columns_confidence == "low" on first
+  attempt. LLM classifies input columns as DIMENSION vs VALUE to refine
+  mapped_columns. Fires at most once per pipeline run.
 
 Runs AFTER PVMAPGeneratorAgent, BEFORE ValidationAgent in the retry loop.
 """
 
+import csv
+import io
 import json
 import logging
 import os
@@ -31,9 +34,7 @@ from src.agents.prompt_loader import load_prompt
 from src.agents.retry_config import create_resilient_model
 from src.agents.pvmap_generation.helpers import convert_pvmap_output_to_csv
 from src.agents.pvmap_generation.schemas import PVMAPOutput, PVMAPRow, PropertyValuePair
-from src.agents.template_utils import escape_pvmap_placeholders
 from src.tools.metadata_tools import generate_processor_config
-from src.tools.schemaorg_tools import validate_pvmap_property
 
 logger = logging.getLogger(__name__)
 
@@ -41,21 +42,18 @@ _ENRICHMENT_INSTRUCTION = load_prompt("metadata_enrichment.txt")
 
 
 def _create_enrichment_agent(model: str) -> LlmAgent:
-    """Create inner LlmAgent for contextual metadata enrichment.
+    """Create inner LlmAgent for mapped_columns refinement.
 
-    This agent analyzes the PVMAP and data to suggest optional params:
-    - schemaless: Whether StatVars use non-standard property names
-    - description: Auto-generated dataset description
-    - drop_statvars_without_svobs: Whether to filter empty observations
+    This agent classifies input columns as DIMENSION vs VALUE to determine
+    mapped_columns when deterministic analysis has low confidence.
 
-    Returns output_key='metadata_enrichment' as JSON string.
+    Returns output_key='metadata_enrichment' as JSON string with mapped_columns.
     """
     return LlmAgent(
         name="MetadataEnricher",
         model=create_resilient_model(model),
         instruction=_ENRICHMENT_INSTRUCTION,
         output_key="metadata_enrichment",
-        tools=[validate_pvmap_property],  # Check if properties are standard schema.org
     )
 
 
@@ -102,11 +100,10 @@ class MetadataGenerationAgent(BaseAgent):
     ) -> AsyncGenerator[Event, None]:
         """Generate stat_var_processor config from PVMAP and data context."""
 
-        # Step 1: Check prerequisites - get PVMAP CSV from either source
+        # Step 1: Check prerequisites
         pvmap_csv = ctx.session.state.get("pvmap_csv")
         current_dataset = ctx.session.state.get("current_dataset")
 
-        # If pvmap_csv not yet set (first attempt), convert from pvmap_output
         if not pvmap_csv:
             pvmap_output = ctx.session.state.get("pvmap_output")
             if pvmap_output:
@@ -137,62 +134,71 @@ class MetadataGenerationAgent(BaseAgent):
             ),
         )
 
-        # Step 2: Resolve existing metadata (GT > user > None)
+        # Step 2: Resolve existing metadata
         existing_metadata = self._resolve_existing_metadata(current_dataset)
 
-        # Step 3: Get input file for header detection
+        # Step 3: Get input file and headers
         input_file = None
+        input_headers = []
         if current_dataset.input_data_files:
             input_file = str(current_dataset.input_data_files[0])
+            input_headers = self._read_input_headers(input_file)
 
-        # Step 4: Phase A — Deterministic config generation (always)
+        # Step 4: Phase A — Deterministic config generation
         data_context = ctx.session.state.get("data_context", {})
 
-        # Step 5: Phase B — LLM enrichment (first attempt only)
-        llm_enrichment = None
-        attempt_number = ctx.session.state.get("attempt_number", 0)
-
-        if attempt_number == 0 and self.enrichment_agent:
-            try:
-                # Ensure state has defaults for enrichment instruction templating
-                ctx.session.state.setdefault("skeleton_summary", "")
-                # Use dedicated key for LLM templating, leave original dict untouched
-                ctx.session.state["data_context_str"] = str(data_context)
-                # Escape PVMAP placeholders ({Data}, {Number}) so ADK doesn't
-                # try to resolve them as state variables
-                ctx.session.state["pvmap_csv"] = escape_pvmap_placeholders(pvmap_csv)
-
-                async for event in self.enrichment_agent.run_async(ctx):
-                    yield event
-
-                # Parse LLM output from state
-                enrichment_str = ctx.session.state.get("metadata_enrichment", "")
-                if enrichment_str:
-                    # Strip markdown code fences if present
-                    clean = enrichment_str.strip()
-                    if clean.startswith("```"):
-                        lines = clean.split("\n")
-                        lines = lines[1:]  # Remove opening fence
-                        if lines and lines[-1].strip() == "```":
-                            lines = lines[:-1]
-                        clean = "\n".join(lines)
-                    llm_enrichment = json.loads(clean)
-                    logger.info(f"LLM enrichment: {llm_enrichment}")
-
-            except Exception as e:
-                logger.warning(f"LLM enrichment failed (non-fatal): {e}")
-
-        # Step 6: Generate final config
         result = generate_processor_config(
             pvmap_csv_content=pvmap_csv,
             data_context=data_context if isinstance(data_context, dict) else {},
             input_file=input_file,
+            input_headers=input_headers,
             output_dir=str(current_dataset.output_dir),
             existing_metadata_path=existing_metadata,
-            llm_enrichment=llm_enrichment,
         )
 
-        # Step 7: Update state
+        # Step 5: Phase B — LLM refinement for mapped_columns (first attempt, low confidence only)
+        attempt_number = ctx.session.state.get("attempt_number", 0)
+        confidence = result.get("mapped_columns_confidence", "high")
+
+        if attempt_number == 0 and confidence == "low" and self.enrichment_agent:
+            try:
+                # Prepare state for LLM prompt templating
+                ctx.session.state["input_headers"] = str(input_headers)
+                direct_keys, cv_keys = self._parse_pvmap_key_types(pvmap_csv)
+                ctx.session.state["direct_keys_list"] = str(sorted(direct_keys)[:30])
+                ctx.session.state["column_value_keys_list"] = str(sorted(cv_keys)[:30])
+                ctx.session.state["sample_rows"] = self._read_sample_rows(input_file, 3)
+
+                async for event in self.enrichment_agent.run_async(ctx):
+                    yield event
+
+                # Parse LLM output
+                enrichment_str = ctx.session.state.get("metadata_enrichment", "")
+                if enrichment_str:
+                    clean = enrichment_str.strip()
+                    if clean.startswith("```"):
+                        lines = clean.split("\n")
+                        lines = lines[1:]
+                        if lines and lines[-1].strip() == "```":
+                            lines = lines[:-1]
+                        clean = "\n".join(lines)
+                    llm_result = json.loads(clean)
+                    if "mapped_columns" in llm_result:
+                        result = generate_processor_config(
+                            pvmap_csv_content=pvmap_csv,
+                            data_context=data_context if isinstance(data_context, dict) else {},
+                            input_file=input_file,
+                            input_headers=input_headers,
+                            output_dir=str(current_dataset.output_dir),
+                            existing_metadata_path=existing_metadata,
+                            llm_enrichment=llm_result,
+                        )
+                        logger.info(f"LLM mapped_columns refinement: {llm_result}")
+
+            except Exception as e:
+                logger.warning(f"LLM enrichment failed (non-fatal): {e}")
+
+        # Step 6: Update state
         if result.get("success"):
             ctx.session.state["generated_config_path"] = result["config_path"]
             ctx.session.state["generated_config_params"] = result["parameters"]
@@ -206,6 +212,7 @@ class MetadataGenerationAgent(BaseAgent):
                             text=(
                                 f"Config generated: output_columns={params.get('output_columns', 'N/A')}, "
                                 f"mapped_rows={params.get('mapped_rows', 'N/A')}, "
+                                f"mapped_columns={params.get('mapped_columns', 'N/A')}, "
                                 f"header_rows={params.get('header_rows', 'N/A')}"
                             )
                         )
@@ -277,6 +284,53 @@ class MetadataGenerationAgent(BaseAgent):
 
         # Tier 3: None
         return None
+
+    def _read_input_headers(self, input_file: str) -> list:
+        """Read column headers from input CSV file."""
+        try:
+            with open(input_file, "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                return next(reader, [])
+        except Exception as e:
+            logger.warning(f"Failed to read input headers: {e}")
+            return []
+
+    def _read_sample_rows(self, input_file: Optional[str], n: int = 3) -> str:
+        """Read first N data rows from input CSV as string for LLM context."""
+        if not input_file:
+            return ""
+        try:
+            with open(input_file, "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Skip header
+                rows = []
+                for i, row in enumerate(reader):
+                    if i >= n:
+                        break
+                    rows.append(",".join(row[:10]))  # Truncate wide rows
+                return "\n".join(rows)
+        except Exception:
+            return ""
+
+    def _parse_pvmap_key_types(self, pvmap_csv: str) -> tuple:
+        """Parse PVMAP keys into direct keys and column:value keys."""
+        direct_keys = set()
+        cv_keys = set()
+        try:
+            reader = csv.reader(io.StringIO(pvmap_csv))
+            for row in reader:
+                if not row:
+                    continue
+                key = row[0].strip()
+                if not key or key.lower() == "key":
+                    continue
+                if ":" in key:
+                    cv_keys.add(key)
+                else:
+                    direct_keys.add(key)
+        except Exception:
+            pass
+        return direct_keys, cv_keys
 
 
 # ============================================================================

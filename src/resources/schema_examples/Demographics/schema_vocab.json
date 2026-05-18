@@ -232,5 +232,63 @@
       "residenceType",
       "veteranStatus"
     ]
-  }
+  },
+  "statvar_examples": [
+    {
+      "dcid": "Count_Person_90Years_Female_HispanicOrLatino_WhiteAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "race": "dcs:HispanicOrLatino__WhiteAloneOrInCombinationWithOneOrMoreOtherRaces",
+      "gender": "dcs:Female",
+      "age": "dcs:Years90"
+    },
+    {
+      "dcid": "MarginOfError_Count_Person_NotAUSCitizen_DateOfEntry2000OrEarlier_ForeignBorn_PlaceOfBirthSouthernEasternEurope",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "nativity": "dcs:USC_ForeignBorn",
+      "citizenship": "dcs:NotAUSCitizen",
+      "dateOfEntry": "dcs:DateUpto2000",
+      "placeOfBirth": "dcs:SouthernEasternEurope"
+    },
+    {
+      "dcid": "Count_Person_ForeignBorn_PlaceOfBirthAsia_NativeHawaiianOrOtherPacificIslanderAlone",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "race": "dcs:NativeHawaiianOrOtherPacificIslanderAlone",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:asia"
+    },
+    {
+      "dcid": "Count_Person_15Years_Male_HispanicOrLatino_AsianOrPacificIslander",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "race": "dcs:HispanicOrLatino__AsianOrPacificIslander",
+      "gender": "dcs:Male",
+      "age": "dcs:Years15"
+    },
+    {
+      "dcid": "MarginOfError_Count_Person_IncomeOf65000To74999USDollar_DifferentHouseInDifferentCountyDifferentState",
+      "populationType": "dcs:Person",
+      "measuredProperty": "dcs:count",
+      "income": "dcs:USDollar65000To74999",
+      "incomeStatus": "dcs:WithIncome",
+      "age": "dcs:Years15Onwards",
+      "residentStatus": "dcs:DifferentHouseInDifferentCountyDifferentState"
+    },
+    {
+      "dcid": "Mean_HouseholdSize_Household_ForeignBorn_PlaceOfBirthSouthernEasternEurope",
+      "populationType": "dcs:Household",
+      "measuredProperty": "dcs:householdSize",
+      "nativity": "dcs:USC_ForeignBorn",
+      "placeOfBirth": "dcs:SouthernEasternEurope"
+    },
+    {
+      "dcid": "Count_Household_FamilyHousehold_With1Worker",
+      "populationType": "dcs:Household",
+      "measuredProperty": "dcs:count",
+      "householdType": "dcs:FamilyHousehold",
+      "householdWorkerSize": "dcs:Worker1"
+    }
+  ]
 }

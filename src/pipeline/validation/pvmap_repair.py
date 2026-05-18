@@ -34,7 +34,7 @@ def load_input_headers(input_data_path: Path) -> List[str]:
         List of column header strings, preserving exact case and whitespace.
     """
     try:
-        with open(input_data_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(input_data_path, 'r', encoding='utf-8-sig', errors='replace') as f:
             reader = csv.reader(f)
             headers = next(reader, [])
             # Strip whitespace and normalize embedded newlines (multi-line quoted headers)
@@ -216,19 +216,51 @@ def _clean_hallucinated_key(
     return key
 
 
+def _has_numeric_difference(s1: str, s2: str) -> bool:
+    """Check if two strings differ ONLY in their numeric segments.
+
+    Returns True if the non-numeric skeleton is identical but numbers differ.
+    This prevents matching 'Age 15-19' to 'Age 15-29'.
+    """
+    nums1 = re.findall(r'\d+', s1)
+    nums2 = re.findall(r'\d+', s2)
+    skel1 = re.sub(r'\d+', '', s1).strip()
+    skel2 = re.sub(r'\d+', '', s2).strip()
+    if skel1.lower() == skel2.lower() and nums1 != nums2:
+        return True
+    return False
+
+
+def _token_set_match(key: str, headers: List[str]) -> Optional[str]:
+    """Token-set-ratio matching: permutation-invariant word matching.
+
+    Tokenizes by non-alphanumeric splits, compares sorted token sets.
+    """
+    key_tokens = set(re.split(r'[^a-zA-Z0-9]+', key.lower()))
+    key_tokens.discard('')
+    if not key_tokens:
+        return None
+    for header in headers:
+        header_tokens = set(re.split(r'[^a-zA-Z0-9]+', header.lower()))
+        header_tokens.discard('')
+        if key_tokens == header_tokens:
+            return header
+    return None
+
+
 def match_key_to_header(
     key: str,
     key_index: Dict[str, str],
     headers: List[str],
 ) -> Optional[str]:
-    """Cascading match of a PVMAP key to an actual column header.
+    """Normalization-first key matching cascade with numeric safety guard.
 
     Match order:
-    1. Exact match
-    2. Case-insensitive match
-    3. Stripped whitespace match
-    4. Alphanumeric-only match
-    5. Fuzzy match (difflib, cutoff=0.85)
+    1. Exact match -> None (already correct)
+    2. Case-insensitive via key_index
+    3. Alphanumeric-only via key_index
+    4. Token-set-ratio (permutation-invariant)
+    5. Fuzzy match (difflib) WITH numeric guard
 
     For COLUMN:VALUE syntax, matches only the COLUMN portion.
 
@@ -258,22 +290,30 @@ def match_key_to_header(
         if matched != column_part:
             return matched
 
-    # 3. Stripped whitespace (already handled by lower match above)
-
-    # 4. Alphanumeric-only match
+    # 3. Alphanumeric-only match
     key_alnum = re.sub(r'[^a-z0-9]', '', key_lower)
     if key_alnum and key_alnum in key_index:
         matched = key_index[key_alnum]
         if matched != column_part:
             return matched
 
-    # 5. Fuzzy match (use appropriate cutoff based on key length)
+    # 4. Token-set-ratio (permutation-invariant)
+    token_match = _token_set_match(column_part, headers)
+    if token_match and token_match != column_part:
+        return token_match
+
+    # 5. Fuzzy match WITH numeric guard
     cutoff = 0.80 if len(column_part) > 15 else 0.85
-    matches = difflib.get_close_matches(
-        column_part, headers, n=1, cutoff=cutoff
-    )
+    matches = difflib.get_close_matches(column_part, headers, n=1, cutoff=cutoff)
     if matches and matches[0] != column_part:
-        return matches[0]
+        candidate = matches[0]
+        if _has_numeric_difference(column_part, candidate):
+            logger.debug(
+                "Rejecting fuzzy match %r -> %r (numeric difference)",
+                column_part, candidate,
+            )
+            return None
+        return candidate
 
     return None
 
@@ -439,6 +479,73 @@ def _resolve_ignore_conflicts(pvmap_csv: str, headers: List[str]) -> Tuple[str, 
     return '\n'.join(resolved_lines), changes
 
 
+def strip_ignore_rows(pvmap_csv: str) -> Tuple[str, List[str]]:
+    """Remove all #ignore rows from PVMAP CSV.
+    Columns not in the PVMAP are automatically skipped by stat_var_processor.
+    """
+    changes = []
+    lines = pvmap_csv.strip().splitlines()
+    kept = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            reader = csv.reader(io.StringIO(stripped))
+            parts = next(reader, [])
+        except Exception:
+            kept.append(line)
+            continue
+        if len(parts) >= 2 and parts[1].strip().lower() == "#ignore":
+            changes.append(f"Removed #ignore for column '{parts[0].strip()}'")
+            continue
+        kept.append(line)
+    return "\n".join(kept), changes
+
+
+def _fix_date_placeholder(pvmap_csv: str) -> Tuple[str, List[str]]:
+    """Fix observationDate rows that incorrectly use {Data} instead of {Number}.
+
+    The stat_var_processor requires {Number} for numeric date values (years).
+    LLMs frequently emit {Data} for date columns, which causes validation failures.
+
+    Args:
+        pvmap_csv: The PVMAP CSV string.
+
+    Returns:
+        Tuple of (fixed_csv, changes_list).
+    """
+    changes: List[str] = []
+    lines = pvmap_csv.splitlines()
+    fixed_lines = []
+    for line in lines:
+        try:
+            reader = csv.reader(io.StringIO(line))
+            row = next(reader, [])
+        except Exception:
+            fixed_lines.append(line)
+            continue
+
+        if len(row) >= 3:
+            prop = row[1].strip()
+            val = row[2].strip()
+            if prop == "observationDate" and val == "{Data}":
+                row[2] = "{Number}"
+                changes.append(
+                    f"Fixed observationDate placeholder: {{Data}} -> {{Number}} "
+                    f"for key '{row[0].strip()}'"
+                )
+                output = io.StringIO()
+                writer = csv.writer(output, lineterminator='')
+                writer.writerow(row)
+                fixed_lines.append(output.getvalue())
+                continue
+
+        fixed_lines.append(line)
+
+    return "\n".join(fixed_lines), changes
+
+
 def repair_pvmap(
     pvmap_csv: str,
     input_data_path: Path,
@@ -461,9 +568,17 @@ def repair_pvmap(
     if not pvmap_csv or not pvmap_csv.strip():
         return pvmap_csv, []
 
+    all_changes: List[str] = []
+
+    # Fix date placeholder: observationDate should use {Number} not {Data}
+    # (numeric year values like 2020 need {Number} for stat_var_processor)
+    pvmap_csv, date_changes = _fix_date_placeholder(pvmap_csv)
+    all_changes.extend(date_changes)
+
     headers = load_input_headers(input_data_path)
     if not headers:
-        return pvmap_csv, ["WARNING: Could not read input headers for repair"]
+        all_changes.append("WARNING: Could not read input headers for repair")
+        return pvmap_csv, all_changes
 
     headers_set = set(headers)
     key_index = build_key_index(headers)
@@ -564,12 +679,14 @@ def repair_pvmap(
     repaired_csv, ignore_changes = _resolve_ignore_conflicts(repaired_csv, headers)
     changes.extend(ignore_changes)
 
-    if changes:
-        logger.info(f"PVMAP repair applied {len(changes)} fixes")
-        for c in changes[:10]:
+    all_changes.extend(changes)
+
+    if all_changes:
+        logger.info(f"PVMAP repair applied {len(all_changes)} fixes")
+        for c in all_changes[:10]:
             logger.info(f"  {c}")
 
-    return repaired_csv, changes
+    return repaired_csv, all_changes
 
 
 def generate_key_match_report(
@@ -863,7 +980,7 @@ def pre_validate_pvmap(
     - Has observationAbout mapping
     - Has observationDate mapping
     - Has value or {Number} mapping
-    - >=50% of keys match actual headers
+    - >=30% of keys match actual headers
     - No placeholder keys (p2, v2, FIXME)
 
     Args:

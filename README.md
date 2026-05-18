@@ -234,6 +234,35 @@ poc-auto-schematization/
 
 ---
 
+## SDMX Mode (optional)
+
+Set when ingesting an **SDMX 2.1** dataset. The pipeline uses the DSD (Data Structure Definition) as authoritative context instead of re-inferring structure from the CSV.
+
+### How to enable
+
+- **Dashboard:** On the Upload step, switch the "Dataset Type" toggle to "SDMX" and attach the structure XML (downloaded with `references=all`) alongside the CSV.
+- **API:** `POST /api/upload` with `sdmx_mode=true` + an `sdmx_metadata_xml` multipart field, or drop `input_metadata.xml` into the run's input directory and the pipeline auto-detects it.
+- **Library:** `run_dataset_pipeline(..., sdmx_mode=True, sdmx_metadata_xml_path=...)`.
+
+### What changes
+
+| Stage | Normal mode | SDMX mode |
+|---|---|---|
+| Schema selection | Classifies into one of 7 DC categories | **Skipped** — SDMX has its own concept schemes |
+| Skeleton | Derived from `data_context` (column roles, sample-inferred) | Derived from DSD (dimensions/attributes/measures + codelists) |
+| Prompt | `improved_pvmap_prompt_v3.txt` | `improved_pvmap_prompt_sdmx_v1.txt` (trusts DSD; skips archetype classification) |
+| Mapping plan | `mapping_plan_prompt_v2.txt` with Phase A analysis | `mapping_plan_prompt_sdmx_v1.txt` primed with the DSD |
+| Sampling | ~100 rows | ~100 rows (unchanged — codelists cover enumeration separately) |
+
+### Key files
+
+- `src/tools/sdmx_metadata_extractor.py` — parses SDMX-ML 2.1 → simplified JSON (compatible with DC's `agentic_import` extractor schema, Apache 2.0).
+- `src/agents/sdmx_context.py` — renders the JSON into the `{{SDMX_STRUCTURE}}` prompt block and a deterministic PVMAP skeleton.
+- `src/resources/prompts/improved_pvmap_prompt_sdmx_v1.txt` — SDMX PVMAP generator prompt.
+- `src/resources/prompts/mapping_plan_prompt_sdmx_v1.txt` — SDMX mapping plan prompt.
+
+---
+
 ## Schema Selection (Phase 1.5)
 
 The pipeline includes **automated schema selection** that intelligently analyzes your dataset and selects the most appropriate schema category from 7 predefined options.
